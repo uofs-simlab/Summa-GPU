@@ -1,0 +1,589 @@
+! SUMMA - Structure for Unifying Multiple Modeling Alternatives
+! Copyright (C) 2014-2020 NCAR/RAL; University of Saskatchewan; University of Washington
+!
+! This file is part of SUMMA
+!
+! For more information see: http://www.ral.ucar.edu/projects/summa
+!
+! This program is free software: you can redistribute it and/or modify
+! it under the terms of the GNU General Public License as published by
+! the Free Software Foundation, either version 3 of the License, or
+! (at your option) any later version.
+!
+! This program is distributed in the hope that it will be useful,
+! but WITHOUT ANY WARRANTY; without even the implied warranty of
+! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+! GNU General Public License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+module var_derive_module
+
+! data types
+USE nrtype
+
+! derived types to define the data structures
+USE data_types,only:var_ilength    ! x%var(:)%dat (i4b)
+USE data_types,only:var_dlength    ! x%var(:)%dat (rkind)
+! named variables for snow and soil
+USE globalData,only:iname_snow     ! named variables for snow
+USE globalData,only:iname_soil     ! named variables for soil
+! named variables
+USE globalData,only:data_step      ! time step of forcing data
+! named variables
+USE var_lookup,only:iLookPARAM,iLookINDEX,iLookPROG,iLookDIAG,iLookFLUX        ! HRU: named variables for structure elements
+USE var_lookup,only:iLookBVAR,iLookBPAR                                        ! GRU: named variables for structure elements
+! model decision structures
+USE globalData,only:model_decisions        ! model decision structure
+USE var_lookup,only:iLookDECISIONS         ! named variables for elements of the decision structure
+
+! look-up values for the choice of the rooting profile
+USE mDecisions_module,only: &
+ powerLaw,                   & ! simple power-law rooting profile
+ doubleExp                     ! the double exponential function of Xeng et al. (JHM 2001)
+
+! look-up values for the choice of groundwater parameterization
+USE mDecisions_module,only: &
+ bigBucket,                 & ! a big bucket (lumped aquifer model)
+ noExplicit                   ! no explicit groundwater parameterization
+
+! look-up values for the choice of groundwater parameterization
+USE mDecisions_module,only: &
+ constant,                  & ! constant hydraulic conductivity with depth
+ powerLaw_profile             ! power-law profile
+
+! look-up values for the sub-grid routing method
+USE mDecisions_module,only: &
+ timeDelay,                 & ! time-delay histogram
+ qInstant                     ! instantaneous routing
+
+! privacy
+implicit none
+private
+public::calcHeight,calcHeight_d
+public::rootDensty
+public::satHydCond
+public::fracFuture
+public::v_shortcut
+contains
+
+
+ ! **********************************************************************************************************
+ ! public subroutine calcHeight: compute snow height
+ ! **********************************************************************************************************
+ subroutine calcHeight(&
+                       ! input/output: data structures
+                       indx_data,   & ! intent(in): layer type
+                       prog_data,   & ! intent(inout): model variables for a local HRU
+                       ! output: error control
+                       err,message)
+ implicit none
+ ! ----------------------------------------------------------------------------------
+ ! dummy variables
+ ! input/output: data structures
+ type(var_ilength),intent(in)       :: indx_data      ! type of model layer
+ type(var_dlength),intent(inout)    :: prog_data      ! model variables for a local HRU
+ ! output: error control
+ integer(i4b),intent(out)           :: err            ! error code
+ character(*),intent(out)           :: message        ! error message
+ ! local variables
+ integer(i4b)                       :: iLayer         ! loop through layers
+ integer(i4b)                       :: ixLower(1)     ! index of the lower bound
+ ! ----------------------------------------------------------------------------------
+ ! initialize error control
+ err=0; message='calcHeight/'
+ ! ----------------------------------------------------------------------------------
+ ! associate variables in data structure
+ associate(&
+ ! associate the model index structures
+ nLayers        => indx_data%var(iLookINDEX%nLayers)%dat(1),  &   ! total number of layers
+ layerType      => indx_data%var(iLookINDEX%layerType)%dat,   &   ! layer type (iname_soil or iname_snow)
+ ! associate the values in the model variable structures
+ mLayerDepth    => prog_data%var(iLookPROG%mLayerDepth)%dat,  &   ! depth of the layer (m)
+ mLayerHeight   => prog_data%var(iLookPROG%mLayerHeight)%dat, &   ! height of the layer mid-point (m)
+ iLayerHeight   => prog_data%var(iLookPROG%iLayerHeight)%dat  &   ! height of the layer interface (m)
+ ) ! end associate
+ ! ----------------------------------------------------------------------------------
+
+ ! initialize layer height as the top of the snowpack -- positive downward
+ ixLower=lbound(iLayerHeight); if(ixLower(1) > 0)then; err=20; message=trim(message)//'unexpected lower bound for iLayerHeight'; return; endif
+ iLayerHeight(0) = -sum(mLayerDepth, mask=layerType==iname_snow)
+
+ ! loop through layers
+ do iLayer=1,nLayers
+  ! compute the height at the layer midpoint
+  mLayerHeight(iLayer) = iLayerHeight(iLayer-1) + mLayerDepth(iLayer)/2._rkind
+  ! compute the height at layer interfaces
+  iLayerHeight(iLayer) = iLayerHeight(iLayer-1) + mLayerDepth(iLayer)
+ end do ! (looping through layers)
+
+ ! end association to variables in the data structure
+ end associate
+
+ end subroutine calcHeight
+
+subroutine calcHeight_d(&
+                       ! input/output: data structures
+  nGRU, &
+                       indx_data,   & ! intent(in): layer type
+                       prog_data,   & ! intent(inout): model variables for a local HRU
+                       ! output: error control
+                       err,message)
+                       use device_data_types
+ implicit none
+ ! ----------------------------------------------------------------------------------
+ ! dummy variables
+ ! input/output: data structures
+ integer(i4b),intent(in) :: nGRU
+ type(indx_data_device),intent(in)       :: indx_data      ! type of model layer
+ type(prog_data_device),intent(inout)    :: prog_data      ! model variables for a local HRU
+ ! output: error control
+ integer(i4b),intent(out)           :: err            ! error code
+ character(*),intent(out)           :: message        ! error message
+ ! local variables
+ integer(i4b)                       :: iLayer         ! loop through layers
+ integer(i4b)                       :: ixLower(2)     ! index of the lower bound
+ integer(i4b) :: iGRU!, nLayers
+!  nLayers = indx_data%nLayers
+
+ ! ----------------------------------------------------------------------------------
+ ! initialize error control
+ err=0; message='calcHeight/'
+ ! ----------------------------------------------------------------------------------
+ ! associate variables in data structure
+ associate(&
+ ! associate the model index structures
+ nLayers        => indx_data%nLayers_d,  &   ! total number of layers
+ layerType      => indx_data%layerType,   &   ! layer type (iname_soil or iname_snow)
+ ! associate the values in the model variable structures
+ mLayerDepth    => prog_data%mLayerDepth,  &   ! depth of the layer (m)
+ mLayerHeight   => prog_data%mLayerHeight, &   ! height of the layer mid-point (m)
+ iLayerHeight   => prog_data%iLayerHeight  &   ! height of the layer interface (m)
+ ) ! end associate
+ ! ----------------------------------------------------------------------------------
+
+ ! initialize layer height as the top of the snowpack -- positive downward
+ ixLower=lbound(iLayerHeight); if(ixLower(1) > 0)then; err=20; message=trim(message)//'unexpected lower bound for iLayerHeight'; return; endif
+ !$cuf kernel do(1) <<<*,*>>>
+ do iGRU=1,nGRU
+  iLayerHeight(0,iGRU) = 0._rkind
+  do iLayer=1,nLayers(iGRU)
+    if (layerType(iLayer,iGRU) == iname_snow) iLayerHeight(0,iGRU) = iLayerHeight(0,iGRU) - mLayerDepth(iLayer,iGRU)
+  end do
+! end do
+!  iLayerHeight(0) = -sum(mLayerDepth, mask=layerType==iname_snow)
+
+ ! loop through layers
+! !$cuf kernel do(1) <<<*,*>>>
+! do iGRU=1,nGRU
+ do iLayer=1,nLayers(iGRU)
+  ! compute the height at the layer midpoint
+  mLayerHeight(iLayer,iGRU) = iLayerHeight(iLayer-1,iGRU) + mLayerDepth(iLayer,iGRU)/2._rkind
+  ! compute the height at layer interfaces
+  iLayerHeight(iLayer,iGRU) = iLayerHeight(iLayer-1,iGRU) + mLayerDepth(iLayer,iGRU)
+ end do ! (looping through layers)
+end do
+
+ ! end association to variables in the data structure
+ end associate
+
+ end subroutine calcHeight_d
+
+
+ ! **********************************************************************************************************
+ ! public subroutine rootDensty: compute vertical distribution of root density
+ ! **********************************************************************************************************
+ subroutine rootDensty(decisions,mpar_data,indx_data,prog_data,diag_data,nGRU,err,message)
+  use device_data_types
+ implicit none
+ ! declare input variables
+ type(decisions_device) :: decisions
+ type(mpar_data_device),intent(in)    :: mpar_data       ! data structure of model parameters for a local HRU
+ type(indx_data_device),intent(in)    :: indx_data       ! data structure of model indices for a local HRU
+ type(prog_data_device),intent(in)    :: prog_data       ! data structure of model prognostic (state) variables for a local HRU
+ type(diag_data_device),intent(inout) :: diag_data       ! data structure of model diagnostic variables for a local HRU
+ integer(i4b) :: nGRU
+ ! declare output variables
+ integer(i4b),intent(out)        :: err             ! error code
+ character(*),intent(out)        :: message         ! error message
+ ! declare local variables
+ integer(i4b)                    :: iLayer          ! loop through layers
+ real(rkind)                     :: fracRootLower   ! fraction of the rooting depth at the lower interface
+ real(rkind)                     :: fracRootUpper   ! fraction of the rooting depth at the upper interface
+ real(rkind), parameter          :: rootTolerance = 0.05_rkind ! tolerance for error in doubleExp rooting option
+ real(rkind)                     :: error           ! machine precision error in rooting distribution
+ real(rkind),device :: sum_depth(nGRU)
+ integer(i4b) :: nSoil
+ integer(i4b) :: iGRU
+ ! initialize error control
+ err=0; message='rootDensty/'
+
+ nSoil = indx_data%nSoil
+ ! ----------------------------------------------------------------------------------
+ ! associate variables in data structure
+ associate(&
+ ! associate the model decisions
+ ixRootProfile         =>decisions%rootProfil,  & ! choice of the rooting profile
+ ixGroundwater         =>decisions%groundwatr,  & ! choice of groundwater parameterization
+ ! associate the values in the model parameter structures
+ rootScaleFactor1      =>mpar_data%rootScaleFactor1,     & ! 1st scaling factor (m-1)
+ rootScaleFactor2      =>mpar_data%rootScaleFactor2,     & ! 2nd scaling factor (m-1)
+ rootingDepth          =>mpar_data%rootingDepth,         & ! rooting depth (m)
+ rootDistExp           =>mpar_data%rootDistExp,          & ! root distribution exponent (-)
+ ! associate the model index structures
+!  nSoil                 =>indx_data%var(iLookINDEX%nSoil)%dat(1),                & ! number of soil layers
+ nSnow                 =>indx_data%nSnow,                & ! number of snow layers
+ nLayers               =>indx_data%nLayers_d,              & ! total number of layers
+ iLayerHeight          =>prog_data%iLayerHeight,             & ! height of the layer interface (m)
+ ! associate the values in the model variable structures
+ scalarAquiferRootFrac =>diag_data%scalarAquiferRootFrac, & ! fraction of roots below the soil profile (in the aquifer)
+ mLayerRootDensity     =>diag_data%mLayerRootDensity_m         & ! fraction of roots in each soil layer (-)
+ ) ! end associate
+ ! ----------------------------------------------------------------------------------
+
+ !$cuf kernel do(1) <<<*,*>>>
+ do iGRU=1,nGRU
+ ! compute the fraction of roots in each soil layer
+ do iLayer=nSnow(iGRU)+1,nLayers(iGRU)
+
+  ! different options for the rooting profile
+  select case(ixRootProfile)
+
+   ! ** option 1: simple power-law profile
+   case(powerLaw)
+    if(iLayerHeight(iLayer-1,iGRU)<rootingDepth)then
+     ! compute the fraction of the rooting depth at the lower and upper interfaces
+     if(iLayer==nSnow(iGRU)+1)then  ! height=0; avoid precision issues
+      fracRootLower = 0._rkind
+     else
+      fracRootLower = iLayerHeight(iLayer-1,iGRU)/rootingDepth
+     end if
+     fracRootUpper = iLayerHeight(iLayer,iGRU)/rootingDepth
+     if(fracRootUpper>1._rkind) fracRootUpper=1._rkind
+     ! compute the root density
+     mLayerRootDensity(iLayer-nSnow(iGRU),iGRU) = fracRootUpper**rootDistExp - fracRootLower**rootDistExp
+    else
+     mLayerRootDensity(iLayer-nSnow(iGRU),iGRU) = 0._rkind
+    end if
+
+   ! ** option 2: double expoential profile of Zeng et al. (JHM 2001)
+   case(doubleExp)
+    ! compute the cumulative fraction of roots at the top and bottom of the layer
+    fracRootLower = 1._rkind - 0.5_rkind*(exp(-iLayerHeight(iLayer-1,iGRU)*rootScaleFactor1) + exp(-iLayerHeight(iLayer-1,iGRU)*rootScaleFactor2) )
+    fracRootUpper = 1._rkind - 0.5_rkind*(exp(-iLayerHeight(iLayer  ,iGRU)*rootScaleFactor1) + exp(-iLayerHeight(iLayer  ,iGRU)*rootScaleFactor2) )
+    ! compute the root density
+    mLayerRootDensity(iLayer-nSnow(iGRU),iGRU) = fracRootUpper - fracRootLower
+    
+   ! ** check
+  !  case default; err=20; message=trim(message)//'unable to identify option for rooting profile'; return
+
+  end select
+
+ end do  ! (looping thru layers)
+
+ ! check that root density is within some reaosnable version of machine tolerance
+ ! This is the case when root density is greater than 1. Can only happen with powerLaw option.
+ sum_depth(iGRU) = 0._rkind
+ do iLayer=1,size(mLayerRootDensity,1)
+  sum_depth(iGRU) = sum_depth(iGRU) + mLayerRootDensity(iLayer,iGRU)
+ end do
+ error = sum_depth(iGRU) - 1._rkind
+ if (error > 2._rkind*epsilon(rootingDepth)) then
+  ! message=trim(message)//'problem with the root density calaculation'
+  ! err=20; return
+ else
+  do iLayer=1,size(mLayerRootDensity,1)
+    mLayerRootDensity(iLayer,iGRU) = mLayerRootDensity(iLayer,iGRU) - error/real(nSoil,kind(rkind))
+  end do
+ end if
+
+ ! compute fraction of roots in the aquifer
+ if(sum_depth(iGRU) < 1._rkind)then
+  scalarAquiferRootFrac(iGRU) = 1._rkind - sum_depth(iGRU)
+ else
+  scalarAquiferRootFrac(iGRU) = 0._rkind
+ end if
+
+ ! check that roots in the aquifer are appropriate
+ if ((ixGroundwater /= bigBucket).and.(scalarAquiferRootFrac(iGRU) > 2._rkind*epsilon(rootingDepth)))then
+  if(scalarAquiferRootFrac(iGRU) < rootTolerance) then
+    do iLayer=1,size(mLayerRootDensity,1)
+      mLayerRootDensity(iLayer,iGRU) = mLayerRootDensity(iLayer,iGRU) + scalarAquiferRootFrac(iGRU)/real(nSoil, kind(rkind))
+    end do
+   scalarAquiferRootFrac(iGRU) = 0._rkind
+  else
+  !  select case(ixRootProfile)
+  !   case(powerLaw);  message=trim(message)//'roots in the aquifer only allowed for the big bucket gw parameterization: check that rooting depth < soil depth'
+  !   case(doubleExp); message=trim(message)//'roots in the aquifer only allowed for the big bucket gw parameterization: increase soil depth to alow for exponential roots'
+  !  end select
+  !  err=10; return
+  end if  ! if roots in the aquifer
+ end if  ! if not the big bucket
+end do
+ end associate
+
+ end subroutine rootDensty
+
+
+ ! **********************************************************************************************************
+ ! public subroutine satHydCond: compute vertical profile of saturated hydraulic conductivity
+ ! **********************************************************************************************************
+ subroutine satHydCond(decisions,mpar_data,indx_data,prog_data,flux_data,nGRU,err,message)
+  use device_data_types
+ implicit none
+ ! declare input variables
+ type(decisions_device) :: decisions
+ type(mpar_data_device),intent(in)    :: mpar_data           ! data structure of model parameters for a local HRU
+ type(indx_data_device),intent(in)    :: indx_data           ! data structure of model indices for a local HRU
+ type(prog_data_device),intent(in)    :: prog_data           ! data structure of model prognostic (state) variables for a local HRU
+ type(flux_data_device),intent(inout) :: flux_data           ! data structure of model fluxes for a local HRU
+ integer(i4b) :: nGRU
+ ! declare output variables
+ integer(i4b),intent(out)        :: err                 ! error code
+ character(*),intent(out)        :: message             ! error message
+ ! declare local variables
+ integer(i4b)                    :: iLayer              ! loop through layers
+ real(rkind)                     :: ifcDepthScaleFactor ! depth scaling factor (layer interfaces)
+ real(rkind)                     :: midDepthScaleFactor ! depth scaling factor (layer midpoints)
+ integer(i4b) :: nSoil
+ integer(i4b) :: iGRU
+ ! initialize error control
+ err=0; message='satHydCond/'
+ nSoil = indx_data%nSoil
+ ! ----------------------------------------------------------------------------------
+ ! associate variables in data structure
+ associate(&
+  hc_profile => decisions%hc_profile, &
+ ! associate the values in the parameter structures
+ k_soil             => mpar_data%k_soil,            & ! saturated hydraulic conductivity at the compacted depth (m s-1)
+ k_macropore        => mpar_data%k_macropore,       & ! saturated hydraulic conductivity at the compacted depth for macropores (m s-1)
+ compactedDepth     => mpar_data%compactedDepth, & ! the depth at which k_soil reaches the compacted value given by CH78 (m)
+ zScale_TOPMODEL    => mpar_data%zScale_TOPMODEL,& ! exponent for the TOPMODEL-ish baseflow parameterization (-)
+ ! associate the model index structures
+ nSnow              => indx_data%nSnow,          & ! number of snow layers
+!  nSoil              => indx_data%nSoil,          & ! number of soil layers
+ nLayers            => indx_data%nLayers_d,        & ! total number of layers
+ ! associate the coordinate variables
+ mLayerHeight       => prog_data%mLayerHeight,       & ! height at the mid-point of each layer (m)
+ iLayerHeight       => prog_data%iLayerHeight,       & ! height at the interface of each layer (m)
+ ! associate the values in the model variable structures
+ mLayerSatHydCondMP => flux_data%mlayersathydcondmp_m, & ! saturated hydraulic conductivity for macropores at the mid-point of each layer (m s-1)
+ mLayerSatHydCond   => flux_data%mlayersathydcond_m,   & ! saturated hydraulic conductivity at the mid-point of each layer (m s-1)
+ iLayerSatHydCond   => flux_data%ilayersathydcond_m    & ! saturated hydraulic conductivity at the interface of each layer (m s-1)
+ ) ! end associate
+ ! ----------------------------------------------------------------------------------
+
+ ! loop through soil layers
+ ! NOTE: could do constant profile with the power-law profile with exponent=1, but keep constant profile decision for clarity
+ !$cuf kernel do(1) <<<*,*>>>
+ do iGRU=1,nGRU
+ do iLayer=nSnow(iGRU),nLayers(iGRU)
+  select case(hc_profile)
+
+   ! constant hydraulic conductivity with depth
+   case(constant)
+    ! - conductivity at layer interfaces
+    !   --> NOTE: Do we need a weighted average based on layer depth for interior layers?
+    if(iLayer==nSnow(iGRU))then
+     iLayerSatHydCond(iLayer-nSnow(iGRU),iGRU) = k_soil(1)
+    else
+     if(iLayer==nLayers(iGRU))then
+      iLayerSatHydCond(iLayer-nSnow(iGRU),iGRU) = k_soil(nSoil)
+     else
+      iLayerSatHydCond(iLayer-nSnow(iGRU),iGRU)   = 0.5_rkind * (k_soil(iLayer-nSnow(iGRU)) + k_soil(iLayer+1-nSnow(iGRU)) )
+     endif
+     ! - conductivity at layer midpoints
+     mLayerSatHydCond(iLayer-nSnow(iGRU),iGRU)   = k_soil(iLayer-nSnow(iGRU))
+     mLayerSatHydCondMP(iLayer-nSnow(iGRU),iGRU) = k_macropore(iLayer-nSnow(iGRU))
+    end if ! if iLayer>nSnow
+
+   ! power-law profile
+   case(powerLaw_profile)
+    ! - conductivity at layer interfaces
+    !   --> NOTE: Do we need a weighted average based on layer depth for interior layers?
+
+    if(compactedDepth/iLayerHeight(nLayers(iGRU),iGRU) /= 1._rkind) then    ! avoid divide by zero
+     ifcDepthScaleFactor = ( (1._rkind - iLayerHeight(iLayer,iGRU)/iLayerHeight(nLayers(iGRU),iGRU))**(zScale_TOPMODEL - 1._rkind) ) / &
+                           ( (1._rkind -       compactedDepth/iLayerHeight(nLayers(iGRU),iGRU))**(zScale_TOPMODEL - 1._rkind) )
+    else
+     ifcDepthScaleFactor = 1.0_rkind
+    endif
+    if(iLayer==nSnow(iGRU))then
+     iLayerSatHydCond(iLayer-nSnow(iGRU),iGRU) = k_soil(1) * ifcDepthScaleFactor
+    else   ! if the mid-point of a layer
+     if(iLayer==nLayers(iGRU))then
+      iLayerSatHydCond(iLayer-nSnow(iGRU),iGRU) = k_soil(nSoil) * ifcDepthScaleFactor
+     else
+      iLayerSatHydCond(iLayer-nSnow(iGRU),iGRU)   = 0.5_rkind * (k_soil(iLayer-nSnow(iGRU)) + k_soil(iLayer+1-nSnow(iGRU)) ) * ifcDepthScaleFactor
+     endif
+     ! - conductivity at layer midpoints
+     if(compactedDepth/iLayerHeight(nLayers(iGRU),iGRU) /= 1._rkind) then    ! avoid divide by zero
+      midDepthScaleFactor = ( (1._rkind - mLayerHeight(iLayer,iGRU)/iLayerHeight(nLayers(iGRU),iGRU))**(zScale_TOPMODEL - 1._rkind) ) / &
+                            ( (1._rkind -       compactedDepth/iLayerHeight(nLayers(iGRU),iGRU))**(zScale_TOPMODEL - 1._rkind) )
+     else
+      midDepthScaleFactor = 1.0_rkind
+     endif
+     mLayerSatHydCond(iLayer-nSnow(iGRU),iGRU)   = k_soil(iLayer-nSnow(iGRU))      * midDepthScaleFactor
+     mLayerSatHydCondMP(iLayer-nSnow(iGRU),iGRU) = k_macropore(iLayer-nSnow(iGRU)) * midDepthScaleFactor
+    end if
+
+   ! error check (errors checked earlier also, so should not get here)
+  !  case default
+    ! message=trim(message)//"unknown hydraulic conductivity profile [option="//trim(model_decisions(iLookDECISIONS%hc_profile)%cDecision)//"]"
+    ! err=10; return
+
+  end select
+
+  ! check that the hydraulic conductivity for macropores is greater than for micropores
+  if (iLayer > nSnow(iGRU)) then
+   if( mLayerSatHydCondMP(iLayer-nSnow(iGRU),iGRU) < mLayerSatHydCond(iLayer-nSnow(iGRU),iGRU) )then
+    mLayerSatHydCondMP(iLayer-nSnow(iGRU),iGRU) = mLayerSatHydCond(iLayer-nSnow(iGRU),iGRU)
+   endif  ! if mLayerSatHydCondMP < mLayerSatHydCond
+  end if ! if iLayer > nSnow
+ end do  ! looping through soil layers
+end do
+
+ end associate
+
+ end subroutine satHydCond
+
+
+ ! **********************************************************************************************************
+ ! public subroutine fracFuture: compute the fraction of runoff in future time steps
+ ! **********************************************************************************************************
+ subroutine fracFuture(bpar_data,bvar_data,err,message)
+ ! external functions
+ USE soil_utils_module,only:gammp ! compute the cumulative probabilty based on the Gamma distribution
+
+ implicit none
+ ! input variables
+ real(rkind),intent(in)          :: bpar_data(:)         ! vector of basin-average model parameters
+ ! output variables
+ type(var_dlength),intent(inout) :: bvar_data            ! data structure of basin-average model variables
+ integer(i4b),intent(out)        :: err                  ! error code
+ character(*),intent(out)        :: message              ! error message
+ ! internal
+ real(rkind)                     :: dt                   ! data time step (s)
+ integer(i4b)                    :: nTDH                 ! number of points in the time-delay histogram
+ integer(i4b)                    :: iFuture              ! index in time delay histogram
+ real(rkind)                     :: tFuture              ! future time (end of step)
+ real(rkind)                     :: pSave                ! cumulative probability at the start of the step
+ real(rkind)                     :: cumProb              ! cumulative probability at the end of the step
+ real(rkind)                     :: sumFrac              ! sum of runoff fractions in all steps
+ real(rkind),parameter           :: tolerFrac=0.01_rkind ! tolerance for missing fractional runoff by truncating histogram
+ ! initialize error control
+ err=0; message='fracFuture/'
+ ! ----------------------------------------------------------------------------------
+ ! associate variables in data structure
+ associate(&
+ ixRouting         => model_decisions(iLookDECISIONS%subRouting)%iDecision, & ! index for routing method
+ routingGammaShape => bpar_data(iLookBPAR%routingGammaShape),               & ! shape parameter in Gamma distribution used for sub-grid routing (-)
+ routingGammaScale => bpar_data(iLookBPAR%routingGammaScale),               & ! scale parameter in Gamma distribution used for sub-grid routing (s)
+ runoffFuture      => bvar_data%var(iLookBVAR%routingRunoffFuture)%dat,     & ! runoff in future time steps (m s-1)
+ fractionFuture    => bvar_data%var(iLookBVAR%routingFractionFuture)%dat    & ! fraction of runoff in future time steps (-)
+ ) ! end associate
+ ! ----------------------------------------------------------------------------------
+
+ ! define time step
+ dt =  data_step ! length of the data step (s)
+
+ ! identify number of points in the time-delay runoff variable (should be allocated match nTimeDelay)
+ nTDH = size(runoffFuture)
+
+ ! initialize runoffFuture (will be overwritten by initial conditions file values if present)
+ runoffFuture(1:nTDH) = 0._rkind
+
+ ! select option for sub-grid routing
+ select case(ixRouting)
+
+  ! ** instantaneous routing
+  case(qInstant)
+   fractionFuture(1)      = 1._rkind
+   fractionFuture(2:nTDH) = 0._rkind
+
+  ! ** time delay histogram
+  case(timeDelay)
+   ! initialize
+   pSave   = 0._rkind ! cumulative probability at the start of the step
+   if(routingGammaShape <= 0._rkind .or. routingGammaScale <= 0._rkind)then
+    message=trim(message)//'bad arguments for the Gamma distribution'
+    err=20; return
+   end if
+   ! loop through time steps and compute fraction of runoff in future steps
+   do iFuture = 1,nTDH
+    ! get weight for a given bin
+    tFuture = real(iFuture, kind(dt))*dt                  ! future time (end of step)
+    cumProb = gammp(routingGammaShape,tFuture/routingGammaScale) ! cumulative probability at the end of the step
+    fractionFuture(iFuture) = max(0._rkind, cumProb - pSave)     ! fraction of runoff in the current step
+    pSave   = cumProb                                     ! save the cumulative probability for use in the next step
+    !write(*,'(a,1x,i4,1x,3(f20.10,1x))') trim(message), iFuture, tFuture, cumProb, fractionFuture(iFuture)
+    ! set remaining bins to zero
+    if(fractionFuture(iFuture) < tiny(dt))then
+     fractionFuture(iFuture:nTDH) = 0._rkind
+     exit
+    end if
+   end do ! (looping through future time steps)
+
+   ! check that we have enough bins
+   sumFrac  = sum(fractionFuture(1:nTDH))
+   if(abs(1._rkind - sumFrac) > tolerFrac)then
+    write(*,*) 'WARNING: The fraction of basin runoff histogram being accounted for by time delay vector is ', sumFrac
+    write(*,*) 'This is less than allowed by tolerFrac = ', tolerFrac
+    write(*,*) 'This means that we do not have enough bins for the time delay histogram'
+    write(*,*) 'Solutions:'
+    write(*,*) ' (1) Check that the values of routingGammaShape and routingGammaScale are appropriate (and fix if necessary); or'
+    write(*,*) ' (2) Increase the hard coded parameter nTimeDelay in globalData.f90 (currently nTimeDelay is set to ', nTDH, ')'
+    write(*,*) '       -- note that nTimeDelay defines the number of time steps in the time delay histogram'
+   end if
+   ! ensure the fraction sums to one
+   fractionFuture(1:nTDH) = fractionFuture(1:nTDH)/sumFrac
+
+  ! ** error checking
+  case default; err=20; message=trim(message)//'cannot find option for sub-grid routing'; return
+
+ end select ! (select option for sub-grid routing)
+
+ end associate
+
+ end subroutine fracFuture
+
+
+ ! **********************************************************************************************************
+ ! public subroutine v_shortcut: compute "short-cut" variables
+ ! **********************************************************************************************************
+ subroutine v_shortcut(mpar_data,diag_data,nGRU,err,message)
+  use device_data_types
+ implicit none
+ ! declare input variables
+ type(mpar_data_device),intent(in)    :: mpar_data       ! data structure of model parameters for a local HRU
+ type(diag_data_device),intent(inout) :: diag_data       ! data structure of model variables for a local HRU
+ integer(i4b) :: nGRU
+ ! declare output variables
+ integer(i4b),intent(out)        :: err             ! error code
+ character(*),intent(out)        :: message         ! error message
+ integer(i4b) :: iGRU, iLayer
+ ! initialize error control
+ err=0; message='v_shortcut/'
+ ! ----------------------------------------------------------------------------------
+ ! associate variables in data structure
+ associate(&
+ ! associate values in the parameter structures
+ vGn_n          =>mpar_data%vGn_n,       & ! van Genutchen "n" parameter (-)
+ vGn_m          =>diag_data%scalarVGn_m_m   & ! van Genutchen "m" parameter (-)
+ ) ! end associate
+ ! ----------------------------------------------------------------------------------
+
+ ! compute the van Genutchen "m" parameter
+ !$cuf kernel do(1) <<<*,*>>>
+ do iGRU=1,nGRU
+  do iLayer=1,size(vGn_m,1)
+    vGn_m(iLayer,iGRU) = 1._rkind - 1._rkind/vGn_n(iLayer)
+  end do
+end do
+ end associate
+
+ end subroutine v_shortcut
+
+
+end module var_derive_module
