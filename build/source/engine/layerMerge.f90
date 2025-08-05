@@ -871,7 +871,7 @@ case(iLookINDEX%ixDomainType); call populate_data_i(dataStruct%ixDomainType,temp
 case(iLookINDEX%ixStateType); call populate_data_i(dataStruct%ixStateType,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
 case(iLookINDEX%ixHydType); call populate_data_i(dataStruct%ixHydType,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
 case(iLookINDEX%ixDomainType_subset); call populate_data_i(dataStruct%ixDomainType_subset,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
-case(iLookINDEX%ixStateType_subset); call populate_data_i(dataStruct%ixStateType_subset,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
+! case(iLookINDEX%ixStateType_subset); call populate_data_i(dataStruct%ixStateType_subset,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
 case(iLookINDEX%ixMapFull2Subset); call populate_data_i(dataStruct%ixMapFull2Subset,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
 case(iLookINDEX%ixMapSubset2Full); call populate_data_i(dataStruct%ixMapSubset2Full,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)
 case(iLookINDEX%ixNrgOnly); call populate_data_i(dataStruct%ixNrgOnly,tempVec,iSnow,removeLayer,nGRU,ix_lower,ix_upper)

@@ -725,7 +725,10 @@ subroutine eval8summaWithPrime(&
                       resVec,                     & ! intent(out): residual vector
                       err,cmessage)                 ! intent(out): error control
       if(err/=0)then; message=trim(message)//trim(cmessage); return; end if  ! (check for errors)
-      associate(nState => indx_data%nState)
+      associate(nState => indx_data%nState, &
+      ixCasNrg => indx_data%ixCasNrg, &
+      ixVegNrg => indx_data%ixVegNrg, &
+      ixVegHyd => indx_data%ixVegHyd)
       !$cuf kernel do(1) <<<*,*>>>
       do iGRU=1,nGRU          
         do iLayer=nState(iGRU)+1,size(resVec,1)
@@ -778,6 +781,7 @@ integer(c_int) function eval8summa4ida(tres, sunvec_y, sunvec_yp, sunvec_r, user
   real(rkind), pointer,device        :: stateVecPrime(:,:) ! derivative vector
   real(rkind), pointer,device        :: rVec(:,:)          ! residual vector
   logical(lgt)                :: feasible         ! feasibility of state vector
+  integer(i4b) :: iGRU, iLayer
   !======= Internals ============
 
   ! get equations data from user-defined data
@@ -788,6 +792,7 @@ integer(c_int) function eval8summa4ida(tres, sunvec_y, sunvec_yp, sunvec_r, user
   stateVecPrime(1:eqns_data%nState,1:eqns_data%nGRU) => FN_VGetDeviceArrayPointer_Cuda(sunvec_yp)
   rVec(1:eqns_data%nState,1:eqns_data%nGRU)  => FN_VGetDeviceArrayPointer_Cuda(sunvec_r)
 
+print*, tres
   ! compute the flux and the residual vector for a given state vector
   call eval8summaWithPrime(&
                 ! input: model control

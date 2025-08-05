@@ -1275,7 +1275,7 @@ end if
    do iVar=1,size(flux_meta) ! loop through flux variables
 
     if (ixCoupling==fullyCoupled) then ! * identify flux mask for the fully coupled solution
-     associate(ixStateType_subset => indx_data%ixStateType_subset) ! intent(in): [i4b(:)] indices of state types
+     associate(ixStateType_subset => indx_data%ixStateType) ! intent(in): [i4b(:)] indices of state types
       iState1 = flux2state_orig(iVar)%state1
       iState2 = flux2state_orig(iVar)%state2
       desiredFlux = .false.

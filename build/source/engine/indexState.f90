@@ -291,13 +291,15 @@ end do
 
  do iLayer=1,size(ixNrgLayer,1)
  ! define the state type for the snow+soil domain (energy)
- ixStateType(ixNrgLayer(iLayer,iGRU),iGRU) = iname_nrgLayer
+ if (ixNrgLayer(iLayer,iGRU).ne.integerMissing) ixStateType(ixNrgLayer(iLayer,iGRU),iGRU) = iname_nrgLayer
  end do
 
  do iLayer=1,nLayers(iGRU)
  ! define the state type for the snow+soil domain (hydrology)
+ if (ixHydLayer(iLayer,iGRU) .ne. integerMissing) then
  if(iLayer .le. nSnow(iGRU)) ixStateType( ixHydLayer(iLayer,iGRU),iGRU   ) = iname_watLayer
  if(iLayer .gt. nSnow(iGRU)) ixStateType( ixHydLayer(iLayer,iGRU),iGRU ) = iname_matLayer ! refine later to be either iname_watLayer or iname_matLayer
+ end if
  end do
  ! define the state type for the aquifer
  if(includeAquifer) ixStateType( ixWatAquifer(iGRU),iGRU ) = iname_watAquifer
@@ -311,13 +313,13 @@ end do
  do iLayer=1,nLayers(iGRU)
  ! define the domain type for snow
  if(iLayer .le. nSnow(iGRU))then
-  ixDomainType( ixNrgLayer(iLayer,iGRU),iGRU ) = iname_snow
-  ixDomainType( ixHydLayer(iLayer,iGRU),iGRU ) = iname_snow
+  if (ixNrgLayer(iLayer,iGRU) .ne. integerMissing) ixDomainType( ixNrgLayer(iLayer,iGRU),iGRU ) = iname_snow
+  if (ixHydLayer(iLayer,iGRU) .ne. integerMissing) ixDomainType( ixHydLayer(iLayer,iGRU),iGRU ) = iname_snow
  else
 
  ! define the domain type for soil
- ixDomainType( ixNrgLayer(iLayer,iGRU),iGRU ) = iname_soil
- ixDomainType( ixHydLayer(iLayer,iGRU),iGRU ) = iname_soil
+ if (ixNrgLayer(iLayer,iGRU) .ne. integerMissing) ixDomainType( ixNrgLayer(iLayer,iGRU),iGRU ) = iname_soil
+ if (ixHydLayer(iLayer,iGRU) .ne. integerMissing) ixDomainType( ixHydLayer(iLayer,iGRU),iGRU ) = iname_soil
  end if
 end do
 
@@ -334,13 +336,13 @@ end do
  do iLayer=1,nLayers(iGRU)
  ! define the index of the each control volume in the snow domain
  if(iLayer .le. nSnow(iGRU))then
-  ixControlVolume( ixNrgLayer(iLayer,iGRU),iGRU ) = ixLayerState(iLayer,iGRU)
-  ixControlVolume( ixHydLayer(iLayer,iGRU),iGRU ) = ixLayerState(iLayer,iGRU)
+  if (ixNrgLayer(iLayer,iGRU) .ne. integerMissing) ixControlVolume( ixNrgLayer(iLayer,iGRU),iGRU ) = ixLayerState(iLayer,iGRU)
+  if (ixHydLayer(iLayer,iGRU) .ne. integerMissing) ixControlVolume( ixHydLayer(iLayer,iGRU),iGRU ) = ixLayerState(iLayer,iGRU)
  else
 
  ! define the index of the each control volume in the soil domain
- ixControlVolume( ixNrgLayer(iLayer,iGRU),iGRU ) = ixSoilState(iLayer-nSnow(iGRU),iGRU)
- ixControlVolume( ixHydLayer(iLayer,iGRU),iGRU ) = ixSoilState(iLayer-nSnow(iGRU),iGRU)
+ if (ixNrgLayer(iLayer,iGRU) .ne. integerMissing) ixControlVolume( ixNrgLayer(iLayer,iGRU),iGRU ) = ixSoilState(iLayer-nSnow(iGRU),iGRU)
+ if (ixHydLayer(iLayer,iGRU) .ne. integerMissing) ixControlVolume( ixHydLayer(iLayer,iGRU),iGRU ) = ixSoilState(iLayer-nSnow(iGRU),iGRU)
  end if
 end do
 
@@ -351,6 +353,7 @@ end do
  !print*, 'ixDomainType    = ', ixDomainType
  !print*, 'ixStateType     = ', ixStateType
  !print*, 'PAUSE: '; read(*,*)
+
 
  ! end association to the ALLOCATABLE variables in the data structures
  end associate
@@ -540,7 +543,7 @@ end do
   ! NOTE: indxSubset(subset, fullVector, mask), provides subset of fullVector where mask==.true.
   select case(iVar)
    case(iLookINDEX%ixMapSubset2Full);     call indxSubset_d(indx_data%ixMapSubset2Full,stateSubsetMask,subset,nGRU,err,cmessage)
-   case(iLookINDEX%ixStateType_subset);   call indxSubset_d2(indx_data%ixStateType_subset, ixStateType,  stateSubsetMask,subset,nGRU, err, cmessage)
+   !case(iLookINDEX%ixStateType_subset);   call indxSubset_d2(indx_data%ixStateType_subset, ixStateType,  stateSubsetMask,subset,nGRU, err, cmessage)
    case(iLookINDEX%ixDomainType_subset);  call indxSubset_d2(indx_data%ixDomainType_subset, ixDomainType, stateSubsetMask,subset,nGRU, err, cmessage)
 !    case(iLookINDEX%ixVolFracWat);         call indxSubset(indx_data%var(iVar)%dat, ixLayerState, volFracWat_mask, err, cmessage)
   !  case(iLookINDEX%ixMatricHead);         call indxSubset_d2(indx_data%ixMatricHead_m, ixSoilState,  matricHead_mask, matricHeadCount,nGRU, err, cmessage)
@@ -551,7 +554,7 @@ end do
  end do  ! looping through variables in the data structure
 
 !  ! make association to variables in the data structures
- subsetState: associate(ixStateType_subset => indx_data%ixStateType_subset) ! named variables defining the states in the subset
+ subsetState: associate(ixStateType_subset => indx_data%ixStateType) ! named variables defining the states in the subset
 
  ! -----
  ! - get indices for the (currently) scalar states in the vegetation domain...
@@ -569,17 +572,17 @@ end do
   ixTopMat = integerMissing
   ixTopLMP = integerMissing
   ixAqWat(iGRU) = integerMissing
-  do iLayer=size(ixStateType_subset,1),1,-1
-   if (ixStateType_subset(iLayer,iGRU) == iname_nrgCanair) ixCasNrg(iGRU) = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_nrgCanopy) ixVegNrg(iGRU) = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_watCanopy) ixVegWat = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_liqCanopy) ixVegLiq = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_nrgLayer) ixTopNrg(iGRU) = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_watLayer) ixTopWat = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_liqLayer) ixTopLiq = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_matLayer) ixTopMat = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_lmpLayer) ixTopLMP = iLayer
-   if (ixStateType_subset(iLayer,iGRU) == iname_watAquifer) ixAqWat(iGRU) = iLayer
+  do iLayer=size(ixStateType,1),1,-1
+   if (ixStateType(iLayer,iGRU) == iname_nrgCanair) ixCasNrg(iGRU) = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_nrgCanopy) ixVegNrg(iGRU) = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_watCanopy) ixVegWat = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_liqCanopy) ixVegLiq = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_nrgLayer) ixTopNrg(iGRU) = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_watLayer) ixTopWat = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_liqLayer) ixTopLiq = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_matLayer) ixTopMat = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_lmpLayer) ixTopLMP = iLayer
+   if (ixStateType(iLayer,iGRU) == iname_watAquifer) ixAqWat(iGRU) = iLayer
 
   end do
   ixVegHyd(iGRU) = merge(ixVegWat,ixVegLiq,ixVegWat/=integerMissing)
@@ -601,8 +604,8 @@ end do
  !$cuf kernel do(1) <<<*,*>>> reduce(max:subset)
  do iGRU=1,nGRU
   subsetCount(iGRU) = 0
-  do iLayer=1,size(ixStateType_subset,1)
-    stateTypeMask(iLayer,iGRU) = (ixStateType_subset(iLayer,iGRU)==iname_nrgCanair .or. ixStateType_subset(iLayer,iGRU)==iname_nrgCanopy .or. ixStateType_subset(iLayer,iGRU)==iname_nrgLayer)
+  do iLayer=1,size(ixStateType,1)
+    stateTypeMask(iLayer,iGRU) = (ixStateType(iLayer,iGRU)==iname_nrgCanair .or. ixStateType(iLayer,iGRU)==iname_nrgCanopy .or. ixStateType(iLayer,iGRU)==iname_nrgLayer)
     if (stateTypeMask(iLayer,iGRU)) subsetcount(iGRU) = subsetcount(iGRU) + 1
   end do
   subset = max(subsetcount(iGRU),subset)

@@ -597,7 +597,7 @@ type,public:: indx_data_device
   ! integer(i4b) :: nSnowSoilNrg, nSnowSoilHyd
   integer(i4b),device,allocatable :: ixHydType(:,:)
   integer(i4b),device,allocatable :: ixStateType(:,:)
-  integer(i4b),device,allocatable :: ixStateType_subset(:,:)
+  ! integer(i4b),device,allocatable :: ixStateType_subset(:,:)
   integer(i4b),device,allocatable :: ixHydCanopy(:)
   integer(i4b),device,allocatable :: ixNrgCanopy(:)
   ! integer(i4b) :: ixNrgCanair

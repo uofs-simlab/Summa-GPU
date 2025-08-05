@@ -316,7 +316,7 @@ allocate(indx_data_device%nLayers_d(nGRU))
     allocate(indx_data_device%ixStateType(MAX(1,size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixStateType)%dat)),nGRU))
     allocate(indx_data_device%ixHydType(nSoil+maxSnowLayers,nGRU))
     if (size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixDomainType_subset)%dat).ne.0) allocate(indx_data_device%ixDomainType_subset(size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixDomainType_subset)%dat),nGRU))
-    if (size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat).ne.0) allocate(indx_data_device%ixStateType_subset(size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat),nGRU))
+    ! if (size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat).ne.0) allocate(indx_data_device%ixStateType_subset(size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat),nGRU))
     allocate(indx_data_device%ixMapFull2Subset(MAX(1,size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixMapFull2Subset)%dat)),nGRU))
     ! print*, size(indx_data%var(iLookINDEX%ixMapFull2Subset)%dat)
     allocate(indx_data_device%ixMapSubset2Full(MAX(1,size(indx_data%gru(1)%hru(1)%var(iLookINDEX%ixMapSubset2Full)%dat)),nGRU))
@@ -385,7 +385,7 @@ allocate(indx_data_device%nLayers_d(nGRU))
       if (allocated(indx_data_device%ixStateType)) indx_data_device%ixStateType(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType)%dat
       if (allocated(indx_data_device%ixHydType)) indx_data_device%ixHydType(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydType)%dat
       if (allocated(indx_data_device%ixDomainType_subset)) indx_data_device%ixDomainType_subset(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixDomainType_subset)%dat
-      if (allocated(indx_data_device%ixStateType_subset)) indx_data_device%ixStateType_subset(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat
+      !if (allocated(indx_data_device%ixStateType_subset)) indx_data_device%ixStateType_subset(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat
       if (allocated(indx_data_device%ixMapFull2Subset)) indx_data_device%ixMapFull2Subset(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixMapFull2Subset)%dat
       if (allocated(indx_data_device%ixMapSubset2Full)) indx_data_device%ixMapSubset2Full(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixMapSubset2Full)%dat
       if (allocated(indx_data_device%ixNrgOnly)) indx_data_device%ixNrgOnly(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgOnly)%dat
@@ -531,7 +531,7 @@ allocate(indx_data_device%nLayers_d(nGRU))
         indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSoilOnlyHyd)%dat(1) = indx_data_device%nSoil
         if (allocated(indx_data_device%ixHydType)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydType)%dat = indx_data_device%ixHydType(:,iGRU)
         if (allocated(indx_data_device%ixStateType)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType)%dat = indx_data_device%ixStateType(:,iGRU)
-        if (allocated(indx_data_device%ixStateType_subset)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat = indx_data_device%ixStateType_subset(:,iGRU)
+        !if (allocated(indx_data_device%ixStateType_subset)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType_subset)%dat = indx_data_device%ixStateType_subset(:,iGRU)
         if (allocated(indx_data_device%ixHydCanopy)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydCanopy)%dat = indx_data_device%ixHydCanopy(iGRU)
         if (allocated(indx_data_device%ixNrgCanopy)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgCanopy)%dat(1) = indx_data_device%ixNrgCanopy(iGRU)
         if (allocated(indx_data_device%ixMapSubset2Full)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixMapSubset2Full)%dat = indx_data_device%ixMapSubset2Full(:,iGRU)
@@ -584,7 +584,7 @@ allocate(indx_data_device%nLayers_d(nGRU))
   if (allocated(indx_data_device%ixSnowSoilHyd)) deallocate(indx_data_device%ixSnowSoilHyd)
   if (allocated(indx_data_device%ixHydType)) deallocate(indx_data_device%ixHydType)
   if (allocated(indx_data_device%ixStateType)) deallocate(indx_data_device%ixStateType)
-  if (allocated(indx_data_device%ixStateType_subset)) deallocate(indx_data_device%ixStateType_subset)
+  !if (allocated(indx_data_device%ixStateType_subset)) deallocate(indx_data_device%ixStateType_subset)
   if (allocated(indx_data_device%ixHydCanopy)) deallocate(indx_data_device%ixHydCanopy)
   if (allocated(indx_data_device%ixNrgCanopy)) deallocate(indx_data_device%ixNrgCanopy)
   if (allocated(indx_data_device%ixMapSubset2Full)) deallocate(indx_data_device%ixMapSubset2Full)
@@ -641,7 +641,7 @@ allocate(indx_data_device%nLayers_d(nGRU))
         if (allocated(indx_data_device%ixTopNrg)) deallocate(indx_data_device%ixTopNrg)
         if (allocated(indx_data_device%ixHydType)) deallocate(indx_data_device%ixHydType)
         if (allocated(indx_data_device%ixStateType)) deallocate(indx_data_device%ixStateType)
-        if (allocated(indx_data_device%ixStateType_subset)) deallocate(indx_data_device%ixStateType_subset)
+        !if (allocated(indx_data_device%ixStateType_subset)) deallocate(indx_data_device%ixStateType_subset)
         if (allocated(indx_data_device%ixHydCanopy)) deallocate(indx_data_device%ixHydCanopy)
         if (allocated(indx_data_device%ixNrgCanopy)) deallocate(indx_data_device%ixNrgCanopy)
         if (allocated(indx_data_device%ixMapSubset2Full)) deallocate(indx_data_device%ixMapSubset2Full)

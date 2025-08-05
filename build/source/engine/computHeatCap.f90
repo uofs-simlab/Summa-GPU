@@ -116,7 +116,7 @@ use device_data_types
     nSnowSoilNrg        => indx_data%nLayers_d         ,& ! intent(in) : [i4b]    number of energy state variables in the snow+soil domain
     nSnowSoilHyd        => indx_data%nLayers_d         ,& ! intent(in) : [i4b]    number of hydrology state variables in the snow+soil domain
     ! type of model state variabless
-    ixStateType_subset_m  => indx_data%ixStateType_subset       ,& ! intent(in) : [i4b(:)] [state subset] type of desired model state variables
+    ixStateType_subset_m  => indx_data%ixStateType       ,& ! intent(in) : [i4b(:)] [state subset] type of desired model state variables
     ! number of layers
     nLayers             => indx_data%nLayers_d               & ! intent(in) : [i4b]    total number of layers
     )  ! end association with variables in the data structures

@@ -160,7 +160,7 @@ subroutine popStateVec(&
     nSnowSoilNrg         => indx_data%nLayers_d       ,& ! intent(in) : [i4b]    number of energy state variables in the snow+soil domain
     nSnowSoilHyd         => indx_data%nLayers_d       ,& ! intent(in) : [i4b]    number of hydrology state variables in the snow+soil domain
     ! type of model state variabless
-    ixStateType_subset   => indx_data%ixStateType_subset     ,& ! intent(in) : [i4b(:)] [state subset] type of desired model state variables
+    ixStateType_subset   => indx_data%ixStateType     ,& ! intent(in) : [i4b(:)] [state subset] type of desired model state variables
     ixHydType            => indx_data%ixHydType              ,& ! intent(in) : [i4b(:)] index of the type of hydrology states in snow+soil domain
     ! number of layers
     nSnow                => indx_data%nSnow               ,& ! intent(in) : [i4b]    number of snow layers
@@ -329,7 +329,7 @@ subroutine getScaling(&
     nSnowSoilNrg        => indx_data%nLayers_d         ,& ! intent(in) : [i4b]    number of energy state variables in the snow+soil domain
     nSnowSoilHyd        => indx_data%nLayers_d         ,& ! intent(in) : [i4b]    number of hydrology state variables in the snow+soil domain
     ! type of model state variabless
-    ixStateType_subset_m  => indx_data%ixStateType_subset       ,& ! intent(in) : [i4b(:)] [state subset] type of desired model state variables
+    ixStateType_subset_m  => indx_data%ixStateType       ,& ! intent(in) : [i4b(:)] [state subset] type of desired model state variables
     ! number of layers
     nSnow               => indx_data%nSnow                 ,& ! intent(in) : [i4b]    number of snow layers
     nSoil               => indx_data%nSoil                 ,& ! intent(in) : [i4b]    number of soil layers
@@ -688,7 +688,7 @@ subroutine varExtract(&
     nSnowSoilNrg            => indx_data%nLayers_d         ,& ! intent(in):  [i4b]    number of energy state variables in the snow+soil domain
     nSnowSoilHyd            => indx_data%nLayers_d         ,& ! intent(in):  [i4b]    number of hydrology variables in the snow+soil domain
     ! indices defining type of model state variables
-    ixStateType_subset_m      => indx_data%ixStateType_subset       ,& ! intent(in):  [i4b(:)] [state subset] type of desired model state variables
+    ixStateType_subset_m      => indx_data%ixStateType       ,& ! intent(in):  [i4b(:)] [state subset] type of desired model state variables
     ixHydType_m               => indx_data%ixHydType                 & ! intent(in):  [i4b(:)] index of the type of hydrology states in snow+soil domain
     )! association with variables in the data structures
 
