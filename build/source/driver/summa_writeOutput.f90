@@ -248,7 +248,7 @@ contains
   call calcStats(bvarStat%gru(iGRU)%var,bvarStruct%gru(iGRU)%var,statBvar_meta,resetStats,finalizeStats,statCounter,err,cmessage)
   if(err/=0)then; message=trim(message)//trim(cmessage)//'[bvar stats]'; return; endif
   ! write basin-average variables
-  call writeBasin(iGRU,finalizeStats,outputTimeStep,bvar_meta,bvarStat%gru(iGRU)%var,bvarStruct%gru(iGRU)%var,bvarChild_map,err,cmessage)
+  ! call writeBasin(iGRU,finalizeStats,outputTimeStep,bvar_meta,bvarStat%gru(iGRU)%var,bvarStruct%gru(iGRU)%var,bvarChild_map,err,cmessage)
   if(err/=0)then; message=trim(message)//trim(cmessage)//'[bvar]'; return; endif
  end do  ! (looping through GRUs)
 
@@ -260,7 +260,7 @@ contains
  nHRUrun = sum(gru_struc%hruCount)
 
  ! write time information
- call writeTime(finalizeStats,outputTimeStep,time_meta,timeStruct%var,err,message)
+ ! call writeTime(finalizeStats,outputTimeStep,time_meta,timeStruct%var,err,message)
  ! write the model output to the NetCDF file
  ! Passes the full metadata structure rather than the stats metadata structure because
  !  we have the option to write out data of types other than statistics.
@@ -268,11 +268,11 @@ contains
  do iStruct=1,size(structInfo)
   !print*, trim(structInfo(iStruct)%structName)
   select case(trim(structInfo(iStruct)%structName))
-   case('forc'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,forc_meta,forcStat,forcStruct,forcChild_map,indxStruct,err,cmessage)
-   case('prog'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,prog_meta,progStat,progStruct,progChild_map,indxStruct,err,cmessage)
-   case('diag'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,diag_meta,diagStat,diagStruct,diagChild_map,indxStruct,err,cmessage)
-   case('flux'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,flux_meta,summa1_struc%fluxStat,summa1_struc%fluxStruct,fluxChild_map,indxStruct,err,cmessage)
-   case('indx'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,indx_meta,summa1_struc%indxStat,indxStruct,indxChild_map,indxStruct,err,cmessage)
+   !case('forc'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,forc_meta,forcStat,forcStruct,forcChild_map,indxStruct,err,cmessage)
+   !case('prog'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,prog_meta,progStat,progStruct,progChild_map,indxStruct,err,cmessage)
+   !case('diag'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,diag_meta,diagStat,diagStruct,diagChild_map,indxStruct,err,cmessage)
+   !case('flux'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,flux_meta,summa1_struc%fluxStat,summa1_struc%fluxStruct,fluxChild_map,indxStruct,err,cmessage)
+   !case('indx'); call writeData(finalizeStats,outputTimeStep,nHRUrun,maxLayers,indx_meta,summa1_struc%indxStat,indxStruct,indxChild_map,indxStruct,err,cmessage)
   end select
   if(err/=0)then; message=trim(message)//trim(cmessage)//'['//trim(structInfo(iStruct)%structName)//']'; return; endif
  end do  ! (looping through structures)

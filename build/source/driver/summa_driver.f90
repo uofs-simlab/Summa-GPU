@@ -141,8 +141,8 @@ contains
 ! call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
     !  end if
      ! write the model output
-!     call summa_writeOutputFiles(modelTimeStep, summa1_struc(n), err, message)
-!     call handle_err(err, message)
+     call summa_writeOutputFiles(modelTimeStep, summa1_struc(n), err, message)
+     call handle_err(err, message)
   
    end do  ! end looping through time
    call deallocate_device_diag_data(summa1_struc(n)%diagStruct_d)
