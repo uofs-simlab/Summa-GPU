@@ -139,7 +139,7 @@ subroutine computJacobWithPrime(&
   integer(i4b),intent(in)              :: nSoil                      ! number of soil layers
   integer(i4b),intent(in),device              :: nLayers(:)                    ! total number of layers in the snow+soil domain
   integer(i4b),intent(in) :: nGRU
-  logical(lgt),intent(in)              :: computeVegFlux             ! flag to indicate if computing fluxes over vegetation
+  logical(lgt),intent(in),device              :: computeVegFlux(:)             ! flag to indicate if computing fluxes over vegetation
   logical(lgt),intent(in)              :: computeBaseflow            ! flag to indicate if computing baseflow
   integer(i4b),intent(in)              :: ixMatrix                   ! form of the Jacobian matrix
   real(rkind),intent(in),device               :: specificStorage            ! specific storage coefficient (m-1)
@@ -398,10 +398,11 @@ subroutine computJacobWithPrime(&
         ! -----
         ! * energy and liquid fluxes over vegetation...
         ! ---------------------------------------------
-        if(computeVegFlux)then  ! (derivatives only defined when vegetation protrudes over the surface)
 
           !$cuf kernel do(1) <<<*,*>>>
           do iGRU=1,nGRU
+                    if(computeVegFlux(iGRU))then  ! (derivatives only defined when vegetation protrudes over the surface)
+
           ! * energy fluxes with the canopy water
           if(ixVegHyd(iGRU)/=integerMissing)then
 
@@ -449,9 +450,10 @@ subroutine computJacobWithPrime(&
             if(ixCasNrg(iGRU)/=integerMissing) aJac(ixTopNrg(iGRU),ixCasNrg(iGRU),iGRU) = (dt/mLayerDepth(1,iGRU))*(-dGroundNetFlux_dCanairTemp(iGRU))
             if(ixVegNrg(iGRU)/=integerMissing) aJac(ixTopNrg(iGRU),ixVegNrg(iGRU),iGRU) = (dt/mLayerDepth(1,iGRU))*(-dGroundNetFlux_dCanopyTemp(iGRU))
           endif
+                  endif  ! if there is a need to compute energy fluxes within vegetation
+
         end do
 
-        endif  ! if there is a need to compute energy fluxes within vegetation
     
         ! -----
         ! * energy fluxes for the snow+soil domain...
@@ -680,7 +682,7 @@ subroutine computJacobWithPrime(&
           if(nSnow(iGRU)>0)then !have snow above first soil layer
             if(ixSnowOnlyHyd_m(nSnow(iGRU),iGRU)/=integerMissing .and. ixSoilOnlyHyd_m(1,iGRU)/=integerMissing) aJac(ixSoilOnlyHyd_m(1,iGRU),ixSnowOnlyHyd_m(nSnow(iGRU),iGRU),iGRU) = -(dt/mLayerDepth(1+nSnow(iGRU),iGRU))*dq_dHydStateLayerSurfVec(0,iGRU)
             ! print*, iGRU, aJac(ixSoilOnlyHyd_m(1,iGRU),ixSnowOnlyHyd(nSnow),iGRU)
-          elseif(computeVegFlux)then !have vegetation above first soil layer, ixTopHyd = ixSoilOnlyHyd_m(1,iGRU)
+          elseif(computeVegFlux(iGRU))then !have vegetation above first soil layer, ixTopHyd = ixSoilOnlyHyd_m(1,iGRU)
             if(ixVegHyd(iGRU)/=integerMissing .and. ixTopHyd(iGRU)/=integerMissing) aJac(ixTopHyd(iGRU),ixVegHyd(iGRU),iGRU) = -(dt/mLayerDepth(1+nSnow(iGRU),iGRU))*dq_dHydStateLayerSurfVec(0,iGRU) + aJac(ixTopHyd(iGRU),ixVegHyd(iGRU),iGRU)
           endif
         end do
@@ -698,7 +700,7 @@ subroutine computJacobWithPrime(&
             if(ixSoilOnlyNrg_m(nSoil,iGRU)/=integerMissing) aJac(ixAqWat(iGRU),ixSoilOnlyNrg_m(nSoil,iGRU),iGRU) = -dq_dNrgStateAbove(nSoil,iGRU)*dt ! dAquiferRecharge_dTk  = d_iLayerLiqFluxSoil(nSoil)_dTk
             if(ixSoilOnlyHyd_m(nSoil,iGRU)/=integerMissing) aJac(ixAqWat(iGRU),ixSoilOnlyHyd_m(nSoil,iGRU),iGRU) = -dq_dHydStateAbove(nSoil,iGRU)*dt ! dAquiferRecharge_dWat = d_iLayerLiqFluxSoil(nSoil)_dWat
             ! - include derivatives of energy and water w.r.t soil transpiration (dependent on canopy transpiration)
-            if(computeVegFlux)then
+            if(computeVegFlux(iGRU))then
               if(ixCasNrg(iGRU)/=integerMissing) aJac(ixAqWat(iGRU),ixCasNrg(iGRU),iGRU) = -dAquiferTrans_dTCanair(iGRU)*dt ! dVol/dT (K-1)
               if(ixVegNrg(iGRU)/=integerMissing) aJac(ixAqWat(iGRU),ixVegNrg(iGRU),iGRU) = -dAquiferTrans_dTCanopy(iGRU)*dt ! dVol/dT (K-1)
               if(ixVegHyd(iGRU)/=integerMissing) aJac(ixAqWat(iGRU),ixVegHyd(iGRU),iGRU) = -dAquiferTrans_dCanWat(iGRU)*dt  ! dVol/dLiq (kg m-2)-1
@@ -745,7 +747,7 @@ subroutine computJacobWithPrime(&
 
               ! - include derivatives of energy w.r.t. ground evaporation
               if(nSnow(iGRU)==0 .and. iLayer==1)then  ! upper-most soil layer
-                if(computeVegFlux)then
+                if(computeVegFlux(iGRU))then
                   if(ixCasNrg(iGRU)/=integerMissing) aJac(ixTopHyd(iGRU),ixCasNrg(iGRU),iGRU) = (dt/mLayerDepth(jLayer,iGRU))*(-dGroundEvaporation_dTCanair(iGRU)/iden_water) ! dVol/dT (K-1)
                   if(ixVegNrg(iGRU)/=integerMissing) aJac(ixTopHyd(iGRU),ixVegNrg(iGRU),iGRU) = (dt/mLayerDepth(jLayer,iGRU))*(-dGroundEvaporation_dTCanopy(iGRU)/iden_water) + aJac(ixTopHyd(iGRU),ixVegNrg(iGRU),iGRU) ! dVol/dT (K-1)
                   if(ixVegHyd(iGRU)/=integerMissing) aJac(ixTopHyd(iGRU),ixVegHyd(iGRU),iGRU) = (dt/mLayerDepth(jLayer,iGRU))*(-dGroundEvaporation_dCanWat(iGRU)/iden_water)  + aJac(ixTopHyd(iGRU),ixVegHyd(iGRU),iGRU) ! dVol/dLiq (kg m-2)-1
@@ -754,7 +756,7 @@ subroutine computJacobWithPrime(&
               endif
 
               ! - include derivatives of energy and water w.r.t soil transpiration (dependent on canopy transpiration)
-              if(computeVegFlux)then
+              if(computeVegFlux(iGRU))then
                 if(ixCasNrg(iGRU)/=integerMissing) aJac(watState,ixCasNrg(iGRU),iGRU) = (dt/mLayerDepth(jLayer,iGRU))*(-mLayerdTrans_dTCanair(iLayer,iGRU)) + aJac(watState,ixCasNrg(iGRU),iGRU) ! dVol/dT (K-1)
                 if(ixVegNrg(iGRU)/=integerMissing) aJac(watState,ixVegNrg(iGRU),iGRU) = (dt/mLayerDepth(jLayer,iGRU))*(-mLayerdTrans_dTCanopy(iLayer,iGRU)) + aJac(watState,ixVegNrg(iGRU),iGRU) ! dVol/dT (K-1)
                 if(ixVegHyd(iGRU)/=integerMissing) aJac(watState,ixVegHyd(iGRU),iGRU) = (dt/mLayerDepth(jLayer,iGRU))*(-mLayerdTrans_dCanWat(iLayer,iGRU))  + aJac(watState,ixVegHyd(iGRU),iGRU) ! dVol/dLiq (kg m-2)-1
@@ -815,7 +817,7 @@ subroutine computJacobWithPrime(&
         do iGRU=1,nGRU
           if(nSnow(iGRU)>0)then !have snow above first soil layer
             if(ixSnowOnlyNrg_m(nSnow(iGRU),iGRU)/=integerMissing .and. ixSoilOnlyHyd_m(1,iGRU)/=integerMissing) aJac(ixSoilOnlyHyd_m(1,iGRU),ixSnowOnlyNrg_m(nSnow(iGRU),iGRU),iGRU) = -(dt/mLayerDepth(1+nSnow(iGRU),iGRU))*dq_dNrgStateLayerSurfVec(0,iGRU)
-          elseif(computeVegFlux)then !have vegetation above first soil layer, ixTopHyd = ixSoilOnlyHyd_m(1,iGRU)
+          elseif(computeVegFlux(iGRU))then !have vegetation above first soil layer, ixTopHyd = ixSoilOnlyHyd_m(1,iGRU)
             if(ixVegNrg(iGRU)/=integerMissing .and. ixTopHyd(iGRU)/=integerMissing) aJac(ixTopHyd(iGRU),ixVegNrg(iGRU),iGRU) = -(dt/mLayerDepth(1+nSnow(iGRU),iGRU))*dq_dNrgStateLayerSurfVec(0,iGRU) + aJac(ixTopHyd(iGRU),ixVegNrg(iGRU),iGRU)
           endif
         end do

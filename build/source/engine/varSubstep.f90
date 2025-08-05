@@ -103,6 +103,7 @@ subroutine varSubstep(&
                       ! input: model control
                       in_varSubstep,     & ! intent(in)    : model control
                       nGRU, &
+                      computeVegFlux, &
                       io_varSubstep,     & ! intent(inout) : model control
                       ! input/output: data structures
                       model_decisions,   & ! intent(in)    : model decisions
@@ -138,6 +139,7 @@ subroutine varSubstep(&
   ! ---------------------------------------------------------------------------------------
   ! input: model control
   type(in_type_varSubstep),intent(in)    :: in_varSubstep             ! model control
+  logical(lgt),device :: computeVegFlux(:)
   type(io_type_varSubstep),intent(inout) :: io_varSubstep             ! model control
   ! input/output: data structures
   type(model_options),intent(in)         :: model_decisions(:)        ! model decisions
@@ -230,7 +232,7 @@ subroutine varSubstep(&
     nState         => in_varSubstep % nSubset,        & ! intent(in): total number of state variables
     doAdjustTemp   => in_varSubstep % doAdjustTemp,   & ! intent(in): flag to indicate if we adjust the temperature
     firstSubStep   => in_varSubstep % firstSubStep,   & ! intent(in): flag to indicate if processing the first sub-step
-    computeVegFlux => in_varSubstep % computeVegFlux, & ! intent(in): flag to indicate if computing fluxes over vegetation (.false. means veg is buried with snow)
+    ! computeVegFlux => in_varSubstep % computeVegFlux, & ! intent(in): flag to indicate if computing fluxes over vegetation (.false. means veg is buried with snow)
     scalarSolution => in_varSubstep % scalarSolution, & ! intent(in): flag to denote implementing the scalar solution
     iStateSplit    => in_varSubstep % iStateSplit,    & ! intent(in): index of the state in the splitting operation
     fluxMask       => in_varSubstep % fluxMask,       & ! intent(in): flags to denote if the flux is calculated in the given state subset
@@ -837,7 +839,7 @@ USE getVectorz_module,only:varExtract                              ! extract var
   integer(i4b),device     ,intent(in)    :: nLayers(:)                       ! total number of layers
   integer(i4b) :: nGRU
   logical(lgt)     ,intent(in)    :: doAdjustTemp                  ! flag to indicate if we adjust the temperature
-  logical(lgt)     ,intent(in)    :: computeVegFlux                ! flag to compute the vegetation flux
+  logical(lgt)     ,intent(in),device    :: computeVegFlux(:)                ! flag to compute the vegetation flux
   real(rkind),device      ,intent(in)    :: untappedMelt(:,:)               ! un-tapped melt energy (J m-3 s-1)
   real(rkind),device      ,intent(in)    :: stateVecTrial(:,:)              ! trial state vector (mixed units)
   real(rkind),device      ,intent(in)    :: stateVecPrime(:,:)              ! trial state vector (mixed units)

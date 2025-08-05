@@ -185,13 +185,153 @@ subroutine computSnowDepth_d(&
   integer(i4b)                         :: iSnow                  ! index of snow layers
   real(rkind)                          :: massLiquid             ! mass liquid water (kg m-2)
   integer(i4b) :: iGRU
+  logical(lgt),device :: tooMuchSublim_d
+  type(dim3) :: threads, blocks
   ! * compute change in ice content of the top snow layer due to sublimation...
   ! ---------------------------------------------------------------------------
   ! initialize the flags
-  tooMuchSublim=.false.  ! too much sublimation (merge snow layers)
-  !$cuf kernel do(1) <<<*,*>>> reduce(.or.:tooMuchSublim)
-  do iGRU=1,nGRU
-  ! NOTE: this is done BEFORE densification
+  tooMuchSublim_d=.false.  ! too much sublimation (merge snow layers)
+              threads = dim3(128,1,1)
+            blocks = dim3(nGRU/128+1,1,1)
+
+  call computSnowDepth_kernel<<<blocks,threads>>>( &
+      nGRU, &
+      nSnow, &
+      mLayerDepth, &
+      mLayerVolFracLiq, &
+      mLayerVolFracIce, &
+      scalarSnowSublimation, &
+      dt_sub, &
+      tooMuchSublim_d, &
+      mLayerTemp, &
+      mLayerMeltFreeze, &
+      mpar_data%densScalGrowth, &
+mpar_data%tempScalGrowth, &
+mpar_data%grainGrowthRate, &
+mpar_data%densScalOvrbdn, &
+mpar_data%tempScalOvrbdn, &
+mpar_data%baseViscosity)
+tooMuchSublim = tooMuchSublim_d
+!   !$cuf kernel do(1) <<<*,*>>> reduce(.or.:tooMuchSublim)
+!   do iGRU=1,nGRU
+!   ! NOTE: this is done BEFORE densification
+!   if(nSnow(iGRU) > 0)then ! snow layers exist
+!     ! try to remove ice from the top layer
+!     iSnow=1
+
+!     ! save the mass of liquid water (kg m-2)
+!     massLiquid = mLayerDepth(iSnow,iGRU)*mLayerVolFracLiq(iSnow,iGRU)*iden_water
+
+!     ! add/remove the depth of snow gained/lost by frost/sublimation (m)
+!     ! NOTE: assume constant density
+!     mLayerDepth(iSnow,iGRU) = mLayerDepth(iSnow,iGRU) + scalarSnowSublimation(iGRU)/(mLayerVolFracIce(iSnow,iGRU)*iden_ice)
+
+!     ! check that we did not remove the entire layer
+!     if(mLayerDepth(iSnow,iGRU) < verySmall)then
+!       tooMuchSublim=.true.
+!       ! return
+!     endif
+
+!     ! update the volumetric fraction of liquid water
+!     mLayerVolFracLiq(iSnow,iGRU) = massLiquid / (mLayerDepth(iSnow,iGRU)*iden_water)
+
+!   ! no snow
+!   else
+
+!     ! no snow: check that sublimation is zero
+!     if(abs(scalarSnowSublimation(iGRU)/dt_sub) > verySmall)then
+!       ! message=trim(message)//'sublimation of snow has been computed when no snow exists'
+!       ! err=20; return
+!     end if
+
+!   end if  ! (if snow layers exist)
+! end do
+
+
+! if (tooMuchSublim) return
+
+!   ! *** account for compaction and cavitation in the snowpack...
+!   ! ------------------------------------------------------------
+! associate(densScalGrowth => mpar_data%densScalGrowth, &
+!   tempScalGrowth => mpar_data%tempScalGrowth, &
+!   grainGrowthRate => mpar_data%grainGrowthRate, &
+!   densScalOvrbdn => mpar_data%densScalOvrbdn, &
+!   tempScalOvrbdn => mpar_data%tempScalOvrbdn, &
+!   baseViscosity => mpar_data%baseViscosity)
+! ! !$cuf kernel do(1) <<<*,*>>>
+! do iGRU=1,nGRU
+! !   if(nSnow(iGRU)>0)then
+!     ! print*, nSnow(iGRU)
+!     call snwDensify_d<<<1,1>>>(&
+!                     ! intent(in): variables
+!                     dt_sub,                                            & ! intent(in): time step (s)
+!                     nSnow(iGRU),                                             & ! intent(in): number of snow layers
+!                     mLayerTemp(:,iGRU),                               & ! intent(in): temperature of each layer (K)
+!                     mLayerMeltFreeze(:,iGRU),                         & ! intent(in): volumetric melt in each layer (kg m-3)
+!                     ! intent(in): parameters
+!                     densScalGrowth,   & ! intent(in): density scaling factor for grain growth (kg-1 m3)
+!                     tempScalGrowth,   & ! intent(in): temperature scaling factor for grain growth (K-1)
+!                     grainGrowthRate,  & ! intent(in): rate of grain growth (s-1)
+!                     densScalOvrbdn,   & ! intent(in): density scaling factor for overburden pressure (kg-1 m3)
+!                     tempScalOvrbdn,   & ! intent(in): temperature scaling factor for overburden pressure (K-1)
+!                     baseViscosity,    & ! intent(in): viscosity coefficient at T=T_frz and snow density=0 (kg m-2 s)
+!                     ! intent(inout): state variables
+!                     mLayerDepth(:,iGRU),                              & ! intent(inout): depth of each layer (m)
+!                     mLayerVolFracLiq(:,iGRU),                         & ! intent(inout):  volumetric fraction of liquid water after itertations (-)
+!                     mLayerVolFracIce(:,iGRU)                         & ! intent(inout):  volumetric fraction of ice after itertations (-)
+!                     ! output: error control
+!                     )                     ! intent(out): error control
+!     ! if(err/=0)then; err=55; message=trim(message)//trim(cmessage); return; end if
+!   ! end if  ! if snow layers exist
+! end do
+! end associate
+
+end subroutine computSnowDepth_d
+
+attributes(global) subroutine computSnowDepth_kernel( &
+      nGRU, &
+      nSnow, &
+      mLayerDepth, &
+      mLayerVolFracLiq, &
+      mLayerVolFracIce, &
+      scalarSnowSublimation, &
+      dt_sub, &
+      tooMuchSublim, &
+      mLayerTemp, &
+      mLayerMeltFreeze, &
+      densScalGrowth, &
+tempScalGrowth, &
+grainGrowthRate, &
+densScalOvrbdn, &
+tempScalOvrbdn, &
+baseViscosity)
+  USE snwDensify_module,only:snwDensify_d      ! snow densification (compaction and cavitation)
+
+  integer(i4b), value :: nGRU
+  integer(i4b) :: nSnow(:)
+  real(rkind) :: mLayerDepth(:,:)
+  real(rkind) :: mLayerVolFracLiq(:,:)
+  real(rkind) :: mLayerVolFracIce(:,:)
+  real(rkind) :: scalarSnowSublimation(:)
+  real(rkind) :: dt_sub
+  logical(lgt) :: tooMuchSublim
+  real(rkind) :: mLayerTemp(:,:)
+  real(rkind) :: mLayerMeltFreeze(:,:)
+  real(rkind) :: densScalGrowth
+  real(rkind) :: tempScalGrowth
+  real(rkind) :: grainGrowthRate
+  real(rkind) :: densScalOvrbdn
+  real(rkind) :: tempScalOvrbdn
+  real(rkind) :: baseViscosity
+  
+
+  integer(i4b) :: iGRU
+  integer(i4b) :: iSnow
+  real(rkind) :: massLiquid
+  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  if (iGRU .gt. nGRU) return
+
+    ! NOTE: this is done BEFORE densification
   if(nSnow(iGRU) > 0)then ! snow layers exist
     ! try to remove ice from the top layer
     iSnow=1
@@ -222,23 +362,11 @@ subroutine computSnowDepth_d(&
     end if
 
   end if  ! (if snow layers exist)
-end do
+call syncthreads()
 
-if (tooMuchSublim) return
+  if (tooMuchSublim) return
 
-  ! *** account for compaction and cavitation in the snowpack...
-  ! ------------------------------------------------------------
-associate(densScalGrowth => mpar_data%densScalGrowth, &
-  tempScalGrowth => mpar_data%tempScalGrowth, &
-  grainGrowthRate => mpar_data%grainGrowthRate, &
-  densScalOvrbdn => mpar_data%densScalOvrbdn, &
-  tempScalOvrbdn => mpar_data%tempScalOvrbdn, &
-  baseViscosity => mpar_data%baseViscosity)
-! !$cuf kernel do(1) <<<*,*>>>
-do iGRU=1,nGRU
-!   if(nSnow(iGRU)>0)then
-    ! print*, nSnow(iGRU)
-    call snwDensify_d<<<1,1>>>(&
+  call snwDensify_d(&
                     ! intent(in): variables
                     dt_sub,                                            & ! intent(in): time step (s)
                     nSnow(iGRU),                                             & ! intent(in): number of snow layers
@@ -257,13 +385,10 @@ do iGRU=1,nGRU
                     mLayerVolFracIce(:,iGRU)                         & ! intent(inout):  volumetric fraction of ice after itertations (-)
                     ! output: error control
                     )                     ! intent(out): error control
-    ! if(err/=0)then; err=55; message=trim(message)//trim(cmessage); return; end if
-  ! end if  ! if snow layers exist
-end do
-end associate
 
-end subroutine computSnowDepth_d
 
+
+end subroutine
 
 end module computSnowDepth_module
 

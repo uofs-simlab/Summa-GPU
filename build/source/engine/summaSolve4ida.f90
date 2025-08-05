@@ -180,7 +180,7 @@ subroutine summaSolve4ida(&
   integer(i4b),intent(in)         :: nStat                  ! total number of state variables
   integer(i4b),intent(in)         :: ixMatrix               ! form of matrix (dense or banded)
   logical(lgt),intent(in)         :: firstSubStep           ! flag to indicate if we are processing the first sub-step
-  logical(lgt),intent(in)         :: computeVegFlux         ! flag to indicate if computing fluxes over vegetation
+  logical(lgt),intent(in),device         :: computeVegFlux(:)         ! flag to indicate if computing fluxes over vegetation
   logical(lgt),intent(in)         :: scalarSolution         ! flag to denote if implementing the scalar solution
   logical(lgt),intent(in)         :: computMassBalance      ! flag to compute mass balance
   logical(lgt),intent(in)         :: computNrgBalance       ! flag to compute energy balance
@@ -495,6 +495,7 @@ subroutine summaSolve4ida(&
       dt_diff = tret(1) - tretPrev
       nSteps = nSteps + 1 ! number of time steps taken in solver
     
+      ! print*, tret
       ! check the feasibility of the solution
       feasible=.true.
       call checkFeas(&
@@ -558,7 +559,7 @@ subroutine summaSolve4ida(&
       ! Restart for where vegetation and layers cross freezing point
       if(detect_events)then
         if (retvalr .eq. IDA_ROOT_RETURN) then ! IDASolve succeeded and found one or more roots at tret(1)
-          print*, tret
+          ! print*, tret
           ! rootsfound[i]= +1 indicates that gi is increasing, -1 g[i] decreasing, 0 no root
           !retval = FIDAGetRootInfo(ida_mem, rootsfound)
           !if (retval < 0) then; err=20; message=trim(message)//'error in FIDAGetRootInfo'; return; endif

@@ -80,7 +80,7 @@ contains
  ! --------------------------------------------------------------------------------------------------------------------------------
  ! --------------------------------------------------------------------------------------------------------------------------------
  ! input
- logical(lgt),intent(in)         :: computeVegFlux         ! flag to denote if computing the vegetation flux
+ logical(lgt),intent(in),device         :: computeVegFlux(:)         ! flag to denote if computing the vegetation flux
  logical(lgt),intent(in)         :: includeAquifer         ! flag to denote if an aquifer is included
  integer(i4b),intent(in)         :: nSoil,nGRU    ! number of snow and soil layers, and total number of layers
  integer(i4b),intent(in),device :: nSnow(:),nLayers(:)
@@ -135,7 +135,7 @@ contains
  ! define the number of vegetation state variables (defines position of snow-soil states in the state vector)
  !$cuf kernel do(1) <<<*,*>>>
  do iGRU=1,nGRU
- if(computeVegFlux)then
+ if(computeVegFlux(iGRU))then
   nCasNrg(iGRU)   = 1
   nVegNrg(iGRU)   = 1
   nVegMass(iGRU)  = 1
@@ -164,7 +164,7 @@ contains
  ! -----------------------------------------------------------------------
 
  ! define indices in the vegetation domain
- if(computeVegFlux)then
+ if(computeVegFlux(iGRU))then
   ixNrgCanair(iGRU) = 1 ! indices IN THE FULL VECTOR for energy states in canopy air space domain  (-)
   ixNrgCanopy(iGRU) = 2 ! indices IN THE FULL VECTOR for energy states in the canopy domain        (-)
   ixHydCanopy(iGRU) = 3 ! indices IN THE FULL VECTOR for hydrology states in the canopy domain     (-)
@@ -283,7 +283,7 @@ end do
 
 
  ! define the state type for the vegetation canopy
- if(computeVegFlux)then
+ if(computeVegFlux(iGRU))then
   ixStateType(ixNrgCanair(iGRU),iGRU) = iname_nrgCanair
   ixStateType(ixNrgCanopy(iGRU),iGRU) = iname_nrgCanopy
   ixStateType(ixHydCanopy(iGRU),iGRU) = iname_watCanopy
@@ -302,7 +302,7 @@ end do
  ! define the state type for the aquifer
  if(includeAquifer) ixStateType( ixWatAquifer(iGRU),iGRU ) = iname_watAquifer
  ! define the domain type for vegetation
- if(computeVegFlux)then
+ if(computeVegFlux(iGRU))then
   ixDomainType(ixNrgCanair(iGRU),iGRU) = iname_cas
   ixDomainType(ixNrgCanopy(iGRU),iGRU) = iname_veg
   ixDomainType(ixHydCanopy(iGRU),iGRU) = iname_veg
@@ -325,7 +325,7 @@ end do
  if(includeAquifer) ixDomainType( ixWatAquifer(iGRU),iGRU ) = iname_aquifer
 
  ! define the index of each control volume in the vegetation domains
- if(computeVegFlux)then
+ if(computeVegFlux(iGRU))then
   ixControlVolume(ixNrgCanair(iGRU),iGRU) = 1  ! NOTE: assumes scalar
   ixControlVolume(ixNrgCanopy(iGRU),iGRU) = 1
   ixControlVolume(ixHydCanopy(iGRU),iGRU) = 1

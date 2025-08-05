@@ -102,7 +102,7 @@ contains
  use device_data_types
  ! --------------------------------------------------------------------------------------------------------------------------------------
  ! input: model control
- logical(lgt),intent(in)         :: computeVegFlux         ! logical flag to denote if computing the vegetation flux
+ logical(lgt),intent(in),device         :: computeVegFlux(:)         ! logical flag to denote if computing the vegetation flux
  integer(i4b) :: nGRU
  real(rkind),intent(in),device          :: canopyDepth(:)            ! depth of the vegetation canopy (m)
  type(decisions_device) :: decisions
@@ -187,7 +187,7 @@ contains
  ! compute the bulk volumetric heat capacity of vegetation (J m-3 K-1)
  !$cuf kernel do(1) <<<*,*>>>
  do iGRU=1,nGRU
- if(computeVegFlux)then
+ if(computeVegFlux(iGRU))then
   scalarBulkVolHeatCapVeg(iGRU) = specificHeatVeg*maxMassVegetation/canopyDepth(iGRU) + & ! vegetation component
                             Cp_water*scalarCanopyLiquid(iGRU)/canopyDepth(iGRU)       + & ! liquid water component
                             Cp_ice*scalarCanopyIce(iGRU)/canopyDepth(iGRU)                ! ice component

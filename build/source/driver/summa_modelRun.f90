@@ -78,7 +78,7 @@ contains
  integer(i4b)                          :: iHRU                  ! HRU index
  integer(i4b)                          :: iGRU,jGRU,kGRU        ! GRU indices
  ! local variables: veg phenology
- logical(lgt)                          :: computeVegFluxFlag    ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+!  logical(lgt)                          :: computeVegFluxFlag    ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
  real(rkind)                              :: notUsed_canopyDepth   ! NOT USED: canopy depth (m)
  real(rkind)                              :: notUsed_exposedVAI    ! NOT USED: exposed vegetation area index (m2 m-2)
  ! local variables: parallelize the model run
@@ -93,7 +93,7 @@ contains
 !  type(flux_data_device) :: fluxStruct_d
 !  type(bvar_data_device) :: bvarStruct_d
 !  integer(i4b) :: nLayers, nSoil, nSnow
- logical(lgt),device :: computeVegFluxFlag_d(summa1_struc%nGRU)
+ logical(lgt),device :: computeVegFluxFlag(summa1_struc%nGRU)
 
 !  integer(i4b) :: nGRU2 = 1
  integer(i4b) :: im
@@ -141,6 +141,7 @@ yearLength_d = yearLength
  ! *******************************************************************************************
     ! call allocate_device_indx_data(summa1_struc%indxStruct_d,summa1_struc%indxStruct,summa1_struc%nGRU)
 
+ print*, 'modelrun', 144
  ! if computeVegFlux changes, then the number of state variables changes, and we need to reoranize the data structures
  if(modelTimeStep==1)then
 
@@ -160,24 +161,39 @@ yearLength_d = yearLength
                     diagStruct, & ! intent(inout): model diagnostic variables for a local HRU
                     summa1_struc%decisions, summa1_struc%veg_param, &
                     ! output
-                    computeVegFluxFlag_d,             & ! intent(out): flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+                    computeVegFluxFlag,             & ! intent(out): flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
                     notUsed_canopyDepth_d,            & ! intent(out): NOT USED: canopy depth (m)
                     notUsed_exposedVAI_d,             & ! intent(out): NOT USED: exposed vegetation area index (m2 m-2)
                     err,cmessage)                     ! intent(out): error control
     if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+    err = cudaDeviceSynchronize()
 
+    print*, 'modelrun', 170
     !$cuf kernel do(1) <<<*,*>>>
     do iGRU=1,summa1_struc%nGRU
-        computeVegFluxFlag = computeVegFLuxFlag .or. computeVegFLuxFlag_d(iGRU)
+        ! computeVegFluxFlag = computeVegFLuxFlag .or. computeVegFLuxFlag_d(iGRU)
     end do
-  do iGRU=1,nGRU
+        err = cudaDeviceSynchronize()
+
+    print*, 'modelrun', 170
+
+    ! print*, computeVegFluxFlag
+  do iGRU=1,summa1_struc%nGRU
+    print*, iGRU, nGRU
+
+    print*, computeVegFlux%gru(iGRU)
 
     ! save the flag for computing the vegetation fluxes
-    if(computeVegFluxFlag)      computeVegFlux%gru(iGRU)%hru(iHRU) = yes
-    if(.not.computeVegFluxFlag) computeVegFlux%gru(iGRU)%hru(iHRU) = no
+    ! if(computeVegFluxFlag)      computeVegFlux%gru(iGRU)%hru(iHRU) = yes
+    ! if(.not.computeVegFluxFlag) computeVegFlux%gru(iGRU)%hru(iHRU) = no
 
 
   end do  ! looping through GRUs
+        err = cudaDeviceSynchronize()
+
+    print*, 'modelrun', 191
+
+    ! print*, computeVegFluxFlag
 
     ! define the green vegetation fraction of the grid box (used to compute LAI)
     im = timeStruct%var(iLookTIME%im)
@@ -187,11 +203,18 @@ yearLength_d = yearLength
         scalarGreenVegFraction(jGRU) = greenVegFrac_monthly(im)
     end do
     end associate
+            err = cudaDeviceSynchronize()
+
+    print*, 'modelrun', 205
+
+    ! print*, computeVegFluxFlag
+
     ! diagStruct%gru(iGRU)%hru(iHRU)%var(iLookDIAG%scalarGreenVegFraction)%dat(1) = greenVegFrac_monthly(timeStruct%var(iLookTIME%im))
  end if  ! if the first time step
  ! ****************************************************************************
  ! *** model simulation
  ! ****************************************************************************
+ print*, 'modelrun', 196
 
  ! initialize the start of the physics
  call date_and_time(values=startPhysics)
@@ -262,13 +285,14 @@ yearLength_d = yearLength
   iGRU = ixExpense(kGRU)
   ! get the time that the GRU started
   call system_clock( timeGRUstart(iGRU) )
+ print*, 'modelrun', 267
 
   !----- run simulation for a single GRU ----------------------------------------
   call run_oneGRU(&
                   ! model control
                   gru_struc(iGRU),              & ! intent(inout): HRU information for given GRU (# HRUs, #snow+soil layers)
                   summa1_struc%dt_init%gru(iGRU)%hru,        & ! intent(inout): used to initialize the length of the sub-step for each HRU
-                  summa1_struc%computeVegFlux%gru(iGRU)%hru, & ! intent(inout): flag to indicate if we are computing fluxes over vegetation (false=no, true=yes)
+                  computeVegFluxFlag, & ! intent(inout): flag to indicate if we are computing fluxes over vegetation (false=no, true=yes)
                   ! data structures (input)
                   summa1_struc%timeStruct%var,               & ! intent(in):    model time data
                   typeStruct,         & ! intent(in):    local classification of soil veg etc. for each HRU
@@ -304,6 +328,7 @@ yearLength_d = yearLength
 
  ! aggregate the elapsed time for the physics
  elapsedPhysics = elapsedPhysics + elapsedSec(startPhysics, endPhysics)
+ print*, 'modelrun', 310
 
  ! deallocate space used to determine the GRU computational expense
  deallocate(ixExpense, timeGRU, stat=err)

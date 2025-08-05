@@ -68,7 +68,7 @@ module vegLiqFlux_module
                       use device_data_types
     implicit none
     ! input
-    logical(lgt)        :: computeVegFlux                  ! model control, trial value, and rainfall rate
+    logical(lgt),device        :: computeVegFlux(:)                  ! model control, trial value, and rainfall rate
     real(rkind),intent(in),device :: scalarCanopyLiqTrial(:)
     ! input-output: data structures
     type(indx_data_device) :: indx_data
@@ -105,21 +105,22 @@ module vegLiqFlux_module
       err=0; message="vegLiqFlux/"
   
       ! set throughfall to inputs if vegetation is completely buried with snow
-      if (.not.computeVegFlux) then
         !$cuf kernel do(1) <<<*,*>>>
         do iGRU=1,nGRU
+                if (.not.computeVegFlux(iGRU)) then
+
           if (ixVegHyd(iGRU)/=integerMissing) then
           scalarThroughfallRain(iGRU)        = scalarRainfall(iGRU)
           scalarCanopyLiqDrainage(iGRU)      = 0._rkind
           scalarThroughfallRainDeriv(iGRU)   = 0._rkind
           scalarCanopyLiqDrainageDeriv(iGRU) = 0._rkind
           end if
-        end do
-        return
-      end if
+        else 
+      !   end do
+      ! end if
   
-      !$cuf kernel do(1) <<<*,*>>>
-      do iGRU=1,nGRU
+      ! !$cuf kernel do(1) <<<*,*>>>
+      ! do iGRU=1,nGRU
         if (ixVegHyd(iGRU)/=integerMissing) then
   
       ! compute throughfall
@@ -156,6 +157,7 @@ module vegLiqFlux_module
         scalarCanopyLiqDrainageDeriv(iGRU)  = 0._rkind
       end if
     endif
+  end if
       enddo
   
     end associate ! end association of local variables with information in the data structures

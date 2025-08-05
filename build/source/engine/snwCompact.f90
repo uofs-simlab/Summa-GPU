@@ -200,7 +200,7 @@ contains
 
  end subroutine snwDensify
 
- attributes(global) subroutine snwDensify_d(&
+ attributes(device) subroutine snwDensify_d(&
                        ! intent(in): variables
                        dt,                             & ! intent(in): time step (s)
                        nSnow,                          & ! intent(in): number of snow layers

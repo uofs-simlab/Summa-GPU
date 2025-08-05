@@ -131,7 +131,7 @@ subroutine eval8summaWithPrime(&
   logical(lgt),intent(in)         :: firstSubStep                ! flag to indicate if we are processing the first sub-step
   logical(lgt),intent(inout)      :: firstFluxCall               ! flag to indicate if we are processing the first flux call
   logical(lgt),intent(inout)      :: firstSplitOper              ! flag to indicate if we are processing the first flux call in a splitting operation
-  logical(lgt),intent(in)         :: computeVegFlux              ! flag to indicate if computing fluxes over vegetation
+  logical(lgt),intent(in),device         :: computeVegFlux(:)              ! flag to indicate if computing fluxes over vegetation
   logical(lgt),intent(in)         :: scalarSolution              ! flag to denote if implementing the scalar solution
   ! input: state vectors    
   real(rkind),intent(in),device          :: stateVec(:,:)                 ! model state vector

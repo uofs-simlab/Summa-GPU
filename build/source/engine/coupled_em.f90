@@ -166,7 +166,7 @@ subroutine coupled_em(&
   integer(i8b),intent(in)              :: hruId                  ! hruId
   real(rkind),intent(inout)            :: dt_init                ! used to initialize the size of the sub-step
   integer(i4b),intent(in)              :: dt_init_factor         ! Used to adjust the length of the timestep in the event of a failure
-  logical(lgt),intent(inout)           :: computeVegFlux         ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+  logical(lgt),intent(inout),device           :: computeVegFlux(:)         ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
   ! data structures (input)
   type(type_data_device),intent(in)               :: type_data              ! type of vegetation and soil
   type(attr_data_device),intent(in)               :: attr_data              ! spatial attributes
@@ -203,7 +203,7 @@ subroutine coupled_em(&
   real(rkind)                          :: whole_step             ! step the surface pond drainage and sublimation calculated over
   integer(i4b)                         :: nsub                   ! number of substeps
   integer(i4b)                         :: nsub_success           ! number of successful substeps
-  logical(lgt)                         :: computeVegFluxOld      ! flag to indicate if we are computing fluxes over vegetation on the previous sub step
+  logical(lgt),device                         :: computeVegFluxOld(nGRU)      ! flag to indicate if we are computing fluxes over vegetation on the previous sub step
   logical(lgt)                         :: includeAquifer         ! flag to denote that an aquifer is included
   logical(lgt)                         :: modifiedLayers         ! flag to denote that snow layers were modified
   logical(lgt)                         :: modifiedVegState       ! flag to denote that vegetation states were modified
@@ -306,7 +306,6 @@ real(rkind),device :: layerDepthSnow(nGRU),layerDepthSoil(nGRU)
 ! real(rkind),device :: meanSenHeatCanopy_d(nGRU)
 ! real(rkind),device :: effRainfall_d(nGRU)
 real(rkind),device :: sum_depth(nGRU)
-logical(lgt),device :: computeVegFlux_d(nGRU)
 real(rkind),device :: fracJulDay_d
 integer(i4b),device :: yearLength_d
 
@@ -492,7 +491,6 @@ whole_step_d = whole_step
 
     ! remember if we compute the vegetation flux on the previous sub-step
     computeVegFluxOld = computeVegFlux
-computeVegFlux_d = computeVegFlux
 
     ! compute the exposed LAI and SAI and whether veg is buried by snow
     call vegPhenlgy_d(&
@@ -509,7 +507,7 @@ computeVegFlux_d = computeVegFlux
                     diag_data,                   & ! intent(inout): model diagnostic variables for a local HRU
                     decisions, veg_param, &
                     ! output
-                    computeVegFlux_d,              & ! intent(out): flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+                    computeVegFlux,              & ! intent(out): flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
                     diag_data%scalarcanopyDepth,                 & ! intent(out): canopy depth (m)
                     exposedVAI,                  & ! intent(out): exposed vegetation area index (m2 m-2)
                     err,cmessage)                  ! intent(out): error control
@@ -529,9 +527,13 @@ computeVegFlux_d = computeVegFlux
       scalarCanopyLiqMax => diag_data%scalarCanopyLiqMax, &
       refInterceptCapRain => mpar_data%refInterceptCapRain)
 
-      computeVegFlux = computeVegFlux_d(1)
     ! flag the case where number of vegetation states has changed
-    modifiedVegState = (computeVegFlux.neqv.computeVegFluxOld)
+      modifiedVegState=.false.
+      !$cuf kernel do(1) <<<*,*>>> reduce(.or.:modifiedVegState)
+      do iGRU=1,nGRU
+        if (computeVegFlux(iGRU).neqv.computeVegFluxOld(iGRU)) modifiedVegState=.true.
+      end do
+    ! modifiedVegState = (computeVegFlux.neqv.computeVegFluxOld)
     ! *** compute wetted canopy area...
     ! ---------------------------------
     
@@ -558,8 +560,6 @@ end associate
 
         ! compute wetted fraction of the canopy
     ! NOTE: assume that the wetted fraction is constant over the substep for the radiation calculations
-    if(computeVegFlux)then
-
       associate(scalarCanopyTemp => prog_data%scalarCanopyTemp, &
         scalarCanopyLiq => prog_data%scalarCanopyLiq, &
         scalarCanopyIce => prog_data%scalarCanopyIce, &
@@ -569,9 +569,13 @@ end associate
         false => decisions%false,&
         canopyWettingFactor => mpar_data%canopyWettingFactor, &
         canopyWettingExp => mpar_data%canopyWettingExp)
-      ! compute wetted fraction of the canopy
+
         !$cuf kernel do(1) <<<*,*>>>
         do iGRU=1,nGRU
+
+    if(computeVegFlux(iGRU))then
+
+      ! compute wetted fraction of the canopy
       call wettedFrac(&
                       ! input
                       false,                                                      & ! flag to denote if derivatives are required
@@ -589,15 +593,16 @@ end associate
                       dCanopyWetFraction_dWat(iGRU),                                      & ! derivative in wetted fraction w.r.t. canopy liquid water content (kg-1 m2)
                       dCanopyWetFraction_dT(iGRU)                                        & ! derivative in wetted fraction w.r.t. canopy liquid water content (kg-1 m2)
                       )
-        end do
       ! if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
-end associate
     ! vegetation is completely buried by snow (or no veg exists at all)
     else
-      diag_data%scalarCanopyWetFraction = 0._rkind
-      dCanopyWetFraction_dWat                                 = 0._rkind
-      dCanopyWetFraction_dT                                   = 0._rkind
+      scalarCanopyWetFraction(iGRU) = 0._rkind
+      dCanopyWetFraction_dWat(iGRU)                                 = 0._rkind
+      dCanopyWetFraction_dT(iGRU)                                   = 0._rkind
     end if
+            end do
+
+end associate
 
     ! *** compute snow albedo...
     ! --------------------------
@@ -647,7 +652,7 @@ end associate
                     ! input: model control
                     decisions%data_step,                   & ! intent(in): time step (seconds)
                     exposedVAI,                  & ! intent(in): exposed vegetation area index (m2 m-2)
-                    computeVegFlux_d,              & ! intent(in): flag to denote if computing energy flux over vegetation
+                    computeVegFlux,              & ! intent(in): flag to denote if computing energy flux over vegetation
                     ! input/output: data structures
                     decisions,             & ! intent(in):    model decisions
                     forc_data,                   & ! intent(in):    model forcing data
@@ -660,11 +665,12 @@ end associate
     if(err/=0)then; err=20; message=trim(message)//trim(cmessage); return; end if
 
     ! adjust canopy temperature to account for new snow
-    if(computeVegFlux)then ! logical flag to compute vegetation fluxes (.false. if veg buried by snow)
+    ! if(computeVegFlux)then ! logical flag to compute vegetation fluxes (.false. if veg buried by snow)
       call tempAdjust(&
       nGRU, &
                       ! input: derived parameters
                       diag_data%scalarcanopyDepth,                 & ! intent(in):    canopy depth (m)
+                      computeVegFlux, &
                       ! input/output: data structures
                       mpar_data,                   & ! intent(in):    model parameters
                       prog_data,                   & ! intent(inout): model prognostic variables for a local HRU
@@ -690,6 +696,7 @@ end associate
           )  ! (associate local variables with model parameters)       
           !$cuf kernel do(1) <<<*,*>>>
           do iGRU=1,nGRU
+            if (computeVegFlux(iGRU)) then
           call T2enthTemp_veg_d(&
                           canopyDepth(iGRU),            & ! intent(in): canopy depth (m)
                           specificHeatVeg,        & ! intent(in): specific heat of vegetation (J kg-1 K-1)
@@ -699,19 +706,26 @@ end associate
                           (scalarCanopyLiq(iGRU)+scalarCanopyIce(iGRU)), & ! intent(in): canopy water content (kg m-2)
                           scalarCanopyEnthTemp(iGRU))     ! intent(out): temperature component of enthalpy of the vegetation canopy (J m-3)
           scalarCanopyEnthalpy(iGRU) = scalarCanopyEnthTemp(iGRU)  - LH_fus * scalarCanopyIce(iGRU)/ canopyDepth(iGRU) ! new ice and/or temperature
+            end if
           end do
         end associate enthalpyVeg
       end if ! (need to recalculate enthalpy state variable)
-    end if ! if computing fluxes over vegetation
+    ! end if ! if computing fluxes over vegetation
 
     ! initialize drainage and throughfall
     ! NOTE 1: this needs to be done before solving the energy and liquid water equations, to account for the heat advected with precipitation
     ! NOTE 2: this initialization needs to be done AFTER the call to canopySnow, since canopySnow uses canopy drip drom the previous time step
-    if(.not.computeVegFlux)then
-      flux_data%scalarThroughfallRain = flux_data%scalarRainfall
+      associate(scalarThroughfallRain => flux_data%scalarThroughfallRain, &
+        scalarRainfall => flux_data%scalarRainfall)
+        !$cuf kernel do(1) <<<*,*>>>
+        do iGRU=1,nGRU
+    if(.not.computeVegFlux(iGRU))then
+      scalarThroughfallRain(iGRU) = scalarRainfall(iGRU)
     else
-      flux_data%scalarThroughfallRain = 0._rkind
+      scalarThroughfallRain(iGRU) = 0._rkind
     end if
+  end do
+  end associate
     flux_data%scalarCanopyLiqDrainage = 0._rkind
 
     ! ****************************************************************************************************
@@ -1230,7 +1244,6 @@ end associate
 
           ! * compute change in canopy ice content due to sublimation...
           ! ------------------------------------------------------------
-          if(computeVegFlux)then
 
             associate( &
               scalarCanopyTemp => prog_data%scalarCanopyTemp, &
@@ -1247,6 +1260,8 @@ end associate
               )
               !$cuf kernel do(1) <<<*,*>>>
               do iGRU=1,nGRU
+                          if(computeVegFlux(iGRU))then
+
             ! remove mass of ice on the canopy
             scalarCanopyIce(iGRU) = scalarCanopyIce(iGRU) + sumCanopySublimation(iGRU)
 
@@ -1285,10 +1300,11 @@ end associate
                           scalarCanopyEnthTemp(iGRU))   ! intent(out): temperature component of enthalpy of the vegetation canopy (J m-3)
               scalarCanopyEnthalpy(iGRU) = scalarCanopyEnthTemp(iGRU) - LH_fus * scalarCanopyIce(iGRU)/ canopyDepth(iGRU)
             endif
+          end if
           end do
             end associate
   
-          end if  ! (if computing the vegetation flux)
+          ! end if  ! (if computing the vegetation flux)
 
           ! * compute change in ice content of the top snow layer due to sublimation 
           !   and account for compaction and cavitation in the snowpack...
@@ -1430,7 +1446,7 @@ end associate
         balanceLayerMass => diag_data%balanceLayerMass)
         !$cuf kernel do(1) <<<*,*>>>
         do iGRU=1,nGRU
-          if(computeVegFlux)then
+          if(computeVegFlux(iGRU))then
             innerBalance(1,iGRU) = innerBalance(1,iGRU) + balanceCasNrg(iGRU)*dt_wght ! W m-3
             innerBalance(2,iGRU) = innerBalance(2,iGRU) + balanceVegNrg(iGRU)*dt_wght ! W m-3
             innerBalance(3,iGRU) = innerBalance(3,iGRU) + balanceVegMass(iGRU)*dt_wght/canopyDepth(iGRU)  ! kg m-3 s-1

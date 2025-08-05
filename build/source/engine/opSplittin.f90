@@ -232,7 +232,7 @@ subroutine opSplittin(&
   real(rkind),intent(in)          :: whole_step                     ! length of whole step for surface drainage and average flux
   logical(lgt),intent(in)         :: firstSubStep                   ! flag to indicate if we are processing the first sub-step
   logical(lgt),intent(in)         :: firstInnerStep                 ! flag to denote if the first time step in maxstep subStep
-  logical(lgt),intent(in)         :: computeVegFlux                 ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+  logical(lgt),intent(in),device         :: computeVegFlux(:)                 ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
   ! input/output: data structures
   type(type_data_device),intent(in)          :: type_data                      ! type of vegetation and soil
   type(attr_data_device),intent(in)          :: attr_data                      ! spatial attributes
@@ -662,7 +662,95 @@ type(veg_parameters) :: veg_param
    ! initialize the model fluxes
    do iVar=1,size(flux_meta)  ! loop through fluxes
     if (flux2state_orig(iVar)%state1==integerMissing .and. flux2state_orig(iVar)%state2==integerMissing) cycle ! flux does not depend on state (e.g., input)
-    if (flux2state_orig(iVar)%state1==iname_watCanopy .and. .not.computeVegFlux) cycle ! use input fluxes in cases where there is no canopy
+    if (flux2state_orig(iVar)%state1==iname_watCanopy) then ! use input fluxes in cases where there is no canopy
+      if (firstInnerStep) then
+            select case(iVar)
+    case(iLookFLUX%iLayerConductiveFlux); call initialize_flux_2D(flux_data%iLayerConductiveFlux_m, computeVegFlux)
+    case(iLookFLUX%iLayerAdvectiveFlux); call initialize_flux_2D(flux_data%iLayerAdvectiveFlux_m, computeVegFlux)
+    case(iLookFLUX%mLayerSatHydCond); call initialize_flux_2D(flux_data%mLayerSatHydCond_m, computeVegFlux)
+    case(iLookFLUX%mLayerSatHydCondMP); call initialize_flux_2D(flux_data%mLayerSatHydCondMP_m, computeVegFlux)
+    case(iLookFLUX%iLayerSatHydCond); call initialize_flux_2D(flux_data%iLayerSatHydCond_m, computeVegFlux)
+    case(iLookFLUX%scalarExfiltration); call initialize_flux(flux_data%scalarExfiltration, computeVegFlux)
+    case(iLookFLUX%mLayerColumnOutflow); call initialize_flux_2D(flux_data%mLayerColumnOutflow_m, computeVegFlux)
+    case(iLookFLUX%scalarSoilBaseflow); call initialize_flux(flux_data%scalarSoilBaseflow, computeVegFlux)
+    case(iLookFLUX%mLayerBaseflow); call initialize_flux_2D(flux_data%mLayerBaseflow_m, computeVegFlux)
+    case(iLookFLUX%scalarTotalRunoff); call initialize_flux(flux_data%scalarTotalRunoff, computeVegFlux)
+    case(iLookFLUX%scalarSurfaceRunoff); call initialize_flux(flux_data%scalarSurfaceRunoff, computeVegFlux)
+    case(iLookFLUX%scalarSoilDrainage); call initialize_flux(flux_data%scalarSoilDrainage, computeVegFlux)
+    case(iLookFLUX%scalarSnowfall); call initialize_flux(flux_data%scalarSnowfall, computeVegFlux)
+    case(iLookFLUX%scalarThroughfallSnow); call initialize_flux(flux_data%scalarThroughfallSnow, computeVegFlux)
+    case(iLookFLUX%scalarCanopySunlitPAR); call initialize_flux(flux_data%scalarCanopySunlitPAR, computeVegFlux)
+    case(iLookFLUX%scalarCanopyShadedPAR); call initialize_flux(flux_data%scalarCanopyShadedPAR, computeVegFlux)
+    case(iLookFLUX%scalarCanopyAbsorbedSolar); call initialize_flux(flux_data%scalarCanopyAbsorbedSolar, computeVegFlux)
+    case(iLookFLUX%scalarGroundAbsorbedSolar); call initialize_flux(flux_data%scalarGroundAbsorbedSolar, computeVegFlux)
+    case(iLookFLUX%scalarLWRadCanopy); call initialize_flux(flux_data%scalarLWRadCanopy, computeVegFlux)
+    case(iLookFLUX%scalarLWRadGround); call initialize_flux(flux_data%scalarLWRadGround, computeVegFlux)
+    case(iLookFLUX%scalarLWRadUbound2Canopy); call initialize_flux(flux_data%scalarLWRadUbound2Canopy, computeVegFlux)
+    case(iLookFLUX%scalarLWRadUbound2Ground); call initialize_flux(flux_data%scalarLWRadUbound2Ground, computeVegFlux)
+    case(iLookFLUX%scalarLWRadUbound2Ubound); call initialize_flux(flux_data%scalarLWRadUbound2Ubound, computeVegFlux)
+    case(iLookFLUX%scalarLWRadCanopy2Ubound); call initialize_flux(flux_data%scalarLWRadCanopy2Ubound, computeVegFlux)
+    case(iLookFLUX%scalarLWRadCanopy2Ground); call initialize_flux(flux_data%scalarLWRadCanopy2Ground, computeVegFlux)
+    case(iLookFLUX%scalarLWRadCanopy2Canopy); call initialize_flux(flux_data%scalarLWRadCanopy2Canopy, computeVegFlux)
+    case(iLookFLUX%scalarLWRadGround2Ubound); call initialize_flux(flux_data%scalarLWRadGround2Ubound, computeVegFlux)
+    case(iLookFLUX%scalarLWRadGround2Canopy); call initialize_flux(flux_data%scalarLWRadGround2Canopy, computeVegFlux)
+    case(iLookFLUX%scalarLWNetCanopy); call initialize_flux(flux_data%scalarLWNetCanopy, computeVegFlux)
+    case(iLookFLUX%scalarLWNetGround); call initialize_flux(flux_data%scalarLWNetGround, computeVegFlux)
+    case(iLookFLUX%scalarLWNetUbound); call initialize_flux(flux_data%scalarLWNetUbound, computeVegFlux)
+    case(iLookFLUX%scalarEddyDiffusCanopyTop); call initialize_flux(flux_data%scalarEddyDiffusCanopyTop, computeVegFlux)
+    case(iLookFLUX%scalarFrictionVelocity); call initialize_flux(flux_data%scalarFrictionVelocity, computeVegFlux)
+    case(iLookFLUX%scalarWindspdCanopyTop); call initialize_flux(flux_data%scalarWindspdCanopyTop, computeVegFlux)
+    case(iLookFLUX%scalarWindspdCanopyBottom); call initialize_flux(flux_data%scalarWindspdCanopyBottom, computeVegFlux)
+    case(iLookFLUX%scalarLeafResistance); call initialize_flux(flux_data%scalarLeafResistance, computeVegFlux)
+    case(iLookFLUX%scalarGroundResistance); call initialize_flux(flux_data%scalarGroundResistance, computeVegFlux)
+    case(iLookFLUX%scalarCanopyResistance); call initialize_flux(flux_data%scalarCanopyResistance, computeVegFlux)
+    case(iLookFLUX%scalarSoilResistance); call initialize_flux(flux_data%scalarSoilResistance, computeVegFlux)
+    case(iLookFLUX%scalarStomResistSunlit); call initialize_flux(flux_data%scalarStomResistSunlit, computeVegFlux)
+    case(iLookFLUX%scalarStomResistShaded); call initialize_flux(flux_data%scalarStomResistShaded, computeVegFlux)
+    case(iLookFLUX%scalarPhotosynthesisSunlit); call initialize_flux(flux_data%scalarPhotosynthesisSunlit, computeVegFlux)
+    case(iLookFLUX%scalarPhotosynthesisShaded); call initialize_flux(flux_data%scalarPhotosynthesisShaded, computeVegFlux)
+    case(iLookFLUX%scalarSenHeatTotal); call initialize_flux(flux_data%scalarSenHeatTotal, computeVegFlux)
+    case(iLookFLUX%scalarSenHeatCanopy); call initialize_flux(flux_data%scalarSenHeatCanopy, computeVegFlux)
+    case(iLookFLUX%scalarSenHeatGround); call initialize_flux(flux_data%scalarSenHeatGround, computeVegFlux)
+    case(iLookFLUX%scalarLatHeatTotal); call initialize_flux(flux_data%scalarLatHeatTotal, computeVegFlux)
+    case(iLookFLUX%scalarLatHeatCanopyEvap); call initialize_flux(flux_data%scalarLatHeatCanopyEvap, computeVegFlux)
+    case(iLookFLUX%scalarLatHeatCanopyTrans); call initialize_flux(flux_data%scalarLatHeatCanopyTrans, computeVegFlux)
+    case(iLookFLUX%scalarLatHeatGround); call initialize_flux(flux_data%scalarLatHeatGround, computeVegFlux)
+    case(iLookFLUX%scalarCanopyAdvectiveHeatFlux); call initialize_flux(flux_data%scalarCanopyAdvectiveHeatFlux, computeVegFlux)
+    case(iLookFLUX%scalarGroundAdvectiveHeatFlux); call initialize_flux(flux_data%scalarGroundAdvectiveHeatFlux, computeVegFlux)
+    case(iLookFLUX%scalarCanopySublimation); call initialize_flux(flux_data%scalarCanopySublimation, computeVegFlux)
+    case(iLookFLUX%scalarSnowSublimation); call initialize_flux(flux_data%scalarSnowSublimation, computeVegFlux)
+    case(iLookFLUX%scalarCanopyTranspiration); call initialize_flux(flux_data%scalarCanopyTranspiration, computeVegFlux)
+    case(iLookFLUX%scalarCanopyEvaporation); call initialize_flux(flux_data%scalarCanopyEvaporation, computeVegFlux)
+    case(iLookFLUX%scalarGroundEvaporation); call initialize_flux(flux_data%scalarGroundEvaporation, computeVegFlux)
+    case(iLookFLUX%scalarTotalET); call initialize_flux(flux_data%scalarTotalET, computeVegFlux)
+    case(iLookFLUX%scalarNetRadiation); call initialize_flux(flux_data%scalarNetRadiation, computeVegFlux)
+    case(iLookFLUX%scalarGroundNetNrgFlux); call initialize_flux(flux_data%scalarGroundNetNrgFlux, computeVegFlux)
+    case(iLookFLUX%iLayerLiqFluxSnow); call initialize_flux_2D(flux_data%iLayerLiqFluxSnow_m, computeVegFlux)
+    case(iLookFLUX%iLayerLiqFluxSoil); call initialize_flux_2D(flux_data%iLayerLiqFluxSoil_m, computeVegFlux)
+    case(iLookFLUX%iLayerNrgFLux); call initialize_flux_2D(flux_data%iLayerNrgFLux_m, computeVegFlux)
+    case(iLookFLUX%scalarThroughfallRain); call initialize_flux(flux_data%scalarThroughfallRain, computeVegFlux)
+    case(iLookFLUX%scalarCanopyLiqDrainage); call initialize_flux(flux_data%scalarCanopyLiqDrainage, computeVegFlux)
+    case(iLookFLUX%scalarRainfall); call initialize_flux(flux_data%scalarRainfall, computeVegFlux)
+    case(iLookFLUX%scalarCanopyNetLiqFlux); call initialize_flux(flux_data%scalarCanopyNetLiqFlux, computeVegFlux)
+    case(iLookFLUX%scalarAquiferTranspire); call initialize_flux(flux_data%scalarAquiferTranspire, computeVegFlux)
+    case(iLookFLUX%scalarAquiferRecharge); call initialize_flux(flux_data%scalarAquiferRecharge, computeVegFlux)
+    case(iLookFLUX%scalarAquiferBaseflow); call initialize_flux(flux_data%scalarAquiferBaseflow, computeVegFlux)
+    case(iLookFLUX%scalarRainPlusMelt); call initialize_flux(flux_data%scalarRainPlusMelt, computeVegFlux)
+    case(iLookFLUX%scalarMaxInfilRate); call initialize_flux(flux_data%scalarMaxInfilRate, computeVegFlux)
+    case(iLookFLUX%mLayerTranspire); call initialize_flux_2D(flux_data%mLayerTranspire_m, computeVegFlux)
+    case(iLookFLUX%mLayerHydCond); call initialize_flux_2D(flux_data%mLayerHydCond_m, computeVegFlux)
+    case(iLookFLUX%scalarInfiltration); call initialize_flux(flux_data%scalarInfiltration, computeVegFlux)
+    case(iLookFLUX%mLayerLiqFluxSoil); call initialize_flux_2D(flux_data%mLayerLiqFluxSoil_m, computeVegFlux)
+    case(iLookFLUX%mLayerLiqFluxSnow); call initialize_flux_2D(flux_data%mLayerLiqFluxSnow_m, computeVegFlux)
+    case(iLookFLUX%scalarSnowDrainage); call initialize_flux(flux_data%scalarSnowDrainage, computeVegFlux)
+    case(iLookFLUX%mLayerNrgFlux); call initialize_flux_2D(flux_data%mLayerNrgFlux_m, computeVegFlux)
+    case(iLookFLUX%scalarCanairNetNrgFlux); call initialize_flux(flux_data%scalarCanairNetNrgFlux, computeVegFlux)
+    case(iLookFLUX%scalarCanopyNetNrgFlux); call initialize_flux(flux_data%scalarCanopyNetNrgFlux, computeVegFlux)
+    case(iLookFLUX%mLayerColumnInflow); call initialize_flux_2D(flux_data%mLayerColumnInflow, computeVegFlux)
+    end select
+  end if
+else
+
     if (firstInnerStep) then
       ! flux_data%var(iVar)%dat(:) = 0._rkind
     select case(iVar)
@@ -750,6 +838,7 @@ type(veg_parameters) :: veg_param
     case(iLookFLUX%mLayerColumnInflow); flux_data%mLayerColumnInflow = 0._rkind
     end select
   endif
+end if
   
     ! flux_mean%var(iVar)%dat(:) = 0._rkind
    end do
@@ -965,7 +1054,7 @@ type(veg_parameters) :: veg_param
 
   ! **** varSubstep ****
   subroutine initialize_varSubstep
-   call in_varSubstep % initialize(dt,dtInit,dt_min,whole_step,nSubset,doAdjustTemp,firstSubStep,computeVegFlux,ixSolution,scalar,iStateSplit,fluxMask)
+   call in_varSubstep % initialize(dt,dtInit,dt_min,whole_step,nSubset,doAdjustTemp,firstSubStep,ixSolution,scalar,iStateSplit,fluxMask)
    call io_varSubstep % initialize(firstFluxCall,fluxCount,ixSaturation)
   end subroutine initialize_varSubstep
 
@@ -981,7 +1070,7 @@ type(veg_parameters) :: veg_param
    ! solve variable subset for one full time step
    call initialize_varSubstep
  
-   call varSubstep(in_varSubstep,nGRU,io_varSubstep,&                                            ! intent(inout): class objects for model control
+   call varSubstep(in_varSubstep,nGRU,computeVegFlux,io_varSubstep,&                                            ! intent(inout): class objects for model control
                    model_decisions,decisions,veg_param,lookup_data,type_data,attr_data,forc_data,mpar_data,&    ! intent(inout): data structures for model properties
                    indx_data,prog_data,diag_data,flux_data,flux_mean,deriv_data,bvar_data,&
                    out_varSubstep)                                                          ! intent(out): class object for model control
@@ -1487,5 +1576,27 @@ contains
 
  
 end subroutine stateFilter
+
+subroutine initialize_flux(flux_data, computeVegFlux)
+  real(rkind),device :: flux_data(:)
+  logical(lgt),device :: computeVegFlux(:)
+  integer(i4b) :: iGRU
+  !$cuf kernel do(1) <<<*,*>>>
+  do iGRU=1,size(computeVegFlux)
+    if (computeVegFlux(iGRU)) flux_data(iGRU) = 0._rkind
+  end do
+end subroutine
+
+subroutine initialize_flux_2D(flux_data, computeVegFlux)
+  real(rkind),device :: flux_data(:,:)
+  logical(lgt),device :: computeVegFlux(:)
+  integer(i4b) :: iGRU, iLayer
+  !$cuf kernel do(2) <<<*,*>>>
+  do iGRU=1,size(computeVegFlux)
+    do iLayer=1,size(flux_data,1)
+    if (computeVegFlux(iGRU)) flux_data(iLayer,iGRU) = 0._rkind
+    end do
+  end do
+end subroutine
 
 end module opSplittin_module

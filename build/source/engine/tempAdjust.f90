@@ -53,6 +53,7 @@ contains
   nGRU, &
                        ! input: derived parameters
                        canopyDepth,                 & ! intent(in):    canopy depth (m)
+                       computeVegFlux, &
                        ! input/output: data structures
                        mpar_data,                   & ! intent(in):    model parameters
                        prog_data,                   & ! intent(inout): model prognostic variables for a local HRU
@@ -69,6 +70,7 @@ contains
  ! input: derived parameters
  integer(i4b) :: nGRU
  real(rkind),intent(in),device          :: canopyDepth(:)              ! depth of the vegetation canopy (m)
+ logical(lgt),device :: computeVegFlux(:)
  ! input/output: data structures  
  type(mpar_data_device),intent(in)    :: mpar_data                ! model parameters
  type(prog_data_device),intent(inout) :: prog_data                ! model prognostic variables for a local HRU
@@ -112,7 +114,7 @@ contains
 
  !$cuf kernel do(1) <<<*,*>>>
  do iGRU=1,nGRU
-  call tempAdjust_inner(scalarCanopyLiq(iGRU), scalarCanopyIce(iGRU),scalarCanopyTemp(iGRU),scalarBulkVolHeatCapVeg(iGRU), canopyDepth(iGRU), &
+  call tempAdjust_inner(computeVegFlux(iGRU), scalarCanopyLiq(iGRU), scalarCanopyIce(iGRU),scalarCanopyTemp(iGRU),scalarBulkVolHeatCapVeg(iGRU), canopyDepth(iGRU), &
   snowfrz_scale, &
 specificHeatVeg, &
 maxMassVegetation)
@@ -161,12 +163,13 @@ maxMassVegetation)
   return
   end function resNrgDer
 
-attributes(device) subroutine tempAdjust_inner(scalarCanopyLiq, scalarCanopyIce,scalarCanopyTemp,scalarBulkVolHeatCapVeg, canopyDepth, &
+attributes(device) subroutine tempAdjust_inner(computeVegFlux,scalarCanopyLiq, scalarCanopyIce,scalarCanopyTemp,scalarBulkVolHeatCapVeg, canopyDepth, &
   snowfrz_scale, &
 specificHeatVeg, &
 maxMassVegetation)
    USE snow_utils_module,only:fracliquid     ! compute fraction of liquid water
   implicit none
+  logical(lgt) :: computeVegFlux
     real(rkind) :: scalarCanopyLiq, scalarCanopyIce, scalarCanopyTemp, scalarBulkVolHeatCapVeg
     real(rkind) :: canopyDepth
     real(rkind) :: snowfrz_scale
@@ -185,6 +188,7 @@ real(rkind) :: maxMassVegetation
  real(rkind)                     :: f1,f2,x1,x2,fTry,xTry,fDer,xInc ! iteration variables
  logical(lgt)                    :: fBis                     ! .true. if bisection
 
+ if (computeVegFlux) then
    ! ** preliminaries
 
  ! compute the total canopy water (state variable: will not change)
@@ -299,6 +303,7 @@ real(rkind) :: maxMassVegetation
  scalarCanopyTemp = xTry
  scalarCanopyIce  = (1._rkind - fracliquid(xTry,snowfrz_scale))*scalarCanopyWat
  scalarCanopyLiq  = scalarCanopyWat - scalarCanopyIce
+end if
  end subroutine
 
 

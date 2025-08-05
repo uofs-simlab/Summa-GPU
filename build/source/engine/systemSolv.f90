@@ -182,7 +182,7 @@ use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
   logical(lgt),intent(in)         :: firstSubStep                  ! flag to indicate if we are processing the first sub-step
   logical(lgt),intent(inout)      :: firstFluxCall                 ! flag to define the first flux call
   logical(lgt),intent(in)         :: firstSplitOper                ! flag to indicate if we are processing the first flux call in a splitting operation
-  logical(lgt),intent(in)         :: computeVegFlux                ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+  logical(lgt),intent(in),device         :: computeVegFlux(:)                ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
   logical(lgt),intent(in)         :: scalarSolution                ! flag to denote if implementing the scalar solution
   logical(lgt),intent(in)         :: computMassBalance             ! flag to compute mass balance
   logical(lgt),intent(in)         :: computNrgBalance              ! flag to compute energy balance
@@ -330,13 +330,13 @@ contains
 
    ! identify the matrix solution method, using the full matrix can be slow in many-layered systems
    ! (the type of matrix used to solve the linear system A.X=B)
-   if (local_ixGroundwater==qbaseTopmodel .or. scalarSolution .or. forceFullMatrix .or. computeVegFlux) then
+  !  if (local_ixGroundwater==qbaseTopmodel .or. scalarSolution .or. forceFullMatrix .or. computeVegFlux) then
      nLeadDim=nState         ! length of the leading dimension
      ixMatrix=ixFullMatrix   ! named variable to denote the full Jacobian matrix
-   else
-     nLeadDim=nBands         ! length of the leading dimension
-     ixMatrix=ixBandMatrix   ! named variable to denote the band-diagonal matrix
-   end if
+  !  else
+  !    nLeadDim=nBands         ! length of the leading dimension
+  !    ixMatrix=ixBandMatrix   ! named variable to denote the band-diagonal matrix
+  !  end if
   end associate
 
   ! initialize the model fluxes (some model fluxes are not computed in the iterations)

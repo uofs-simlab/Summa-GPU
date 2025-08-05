@@ -257,13 +257,13 @@ contains
 end do
 end associate
  
-!  if (createLayer) then
+ if (divideLayer) then
   ! add a layer to all model variables
   call addModelLayer_prog(prog_data,prog_meta,addedLayer,createLayer,nGRU,nSoil,err,cmessage); if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
   call addModelLayer_diag(diag_data,diag_meta,addedLayer,createLayer,nGRU,nSoil,err,cmessage); if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
   call addModelLayer_flux(flux_data,flux_meta,addedLayer,createLayer,nGRU,nSoil,err,cmessage); if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
   call addModelLayer_indx(indx_data,indx_meta,addedLayer,createLayer,nGRU,nSoil,err,cmessage); if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
-!  end if
+ end if
 
   associate(mLayerDepth => prog_data%mLayerDepth, &
     mLayerTemp => prog_data%mLayerTemp, &
@@ -281,7 +281,6 @@ end associate
     !$cuf kernel do(1) <<<*,*>>>
     do iGRU=1,nGRU
  if (createLayer(iGRU)) then
-  print*, iGRU, createLayer(iGRU)
   if (nSnow(iGRU) == 0) then
 !        ! associate local variables to the information in the data structures
 !    ! NOTE: need to do this here, since state vectors have just been modified
@@ -296,7 +295,6 @@ end associate
  
     ! get the layer depth
     mLayerDepth(1,iGRU) = scalarSnowDepth(iGRU)
-    ! print*, 593, iGRU, createLayer(iGRU)
 
     ! compute surface layer temperature
     surfaceLayerSoilTemp = mLayerTemp(2,iGRU)    ! temperature of the top soil layer (K)
@@ -617,6 +615,7 @@ subroutine addModelLayer_prog(dataStruct,metaStruct,ix_divide,createLayer,nGRU,n
    case('mLayerDepth','mLayerTemp','mLayerVolFracIce','mLayerVolFracLiq'); stateVariable=.true.
    case default; stateVariable=.false.
   end select
+
 
   ! divide layers
   ! assign the data vector to the temporary vector

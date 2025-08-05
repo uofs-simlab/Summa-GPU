@@ -27,7 +27,7 @@ type data4ida
   logical(lgt)                    :: firstSubStep                    ! flag to indicate if we are processing the first sub-step
   logical(lgt)                    :: firstFluxCall                   ! flag to indicate if we are processing the first flux call
   logical(lgt)                    :: firstSplitOper                  ! flag to indicate if we are processing the first flux call in a splitting operation
-  logical(lgt)                    :: computeVegFlux                  ! flag to indicate if computing fluxes over vegetation
+  logical(lgt),device,allocatable                    :: computeVegFlux(:)                  ! flag to indicate if computing fluxes over vegetation
   logical(lgt)                    :: scalarSolution                  ! flag to denote if implementing the scalar solution
   type(model_options),allocatable :: model_decisions(:)              ! model decisions
   type(decisions_device),pointer :: decisions

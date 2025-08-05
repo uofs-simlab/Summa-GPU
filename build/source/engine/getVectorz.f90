@@ -175,15 +175,18 @@ subroutine popStateVec(&
     ! * initialize state vectors...
     ! -----------------------------
 
+    stateVec = 0._rkind
     ! build the state vector for the temperature of the canopy air space
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer canopy
     !$cuf kernel do(1) <<<*,*>>>
     do iGRU=1,nGRU
+      ! print*, iGRU, 'CasNrg', ixCasNrg(iGRU)
       if(enthalpyStateVec)then
         stateVec( ixCasNrg(iGRU),iGRU ) = scalarCanairEnthalpy(iGRU) ! transfer canopy air enthalpy to the state vector
       else
         stateVec( ixCasNrg(iGRU),iGRU ) = scalarCanairTemp(iGRU)     ! transfer canopy air temperature to the state vector
       endif
+      ! print*, iGRU, 'VegNrg', ixVegNrg(iGRU)
 
     ! build the state vector for the temperature of the vegetation canopy
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer canopy
@@ -199,6 +202,8 @@ subroutine popStateVec(&
         case(iname_watCanopy); stateVec( ixVegHyd(iGRU),iGRU ) = scalarCanopyWat(iGRU) ! transfer total canopy water to the state vector
         case(iname_liqCanopy); stateVec( ixVegHyd(iGRU),iGRU ) = scalarCanopyLiq(iGRU) ! transfer liquid canopy water to the state vector
       end select
+            ! print*, iGRU, 'VegHyd', ixVegHyd(iGRU)
+
           ! build the state vector for the aquifer storage
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer aquifer
       stateVec( ixAqWat(iGRU),iGRU )  = scalarAquiferStorage(iGRU)    ! transfer aquifer storage to the state vector
@@ -250,6 +255,13 @@ subroutine popStateVec(&
     !   message=trim(message)//'some state variables unpopulated'
     !   err=20; return
     ! endif
+
+    !       !$cuf kernel do(1) <<<*,*>>>
+    ! do iGRU=1,nGRU
+    !   do iLayer=1,size(stateVec,1)
+    !     print*, iGRU, iLayer, stateVec(iLayer,iGRU)
+    !   end do
+    ! end do
 
   end associate fixedLength      ! end association to variables in the data structure where vector length does not change
 end subroutine popStateVec
@@ -505,6 +517,7 @@ subroutine checkFeas(&
     ! initialize error control
     err=0; message="checkFeas/"
 
+
     !  NOTE: we will not print infeasibilities since it does not indicate a failure, just a need to iterate until maxiter
     feasible=.true.
     ! check that the canopy air space temperature is reasonable
@@ -512,6 +525,7 @@ subroutine checkFeas(&
     do iGRU=1,nGRU
     if(ixCasNrg(iGRU)/=integerMissing)then
       if(stateVec(ixCasNrg(iGRU),iGRU) > canopyTempMax .and. .not.enthalpyStateVec)then 
+        print*, iGRU, 'ixCasNrg', stateVec(ixCasNrg(iGRU),iGRU)
         feasible=.false.
         ! message=trim(message)//'canopy air space temp high/'
         !write(*,'(a,1x,L1,1x,10(f20.10,1x))') 'feasible, max, stateVec( ixCasNrg )', feasible, canopyTempMax, stateVec(ixCasNrg)
@@ -521,6 +535,7 @@ subroutine checkFeas(&
     ! check that the canopy air space temperature is reasonable
     if(ixVegNrg(iGRU)/=integerMissing)then
       if(stateVec(ixVegNrg(iGRU),iGRU) > canopyTempMax .and. .not.enthalpyStateVec)then
+        print*, iGRU, 'ixVegNrg', stateVec(ixVegNrg(iGRU),iGRU)
         feasible=.false.
         ! message=trim(message)//'canopy temp high/'
         !write(*,'(a,1x,L1,1x,10(f20.10,1x))') 'feasible, max, stateVec( ixVegNrg )', feasible, canopyTempMax, stateVec(ixVegNrg)
@@ -530,6 +545,7 @@ subroutine checkFeas(&
     ! check canopy liquid water is not negative
     if(ixVegHyd(iGRU)/=integerMissing)then
       if(stateVec(ixVegHyd(iGRU),iGRU) < -1e-10)then 
+        print*, iGRU, 'ixVegHyd', stateVec(ixVegHyd(iGRU),iGRU)
         feasible=.false.
         ! print*, stateVec(ixVegHyd)
         ! message=trim(message)//'canopy liq water neg/'
@@ -544,7 +560,10 @@ subroutine checkFeas(&
   !$cuf kernel do(1) <<<*,*>>> reduce(.and.:feasible)
   do iGRU=1,nGRU
     do iLayer=1,nSnow(iGRU)
-      if (ixSnowOnlyNrg_m(iLayer,iGRU)/=integerMissing .and. stateVec(ixSnowOnlyNrg_m(iLayer,iGRU),iGRU) > Tfreeze .and. .not.enthalpyStateVec) feasible=.false.
+      if (ixSnowOnlyNrg_m(iLayer,iGRU)/=integerMissing .and. stateVec(ixSnowOnlyNrg_m(iLayer,iGRU),iGRU) > Tfreeze .and. .not.enthalpyStateVec) then
+        print*, iLayer, iGRU, 'ixSnowNrg', stateVec(ixSnowOnlyNrg_m(iLayer,iGRU),iGRU)
+        feasible=.false.
+      end if
     end do
   end do
     ! if(count(ixSnowOnlyNrg/=integerMissing)>0)then
@@ -583,6 +602,7 @@ subroutine checkFeas(&
 
         ! --> check
         if(stateVec( ixSnowSoilHyd_m(iLayer,iGRU) ,iGRU) < xMin .or. stateVec( ixSnowSoilHyd_m(iLayer,iGRU) ,iGRU) > xMax)then 
+          print*, iGRU, iLayer, 'ssHyd', stateVec( ixSnowSoilHyd_m(iLayer,iGRU) ,iGRU), xMin, xMax
           feasible=.false.
           ! message=trim(message)//'layer water out of bounds/'
           !if(stateVec( ixSnowSoilHyd(iLayer) ) < xMin .or. stateVec( ixSnowSoilHyd(iLayer) ) > xMax) &

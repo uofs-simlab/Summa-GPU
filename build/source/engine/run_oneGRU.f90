@@ -104,7 +104,7 @@ contains
  ! model control
  type(gru2hru_map)   , intent(inout) :: gruInfo              ! HRU information for given GRU (# HRUs, #snow+soil layers)
  real(rkind)            , intent(inout) :: dt_init(:)           ! used to initialize the length of the sub-step for each HRU
- integer(i4b)        , intent(inout) :: ixComputeVegFlux(:)  ! flag to indicate if we are computing fluxes over vegetation (false=no, true=yes)
+ logical(lgt)        , intent(inout),device :: ixComputeVegFlux(:)  ! flag to indicate if we are computing fluxes over vegetation (false=no, true=yes)
  ! data structures (input)
  integer(i4b)        , intent(in)    :: timeVec(:)           ! integer vector      -- model time data
  type(type_data_device)       , intent(in)    :: typeHRU              ! x%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
@@ -131,7 +131,7 @@ contains
  integer(i4b)                            :: nSoil                  ! number of soil layers
  integer(i4b)                            :: nLayers                ! total number of layers
  real(rkind)                             :: fracHRU                ! fractional area of a given HRU (-)
- logical(lgt)                            :: computeVegFluxFlag     ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+!  logical(lgt)                            :: computeVegFluxFlag     ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
 
  integer(i4b),intent(in) :: nGRU
  type(decisions_device),intent(inout) :: decisions
@@ -173,7 +173,7 @@ integer(i4b) :: iGRU, iLayer
   nLayers = maxval(indxHRU%nLayers_d)  ! total number of layers
 
   ! set the flag to compute the vegetation flux
-  computeVegFluxFlag = (ixComputeVegFlux(iHRU) == yes)
+  ! computeVegFluxFlag = (ixComputeVegFlux(iHRU) == yes)
 
   ! ----- run the model --------------------------------------------------------------------------------------------------
 
@@ -183,7 +183,7 @@ integer(i4b) :: iGRU, iLayer
                   gruInfo%hruInfo(iHRU)%hru_nc,    & ! intent(in):    hru count Id
                   gruInfo%hruInfo(iHRU)%hru_id,    & ! intent(in):    hruId
                   dt_init(iHRU),                   & ! intent(inout): initial time step
-                  computeVegFluxFlag,              & ! intent(inout): flag to indicate if we are computing fluxes over vegetation (false=no, true=yes)
+                  ixComputeVegFlux,              & ! intent(inout): flag to indicate if we are computing fluxes over vegetation (false=no, true=yes)
                   nSnow,nSoil,nLayers,             & ! intent(inout): number of snow and soil layers
                   nGRU, &
                   decisions, veg_param, tables, &
@@ -209,8 +209,8 @@ integer(i4b) :: iGRU, iLayer
   gruInfo%hruInfo(iHRU)%nSoil = nSoil
 
   ! save the flag for computing the vegetation fluxes
-  if(computeVegFluxFlag)       ixComputeVegFlux(iHRU) = yes
-  if(.not. computeVegFluxFlag) ixComputeVegFlux(iHRU) = no
+  ! if(computeVegFluxFlag)       ixComputeVegFlux(iHRU) = yes
+  ! if(.not. computeVegFluxFlag) ixComputeVegFlux(iHRU) = no
 
   ! identify the area covered by the current HRU
   fracHRU = 1!attrHRU%hru(iHRU)%var(iLookATTR%HRUarea) / bvarData%var(iLookBVAR%basin__totalArea)%dat(1)

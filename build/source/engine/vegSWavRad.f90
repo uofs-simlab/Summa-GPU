@@ -91,7 +91,7 @@ contains
  integer(i4b),intent(in)         :: nSoil                          ! number of soil layers
  integer(i4b),intent(in)         :: nLayers                        ! total number of layers
  integer(i4b) :: nGRU
- logical(lgt),intent(in)         :: computeVegFlux                 ! logical flag to compute vegetation fluxes (.false. if veg buried by snow)
+ logical(lgt),intent(in),device         :: computeVegFlux(:)                 ! logical flag to compute vegetation fluxes (.false. if veg buried by snow)
  type(decisions_device) :: decisions
  type(veg_parameters) :: veg_param
  type(type_data_device),intent(in)          :: type_data                      ! classification of veg, soil etc. for a local HRU
@@ -343,7 +343,7 @@ end do
  integer(i4b) :: nSnow(:)
  integer(i4b),intent(in)        :: vegTypeIndex_(:)                              ! vegetation type index
  integer(i4b),intent(in),value        :: isc                                       ! soil color index
- logical(lgt),intent(in),value        :: computeVegFlux                            ! logical flag to compute vegetation fluxes (.false. if veg buried by snow)
+ logical(lgt),intent(in)        :: computeVegFlux(:)                            ! logical flag to compute vegetation fluxes (.false. if veg buried by snow)
  integer(i4b),intent(in),value        :: ix_canopySrad                             ! choice of canopy shortwave radiation method
  real(rkind),intent(in)            :: scalarCosZenith_(:)                           ! cosine of the solar zenith angle (0-1)
  real(rkind),intent(in)            :: spectralIncomingDirect_(:,:)                 ! incoming direct solar radiation in each wave band (w m-2)
@@ -482,7 +482,7 @@ real(rkind) :: xl(:),hvt(:),hvb(:),rc(:)
  scalarGroundAbsorbedSolar_(iGRU) = 0._rkind  ! radiation absorbed by the ground (W m-2)
 
  ! check for an early return (no radiation or no exposed canopy)
- if(.not.computeVegFlux .or. scalarCosZenith_(iGRU) < tiny(scalarCosZenith_(iGRU)))then
+ if(.not.computeVegFlux(iGRU) .or. scalarCosZenith_(iGRU) < tiny(scalarCosZenith_(iGRU)))then
   ! set canopy radiation to zero
   scalarCanopySunlitFraction_(iGRU) = 0._rkind                ! sunlit fraction of canopy (-)
   scalarCanopySunlitLAI_(iGRU)      = 0._rkind                ! sunlit leaf area (-)

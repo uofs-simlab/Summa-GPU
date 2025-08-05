@@ -384,7 +384,7 @@ MODULE data_types
    integer(i4b)             :: nSubset                     ! intent(in): total number of variables in the state subset
    logical(lgt)             :: doAdjustTemp                ! intent(in): flag to indicate if we adjust the temperature
    logical(lgt)             :: firstSubStep                ! intent(in): flag to denote first sub-step
-   logical(lgt)             :: computeVegFlux              ! intent(in): flag to denote if computing energy flux over vegetation
+  !  logical(lgt)             :: computeVegFlux              ! intent(in): flag to denote if computing energy flux over vegetation
    logical(lgt)             :: scalarSolution              ! intent(in): flag to denote computing the scalar solution
    integer(i4b)             :: iStateSplit                 ! intent(in): index of the layer in the splitting operation
    type(var_flagVec)        :: fluxMask                    ! intent(in): mask for the fluxes used in this given state subset
@@ -589,7 +589,7 @@ contains
 
  ! **** varSubstep ****
  subroutine initialize_in_varSubstep(in_varSubstep,dt,dtInit,dt_min,whole_step,nSubset,&
-                                     doAdjustTemp,firstSubStep,computeVegFlux,ixSolution,scalar,iStateSplit,fluxMask)
+                                     doAdjustTemp,firstSubStep,ixSolution,scalar,iStateSplit,fluxMask)
   class(in_type_varSubstep),intent(out) :: in_varSubstep  ! class object for intent(in) varSubstep arguments
   real(rkind),intent(in)                :: dt             ! time step (s)
   real(rkind),intent(in)                :: dtInit         ! initial time step (s)
@@ -598,7 +598,7 @@ contains
   integer(i4b),intent(in)               :: nSubset        ! total number of variables in the state subset
   logical(lgt),intent(in)               :: doAdjustTemp   ! flag to indicate if we adjust the temperature
   logical(lgt),intent(in)               :: firstSubStep   ! flag to denote first sub-step
-  logical(lgt),intent(in)               :: computeVegFlux ! flag to denote if computing energy flux over vegetation
+  ! logical(lgt),intent(in)               :: computeVegFlux ! flag to denote if computing energy flux over vegetation
   integer(i4b),intent(in)               :: ixSolution     ! index of solution method
   integer(i4b),intent(in)               :: scalar         ! scalar solution method
   integer(i4b),intent(in)               :: iStateSplit    ! index of the layer in the splitting operation
@@ -612,7 +612,7 @@ contains
   in_varSubstep % nSubset        = nSubset                ! intent(in): total number of variables in the state subset
   in_varSubstep % doAdjustTemp   = doAdjustTemp           ! intent(in): flag to indicate if we adjust the temperature
   in_varSubstep % firstSubStep   = firstSubStep           ! intent(in): flag to denote first sub-step
-  in_varSubstep % computeVegFlux = computeVegFlux         ! intent(in): flag to denote if computing energy flux over vegetation
+  ! in_varSubstep % computeVegFlux = computeVegFlux         ! intent(in): flag to denote if computing energy flux over vegetation
   in_varSubstep % scalarSolution = (ixSolution==scalar)   ! intent(in): flag to denote computing the scalar solution
   in_varSubstep % iStateSplit    = iStateSplit            ! intent(in): index of the layer in the splitting operation
   in_varSubstep % fluxMask       = fluxMask               ! intent(in): mask for the fluxes used in this given state subset

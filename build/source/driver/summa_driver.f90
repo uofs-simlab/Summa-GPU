@@ -98,11 +98,11 @@ contains
         nSoil = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSoil)%dat(1)
             nLayers = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nLayers)%dat(1)
 
- call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct,summa1_struc(n)%nGRU)
-call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,nSnow,nSoil,nLayers,summa1_struc(n)%nGRU)
-call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,nLayers,nSoil,summa1_struc(n)%nGRU)
-   call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,nSnow,nSoil,summa1_struc(n)%nGRU)
- call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
+!  call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct,summa1_struc(n)%nGRU)
+! call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,nSnow,nSoil,nLayers,summa1_struc(n)%nGRU)
+! call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,nLayers,nSoil,summa1_struc(n)%nGRU)
+  !  call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,nSnow,nSoil,summa1_struc(n)%nGRU)
+!  call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
 
   end subroutine initialize_summa_driver
 
@@ -120,14 +120,14 @@ call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%prog
      call summa_readForcing(modelTimeStep, summa1_struc(n), err, message)
      call handle_err(err, message)
   
-     if (mod(modelTimeStep, print_step_freq) == 0) then
-       print *, 'step ---> ', modelTimeStep
-     end if
+    !  if (mod(modelTimeStep, print_step_freq) == 0) then
+       print *, 'step ---> ', modelTimeStep, numtim
+    !  end if
  
      ! run the summa physics for one time step
      call summa_runPhysics(modelTimeStep, summa1_struc(n), err, message)
      call handle_err(err, message)
-     if (modelTimeStep .eq. numtim) then
+    !  if (modelTimeStep .eq. numtim) then
  call finalize_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct,summa1_struc(n)%nGRU)
 
          nSnow = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSnow)%dat(1)
@@ -139,7 +139,7 @@ call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diag
 call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,nLayers,nSoil,summa1_struc(n)%nGRU)
    call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,nSnow,nSoil,summa1_struc(n)%nGRU)
  call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
-     end if
+    !  end if
      ! write the model output
      call summa_writeOutputFiles(modelTimeStep, summa1_struc(n), err, message)
      call handle_err(err, message)
