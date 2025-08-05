@@ -50,8 +50,7 @@ if (USE_SUNDIALS)
                             SUNDIALS::fsunmatrixmagmadense_mod_shared
                             SUNDIALS::fsunlinsolmagmadense_mod_shared
                             SUNDIALS::fnveccuda_mod_shared
-                            SUNDIALS::fmemory_helper_cuda_mod_shared
-                            SUNDIALS::fkinsol_mod_shared)
+                            SUNDIALS::fmemory_helper_cuda_mod_shared)
     add_compile_definitions(SUNDIALS_ACTIVE)
     set(EXEC_NAME summa_sundials.exe)
 endif()
