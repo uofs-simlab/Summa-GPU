@@ -217,8 +217,8 @@ subroutine computJacobWithPrime(&
     ! type and index of model control volume
     ixHydType                    => indx_data%ixHydType                         ,& ! intent(in): [i4b(:)] index of the type of hydrology states in snow+soil domain
     ! mapping between states and model layers
-    ixMapSubset2Full_m             => indx_data%ixMapSubset2Full                  ,& ! intent(in): [i4b(:)] list of indices in the full state vector that are in the state subset
-    ixMapFull2Subset_m             => indx_data%ixMapFull2Subset                  ,& ! intent(in): [i4b(:)] list of indices in the state subset in each element of the full state vector
+    ! ixMapSubset2Full_m             => indx_data%ixMapSubset2Full                  ,& ! intent(in): [i4b(:)] list of indices in the full state vector that are in the state subset
+    ! ixMapFull2Subset_m             => indx_data%ixMapFull2Subset                  ,& ! intent(in): [i4b(:)] list of indices in the state subset in each element of the full state vector
     ! derivatives in net vegetation energy fluxes w.r.t. relevant state variables
     dCanairNetFlux_dCanairTemp   => deriv_data%dCanairNetFlux_dCanairTemp    ,& ! intent(in): [dp]     derivative in net canopy air space flux w.r.t. canopy air temperature
     dCanairNetFlux_dCanopyTemp   => deriv_data%dCanairNetFlux_dCanopyTemp    ,& ! intent(in): [dp]     derivative in net canopy air space flux w.r.t. canopy temperature

@@ -266,7 +266,7 @@ subroutine eval8summaWithPrime(&
     dCm_dTk                   => deriv_data%dCm_dTk_m                 ,& ! intent(out): [dp(:)]  derivative in heat capacity w.r.t. temperature (J kg-1 K-2)
     dCm_dTkCanopy             => deriv_data%dCm_dTkCanopy           ,& ! intent(out): [dp   ]  derivative in heat capacity w.r.t. canopy temperature (J kg-1 K-2)
     ! mapping
-    ixMapFull2Subset_m          => indx_data%ixMapFull2Subset            ,& ! intent(in):  [i4b(:)] mapping of full state vector to the state subset
+    ! ixMapFull2Subset_m          => indx_data%ixMapFull2Subset            ,& ! intent(in):  [i4b(:)] mapping of full state vector to the state subset
     ixControlVolume_m           => indx_data%ixControlVolume             ,& ! intent(in):  [i4b(:)] index of control volume for different domains (veg, snow, soil)
     ! heat capacity
     heatCapVegTrial           => diag_data%scalarBulkVolHeatCapVeg   ,& ! intent(out): [dp]     volumetric heat capacity of vegetation canopy
@@ -792,7 +792,6 @@ integer(c_int) function eval8summa4ida(tres, sunvec_y, sunvec_yp, sunvec_r, user
   stateVecPrime(1:eqns_data%nState,1:eqns_data%nGRU) => FN_VGetDeviceArrayPointer_Cuda(sunvec_yp)
   rVec(1:eqns_data%nState,1:eqns_data%nGRU)  => FN_VGetDeviceArrayPointer_Cuda(sunvec_r)
 
-print*, tres
   ! compute the flux and the residual vector for a given state vector
   call eval8summaWithPrime(&
                 ! input: model control

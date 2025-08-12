@@ -202,15 +202,15 @@ end do
 
  ! re-allocate index vectors for the full state vector (if needed)...
  maxnState = maxval(nState)
- if (size(indx_data%ixMapFull2Subset,1).ne.maxnState) then
-  deallocate(indx_data%ixMapFull2Subset)
-  allocate(indx_data%ixMapFull2Subset(maxnState,nGRU))
-  indx_data%ixMapFull2Subset = integerMissing
- end if
- if (.not. allocated(indx_data%ixMapFull2Subset)) then
-  allocate(indx_data%ixMapFull2Subset(maxnState,nGRU))
-  indx_data%ixMapFull2Subset = integerMissing
- end if
+ !if (size(indx_data%ixMapFull2Subset,1).ne.maxnState) then
+ ! deallocate(indx_data%ixMapFull2Subset)
+ ! allocate(indx_data%ixMapFull2Subset(maxnState,nGRU))
+ ! indx_data%ixMapFull2Subset = integerMissing
+ !end if
+ !if (.not. allocated(indx_data%ixMapFull2Subset)) then
+ ! allocate(indx_data%ixMapFull2Subset(maxnState,nGRU))
+ ! indx_data%ixMapFull2Subset = integerMissing
+ !end if
 
  if (size(indx_data%ixControlVolume,1).ne.maxnState) then
   deallocate(indx_data%ixControlVolume)
@@ -369,7 +369,7 @@ end do
  ! **********************************************************************************************************
   subroutine indexSplit(in_indexSplit,               & ! intent(in)    : number of model layers and states in a subset
     nGRU, &
-                       stateSubsetMask,             & ! intent(in)    : logical vector (.true. if state is in the subset)
+                            stateSubsetMask,        & ! intent(in)    : logical vector (.true. if state is in the subset)
                        indx_data,                   & ! intent(inout) : index data structure
                        out_indexSplit)                ! intent(out)   : error control
 !  ! external modules 
@@ -428,7 +428,7 @@ end do
  ixAqWat          => indx_data%ixAqWat       ,& ! intent(in):  [i4b]    index of the storage of water in the aquifer
 
  ! indices of model state variables
- ixMapFull2Subset => indx_data%ixMapFull2Subset ,& ! intent(in):  [i4b(:)] list of indices in the state subset (missing for values not in the subset)
+ ! ixMapFull2Subset => indx_data%ixMapFull2Subset ,& ! intent(in):  [i4b(:)] list of indices in the state subset (missing for values not in the subset)
  ixDomainType     => indx_data%ixDomainType     ,& ! intent(in):  [i4b(:)] indices defining the domain of the state (iname_veg, iname_snow, iname_soil)
  ixStateType      => indx_data%ixStateType      ,& ! intent(in):  [i4b(:)] indices defining the type of the state (ixNrgState...)
 !  ixAllState       => indx_data%ixAllState       ,& ! intent(in):  [i4b(:)] list of indices for all model state variables (1,2,3,...nState)
@@ -489,19 +489,19 @@ end do
 
  ! get the mapping between the full state vector and the state subset
 
-!$cuf kernel do(1) <<<*,*>>>
-do iGRU=1,nGRU
-  subsetLayer(iGRU) = 1
-  do iLayer=1,size(ixMapFull2Subset,1)
-    if (stateSubsetMask(iLayer,iGRU)) then
-      ixMapFull2Subset(iLayer,iGRU) = subsetLayer(iGRU)
-      subsetLayer(iGRU) = subsetLayer(iGRU) + 1
-
-    else
-      ixMapFull2Subset(iLayer,iGRU) = integerMissing
-    endif
-  enddo
-enddo
+! !$cuf kernel do(1) <<<*,*>>>
+! do iGRU=1,nGRU
+!   subsetLayer(iGRU) = 1
+!   do iLayer=1,size(ixMapFull2Subset,1)
+!     !if (stateSubsetMask(iLayer,iGRU)) then
+!       ixMapFull2Subset(iLayer,iGRU) = subsetLayer(iGRU)
+!       subsetLayer(iGRU) = subsetLayer(iGRU) + 1
+! 
+!     !else
+!     !  ixMapFull2Subset(iLayer,iGRU) = integerMissing
+!     !endif
+!   enddo
+! enddo
 
  ! -----
  ! - get vectors of different state subsets...
@@ -526,7 +526,8 @@ subset = 0
 do iGRU=1,nGRU
  subsetCount(iGRU) = 0
  do iLayer=1,size(stateSubsetMask,1)
-   if (stateSubsetMask(iLayer,iGRU)) subsetcount(iGRU) = subsetcount(iGRU) + 1
+   !if (stateSubsetMask(iLayer,iGRU)) 
+   subsetcount(iGRU) = subsetcount(iGRU) + 1
  end do
  subset = max(subsetcount(iGRU),subset)
  subsetCount(iGRU) = 0
@@ -542,9 +543,9 @@ end do
   ! get the subset of indices
   ! NOTE: indxSubset(subset, fullVector, mask), provides subset of fullVector where mask==.true.
   select case(iVar)
-   case(iLookINDEX%ixMapSubset2Full);     call indxSubset_d(indx_data%ixMapSubset2Full,stateSubsetMask,subset,nGRU,err,cmessage)
+   ! case(iLookINDEX%ixMapSubset2Full);     call indxSubset_d(indx_data%ixMapSubset2Full,stateSubsetMask,subset,nGRU,err,cmessage)
    !case(iLookINDEX%ixStateType_subset);   call indxSubset_d2(indx_data%ixStateType_subset, ixStateType,  stateSubsetMask,subset,nGRU, err, cmessage)
-   case(iLookINDEX%ixDomainType_subset);  call indxSubset_d2(indx_data%ixDomainType_subset, ixDomainType, stateSubsetMask,subset,nGRU, err, cmessage)
+   !case(iLookINDEX%ixDomainType_subset);  call indxSubset_d2(indx_data%ixDomainType_subset, ixDomainType, stateSubsetMask,subset,nGRU, err, cmessage)
 !    case(iLookINDEX%ixVolFracWat);         call indxSubset(indx_data%var(iVar)%dat, ixLayerState, volFracWat_mask, err, cmessage)
   !  case(iLookINDEX%ixMatricHead);         call indxSubset_d2(indx_data%ixMatricHead_m, ixSoilState,  matricHead_mask, matricHeadCount,nGRU, err, cmessage)
    case default; cycle ! only need to process the above variables
@@ -622,9 +623,9 @@ end do
    !$cuf kernel do(1) <<<*,*>>>
    do iGRU=1,nGRU
     do iLayer=1,nLayers(iGRU)
-      ixSnowSoilNrg(iLayer,iGRU) = ixMapFull2Subset(ixNrgLayer(iLayer,iGRU),iGRU)
-      if (iLayer .le. nSnow_d(iGRU)) ixSnowOnlyNrg(iLayer,iGRU) = ixMapFull2Subset(ixNrgLayer(iLayer,iGRU),iGRU)
-      if (iLayer .le. nSoil) ixSoilOnlyNrg(iLayer,iGRU) = ixMapFull2Subset(ixNrgLayer(iLayer+nSnow_d(iGRU),iGRU),iGRU)
+      ixSnowSoilNrg(iLayer,iGRU) = ixNrgLayer(iLayer,iGRU)
+      if (iLayer .le. nSnow_d(iGRU)) ixSnowOnlyNrg(iLayer,iGRU) = ixNrgLayer(iLayer,iGRU)
+      if (iLayer .le. nSoil) ixSoilOnlyNrg(iLayer,iGRU) = ixNrgLayer(iLayer+nSnow_d(iGRU),iGRU)
     end do
   end do
 
@@ -635,9 +636,9 @@ end do
    !$cuf kernel do(1) <<<*,*>>>
   do iGRU=1,nGRU
     do iLayer=1,nLayers(iGRU)
-      ixSnowSoilHyd(iLayer,iGRU) = ixMapFull2Subset(ixHydLayer(iLayer,iGRU),iGRU)
-      if (iLayer .le. nSnow_d(iGRU)) ixSnowOnlyHyd(iLayer,iGRU) = ixMapFull2Subset(ixHydLayer(iLayer,iGRU),iGRU)
-      if (iLayer .le. nSoil) ixSoilOnlyHyd(iLayer,iGRU) = ixMapFull2Subset(ixHydLayer(iLayer+nSnow_d(iGRU),iGRU),iGRU)
+      ixSnowSoilHyd(iLayer,iGRU) = ixHydLayer(iLayer,iGRU)
+      if (iLayer .le. nSnow_d(iGRU)) ixSnowOnlyHyd(iLayer,iGRU) = ixHydLayer(iLayer,iGRU)
+      if (iLayer .le. nSoil) ixSoilOnlyHyd(iLayer,iGRU) = ixHydLayer(iLayer+nSnow_d(iGRU),iGRU)
     end do
   end do
 

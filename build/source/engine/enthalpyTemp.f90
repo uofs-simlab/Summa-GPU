@@ -1080,7 +1080,7 @@ subroutine enthTemp_or_enthalpy(&
   ! declare local variables
   integer(i4b)                     :: iState                     ! index of model state variable
   integer(i4b)                     :: iLayer                     ! index of model layer
-  integer(i4b)                     :: ixFullVector               ! index within full state vector
+  ! integer(i4b)                     :: ixFullVector               ! index within full state vector
   integer(i4b)                     :: ixDomainType               ! name of a given model domain
   integer(i4b)                     :: ixControlIndex             ! index within a given model domain
   integer(i4b) :: iGRU
@@ -1090,10 +1090,10 @@ subroutine enthTemp_or_enthalpy(&
     ! number of model layers, and layer type
     nSnow                   => indx_data%nSnow            ,& ! intent(in): [i4b]    total number of snow layers
     ! mapping between the full state vector and the state subset
-    ixMapFull2Subset        => indx_data%ixMapFull2Subset    ,& ! intent(in): [i4b(:)] list of indices in the state subset for each state in the full state vector
-    ixMapSubset2Full        => indx_data%ixMapSubset2Full    ,& ! intent(in): [i4b(:)] [state subset] list of indices of the full state vector in the state subset
+    ! ixMapFull2Subset        => indx_data%ixMapFull2Subset    ,& ! intent(in): [i4b(:)] list of indices in the state subset for each state in the full state vector
+    ! ixMapSubset2Full        => indx_data%ixMapSubset2Full    ,& ! intent(in): [i4b(:)] [state subset] list of indices of the full state vector in the state subset
     ! type of domain, type of state variable, and index of control volume within domain
-    ixDomainType_subset     => indx_data%ixDomainType_subset ,& ! intent(in): [i4b(:)] [state subset] id of domain for desired model state variables
+    ixDomainType_subset     => indx_data%ixDomainType ,& ! intent(in): [i4b(:)] [state subset] id of domain for desired model state variables
     ixControlVolume         => indx_data%ixControlVolume     ,& ! intent(in): [i4b(:)] index of the control volume for different domains (veg, snow, soil)
     ixStateType             => indx_data%ixStateType         ,& ! intent(in): [i4b(:)] indices defining the type of the state (iname_nrgLayer...)
    ! canopy depth
@@ -1107,19 +1107,19 @@ subroutine enthTemp_or_enthalpy(&
     ! loop through model state variables
     !$cuf kernel do(2) <<<*,*>>>
     do iGRU=1,nGRU
-    do iState=1,size(ixMapSubset2Full,1)
+    do iState=1,size(ixDomainType_subset,1)
 
       ! -----
       ! - compute indices...
       ! --------------------
 
       ! get domain type, and index of the control volume within the domain
-      ixFullVector   = ixMapSubset2Full(iState,iGRU)       ! index within full state vector
+      ! ixFullVector   = iState       ! index within full state vector
       ixDomainType   = ixDomainType_subset(iState,iGRU)    ! named variables defining the domain (iname_cas, iname_veg, etc.)
-      ixControlIndex = ixControlVolume(ixFullVector,iGRU)  ! index within a given domain
+      ixControlIndex = ixControlVolume(iState,iGRU)  ! index within a given domain
 
       ! check an energy state
-      if(ixStateType(ixFullVector,iGRU)==iname_nrgCanair .or. ixStateType(ixFullVector,iGRU)==iname_nrgCanopy .or. ixStateType(ixFullVector,iGRU)==iname_nrgLayer)then
+      if(ixStateType(iState,iGRU)==iname_nrgCanair .or. ixStateType(iState,iGRU)==iname_nrgCanopy .or. ixStateType(iState,iGRU)==iname_nrgLayer)then
 
         ! get the layer index
         select case(ixDomainType)

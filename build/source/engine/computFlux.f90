@@ -571,14 +571,10 @@ subroutine soilForcingNoSnow
     if (err/=0) then; message=trim(message)//trim(cmessage); return; end if
     err = cudaDeviceSynchronize()
     ! calculate net energy fluxes for each snow and soil layer (J m-3 s-1)
-    !$cuf kernel do(1) <<<*,*>>>
+    !$cuf kernel do(1) <<<1,1>>>
     do iGRU=1,nGRU
     do iLayer=1,nLayers(iGRU)
-     ! print*, mLayerNrgFlux(iLayer,iGRU)
       mLayerNrgFlux(iLayer,iGRU) = -(iLayerNrgFlux(iLayer,iGRU) - iLayerNrgFlux(iLayer-1,iGRU))/mLayerDepth(iLayer,iGRU)
-     !  if (globalPrintFlag) then
-     !    if (iLayer < 10) write(*,'(a,1x,i4,1x,10(f25.15,1x))') 'iLayer, iLayerNrgFlux(iLayer-1:iLayer), mLayerNrgFlux(iLayer)   = ', iLayer, iLayerNrgFlux(iLayer-1:iLayer), mLayerNrgFlux(iLayer)
-     !  end if
     end do
    end do
    end associate

@@ -601,8 +601,8 @@ type,public:: indx_data_device
   integer(i4b),device,allocatable :: ixHydCanopy(:)
   integer(i4b),device,allocatable :: ixNrgCanopy(:)
   ! integer(i4b) :: ixNrgCanair
-  integer(i4b),device,allocatable :: ixMapSubset2Full(:,:), ixMapFull2Subset(:,:)
-  integer(i4b),device,allocatable :: ixDomainType_subset(:,:)
+  ! integer(i4b),device,allocatable :: ixMapSubset2Full(:,:)!, ixMapFull2Subset(:,:)
+  !integer(i4b),device,allocatable :: ixDomainType_subset(:,:)
   integer(i4b),device,allocatable :: ixControlVolume(:,:)
   integer(i4b),device,allocatable :: layerType(:,:)
   integer(i4b),device,allocatable :: ixSoilOnlyHyd(:,:)

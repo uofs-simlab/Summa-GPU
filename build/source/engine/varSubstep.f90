@@ -262,7 +262,7 @@ subroutine varSubstep(&
     nSnowSoilHyd            => indx_data%nLayers_d          ,& ! intent(in):    [i4b]    number of hydrology state variables in the snow+soil domain
     ! mapping between state vectors and control volumes
     ! ixLayerActive           => indx_data%ixLayerActive            ,& ! intent(in):    [i4b(:)] list of indices for all active layers (inactive=integerMissing)
-    ixMapFull2Subset        => indx_data%ixMapFull2Subset         ,& ! intent(in):    [i4b(:)] mapping of full state vector to the state subset
+    ! ixMapFull2Subset        => indx_data%ixMapFull2Subset         ,& ! intent(in):    [i4b(:)] mapping of full state vector to the state subset
     ixControlVolume         => indx_data%ixControlVolume          ,& ! intent(in):    [i4b(:)] index of control volume for different domains (veg, snow, soil)
     ! model state variables (vegetation canopy)
     scalarCanairTemp        => prog_data%scalarCanairTemp       ,& ! intent(inout): [dp]     temperature of the canopy air space (K)
@@ -871,7 +871,7 @@ USE getVectorz_module,only:varExtract                              ! extract var
   integer(i4b)                    :: i                             ! indices
   integer(i4b)                    :: iState                        ! index of model state variable
   integer(i4b)                    :: ixSubset                      ! index within the state subset
-  integer(i4b)                    :: ixFullVector                  ! index within full state vector
+  ! integer(i4b)                    :: ixFullVector                  ! index within full state vector
   integer(i4b)                    :: ixControlIndex                ! index within a given domain
   real(rkind)                     :: volMelt                       ! volumetric melt (kg m-3)
   real(rkind),parameter           :: verySmall=epsilon(1._rkind)   ! a very small number (deal with precision issues)
@@ -958,7 +958,7 @@ USE getVectorz_module,only:varExtract                              ! extract var
     ixNrgOnly                 => indx_data%ixNrgOnly                    ,& ! intent(in)   : [i4b(:)] list of indices for all energy states
     ixDomainType              => indx_data%ixDomainType                 ,& ! intent(in)   : [i4b(:)] indices defining the domain of the state (iname_veg, iname_snow, iname_soil)
     ixControlVolume           => indx_data%ixControlVolume              ,& ! intent(in)   : [i4b(:)] index of the control volume for different domains (veg, snow, soil)
-    ixMapSubset2Full          => indx_data%ixMapSubset2Full             ,& ! intent(in)   : [i4b(:)] [state subset] list of indices of the full state vector in the state subset
+    ! ixMapSubset2Full          => indx_data%ixMapSubset2Full             ,& ! intent(in)   : [i4b(:)] [state subset] list of indices of the full state vector in the state subset
     ! water fluxes
     scalarRainfall            => flux_data%scalarRainfall             ,& ! intent(in)   : [dp]     rainfall rate (kg m-2 s-1)
     scalarThroughfallRain     => flux_data%scalarThroughfallRain      ,& ! intent(in)   : [dp]     rain reaches ground without touching the canopy (kg m-2 s-1)
@@ -1285,14 +1285,14 @@ USE getVectorz_module,only:varExtract                              ! extract var
 
         ! get index of the control volume within the domain
         ixSubset       = ixNrgOnly(iState,iGRU)             ! index within the state subset
-        ixFullVector   = ixMapSubset2Full(ixSubset,iGRU)    ! index within full state vector
-        ixControlIndex = ixControlVolume(ixFullVector,iGRU) ! index within a given domain
+        ! ixFullVector   = ixMapSubset2Full(ixSubset,iGRU)    ! index within full state vector
+        ixControlIndex = ixControlVolume(ixSubset,iGRU) ! index within a given domain
 
         ! compute volumetric melt (kg m-3)
         volMelt = dt*untappedMelt(ixSubset,iGRU)/LH_fus  ! (kg m-3)
 
         ! update ice content
-        select case( ixDomainType(ixFullVector,iGRU) )
+        select case( ixDomainType(ixSubset,iGRU) )
           case(iname_cas);  cycle ! do nothing, since there is no snow stored in the canopy air space
           case(iname_veg);  scalarCanopyIceTrial(iGRU)                        = scalarCanopyIceTrial(iGRU)                        - volMelt*canopyDepth(iGRU)  ! (kg m-2)
           case(iname_snow); mLayerVolFracIceTrial(ixControlIndex,iGRU)       = mLayerVolFracIceTrial(ixControlIndex,iGRU)       - volMelt/iden_ice     ! (-)
@@ -1301,7 +1301,7 @@ USE getVectorz_module,only:varExtract                              ! extract var
         end select
 
         ! update liquid water content
-        select case( ixDomainType(ixFullVector,iGRU) )
+        select case( ixDomainType(ixSubset,iGRU) )
           case(iname_cas);  cycle ! do nothing, since there is no snow stored in the canopy air space
           case(iname_veg);  scalarCanopyLiqTrial(iGRU)                        = scalarCanopyLiqTrial(iGRU)                        + volMelt*canopyDepth(iGRU)  ! (kg m-2)
           case(iname_snow); mLayerVolFracLiqTrial(ixControlIndex,iGRU)       = mLayerVolFracLiqTrial(ixControlIndex,iGRU)       + volMelt/iden_water   ! (-)

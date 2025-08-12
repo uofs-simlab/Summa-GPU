@@ -180,33 +180,40 @@ subroutine popStateVec(&
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer canopy
     !$cuf kernel do(1) <<<*,*>>>
     do iGRU=1,nGRU
-      ! print*, iGRU, 'CasNrg', ixCasNrg(iGRU)
+      if (ixCasNrg(iGRU) .ne. integerMissing) then
       if(enthalpyStateVec)then
         stateVec( ixCasNrg(iGRU),iGRU ) = scalarCanairEnthalpy(iGRU) ! transfer canopy air enthalpy to the state vector
       else
         stateVec( ixCasNrg(iGRU),iGRU ) = scalarCanairTemp(iGRU)     ! transfer canopy air temperature to the state vector
       endif
+      end if
       ! print*, iGRU, 'VegNrg', ixVegNrg(iGRU)
 
     ! build the state vector for the temperature of the vegetation canopy
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer canopy
+    if (ixVegNrg(iGRU).ne.integerMissing) then
       if(enthalpyStateVec)then
         stateVec( ixVegNrg(iGRU),iGRU ) = scalarCanopyEnthalpy(iGRU) ! transfer vegetation enthalpy to the state vector
       else
         stateVec( ixVegNrg(iGRU),iGRU )  = scalarCanopyTemp(iGRU)    ! transfer vegetation temperature to the state vector
       endif
+      end if
 
     ! build the state vector for the water in the vegetation canopy
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer canopy
+    if (ixVegHyd(iGRU).ne.integerMissing) then
       select case(ixStateType_subset( ixVegHyd(iGRU),iGRU ))
         case(iname_watCanopy); stateVec( ixVegHyd(iGRU),iGRU ) = scalarCanopyWat(iGRU) ! transfer total canopy water to the state vector
         case(iname_liqCanopy); stateVec( ixVegHyd(iGRU),iGRU ) = scalarCanopyLiq(iGRU) ! transfer liquid canopy water to the state vector
       end select
+      end if
             ! print*, iGRU, 'VegHyd', ixVegHyd(iGRU)
 
           ! build the state vector for the aquifer storage
     ! NOTE: currently vector length=1, and use "do concurrent" to generalize to a multi-layer aquifer
+    if (ixAqWat(iGRU).ne.integerMissing) then
       stateVec( ixAqWat(iGRU),iGRU )  = scalarAquiferStorage(iGRU)    ! transfer aquifer storage to the state vector
+      end if
 
     end do
 
@@ -221,8 +228,11 @@ subroutine popStateVec(&
             else
               stateVec(ixStateSubset,iGRU) = mLayerTemp(iLayer,iGRU)     ! transfer temperature from a layer to the state vector
             endif
+            ! print*, iLayer, iGRU, mLayerEnthalpy(iLayer,iGRU), ixStateSubset
           end if
         end do
+              ! print*, iGRU, 2, stateVec(1,315)
+
       end do  ! looping through non-missing energy state variables in the snow+soil domain
 
     ! build the hydrology state vector for the snow+soil domains
@@ -241,6 +251,8 @@ subroutine popStateVec(&
             end select
           end if
         end do
+              ! print*, iGRU, 1, stateVec(1,iGRU)
+
       end do  ! looping through non-missing energy state variables in the snow+soil domain
 
     ! build the state vector for the aquifer storage

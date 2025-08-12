@@ -910,7 +910,6 @@ module soilLiqFlx_module
     ! compute the ice impedence factor and its derivative w.r.t. volumetric liquid water content (-)
     call iceImpede(scalarVolFracIceTrial,f_impede, &  ! input
                     iceImpedeFac,dIceImpede_dLiq)     ! output
-  
     select case(ixRichards)
       case(moisture) ! moisture-based form of Richards' equation
         call hydraulic_conductivity_moisture(scalarVolFracLiqTrial,scalarVolFracIceTrial,&
@@ -1041,8 +1040,9 @@ module soilLiqFlx_module
    ! compute the hydraulic conductivity of macropores (m s-1)
    localVolFracLiq = volFracLiq(scalarMatricHeadLiqTrial,vGn_alpha,theta_res,theta_sat,vGn_n,vGn_m)
    scalarHydCondMP = hydCondMP_liq(localVolFracLiq,theta_sat,theta_mp,mpExp,scalarSatHydCondMP,scalarSatHydCond)
+       
+
    scalarHydCond   = hydCond_noIce*iceImpedeFac + scalarHydCondMP
-  
    ! compute derivative in hydraulic conductivity (m s-1)
      ! compute derivative for macropores
      if (localVolFracLiq > theta_mp) then
@@ -1819,7 +1819,7 @@ module soilLiqFlx_module
     !  message => out_iLayerFlux % message  & ! error message
     &)
   
-    !$cuf kernel do(2) <<<*,*>>>
+    !$cuf kernel do(1) <<<*,*>>>
     do iGRU=1,nGRU
     do iLayer=ixTop,ixBot
     call iLayerFlux_flux_deriv(ixRichards,&

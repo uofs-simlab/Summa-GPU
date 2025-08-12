@@ -257,10 +257,10 @@ module updateVarsWithPrime_module
       ixNrgLayer              => indx_data%ixNrgLayer                  ,& ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the snow+soil domain
       ixHydLayer              => indx_data%ixHydLayer                  ,& ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for hydrology states in the snow+soil domain
       ! mapping between the full state vector and the state subset  
-      ixMapFull2Subset_m        => indx_data%ixMapFull2Subset            ,& ! intent(in):  [i4b(:)] list of indices in the state subset for each state in the full state vector
-      ixMapSubset2Full_m        => indx_data%ixMapSubset2Full            ,& ! intent(in):  [i4b(:)] [state subset] list of indices of the full state vector in the state subset
+      ! ixMapFull2Subset_m        => indx_data%ixMapFull2Subset            ,& ! intent(in):  [i4b(:)] list of indices in the state subset for each state in the full state vector
+      ! ixMapSubset2Full_m        => indx_data%ixMapSubset2Full            ,& ! intent(in):  [i4b(:)] [state subset] list of indices of the full state vector in the state subset
       ! type of domain, type of state variable, and index of control volume within domain
-      ixDomainType_subset_m     => indx_data%ixDomainType_subset         ,& ! intent(in):  [i4b(:)] [state subset] id of domain for desired model state variables
+      ixDomainType_subset_m     => indx_data%ixDomainType         ,& ! intent(in):  [i4b(:)] [state subset] id of domain for desired model state variables
       ixControlVolume_m         => indx_data%ixControlVolume             ,& ! intent(in):  [i4b(:)] index of the control volume for different domains (veg, snow, soil)
       ixStateType_m             => indx_data%ixStateType                 ,& ! intent(in):  [i4b(:)] indices defining the type of the state (iname_nrgLayer...)
       ! snow parameters
@@ -363,7 +363,7 @@ module updateVarsWithPrime_module
           ! print*, iState, iGRU, ixControlIndex
           ! print*, temperature(1,ixControlIndex,iGRU)
           threads = dim3(8,16,1)
-          blocks = dim3(size(ixMapFull2Subset_m,1)/8+1,nGRU/16+1,1)
+          blocks = dim3(size(ixDomainType_subset_m,1)/8+1,nGRU/16+1,1)
         call update<<<blocks,threads>>>(mLayerVolFracWatPrime, mLayerVolFracWatTrial, &
         mLayerVolFracLiqPrime, mLayerVolFracLiqTrial, &
         mLayerVolFracIcePrime, mLayerVolFracIceTrial, &
@@ -394,9 +394,11 @@ module updateVarsWithPrime_module
         mLayerFracLiqSnow, &
         scalarCanopyTempPrime, scalarCanopyTemp, scalarCanopyIce, &
         scalarBulkVolHeatCapVeg, &
-        mLayerVolHtCapBulk, mLayerTemp, mLayerVolFracIce, ixMapFull2Subset_m, &
+        mLayerVolHtCapBulk, mLayerTemp, mLayerVolFracIce, &
+        ! ixMapFull2Subset_m, &
         ixHydCanopy_m, ixNrgCanopy_m, ixHydLayer, ixNrgLayer, nSnow,ixControlVolume_m, &
-        ixMapSubset2Full_m, ixDomainType_subset_m,temperature,&
+        ! ixMapSubset2Full_m, &
+        ixDomainType_subset_m,temperature,&
         psiLiq_int, deriv2)
         ! endif
       ! end do ! looping through state variables
@@ -443,9 +445,11 @@ module updateVarsWithPrime_module
                     mLayerFracLiqSnow_, &
                     scalarCanopyTempPrime_, scalarCanopyTemp_, scalarCanopyIce_, &
                     scalarBulkVolHeatCapVeg_, &
-                    mLayerVolHtCapBulk_, mLayerTemp_, mLayerVolFracIce_, ixMapFull2Subset, &
+                    mLayerVolHtCapBulk_, mLayerTemp_, mLayerVolFracIce_, &
+                    ! ixMapFull2Subset, &
                     ixHydCanopy, ixNrgCanopy, ixHydLayer, ixNrgLayer, nSnow,ixControlVolume, &
-                    ixMapSubset2Full, ixDomainType_subset, Tk, Ly, L2)
+                    ! ixMapSubset2Full, &
+                    ixDomainType_subset, Tk, Ly, L2)
     real(rkind),intent(inout) :: mLayerVolFracWatPrime_in(:,:), mLayerVolFracWatTrial_(:,:) ! *(iLayer)
     real(rkind),intent(inout) :: mLayerVolFracLiqPrime_(:,:), mLayerVolFracLiqTrial_(:,:) ! *(iLayer)
     real(rkind),intent(inout) :: mLayerVolFracIcePrime_(:,:), mLayerVolFracIceTrial_(:,:) ! *(iLayer)
@@ -484,11 +488,12 @@ module updateVarsWithPrime_module
     real(rkind) :: Tk(:,:,:)
     real(rkind) ::  Ly(:,:,:), L2(:,:,:)
     integer(i4b) :: nrgConserv
-    integer(i4b) :: ixMapFull2Subset(:,:)
+    ! integer(i4b) :: ixMapFull2Subset(:,:)
     integer(i4b) :: ixHydCanopy(:), ixNrgCanopy(:), ixHydLayer(:,:), ixNrgLayer(:,:)
     integer(i4b) :: nSnow(:)
     integer(i4b) :: ixControlVolume(:,:)
-    integer(i4b) :: ixMapSubset2Full(:,:), ixDomainType_subset(:,:)
+    ! integer(i4b) :: ixMapSubset2Full(:,:), 
+    integer(i4b) :: ixDomainType_subset(:,:)
     ! integer(i4b) :: iLayer
     ! integer(i4b) :: ixOther
   
@@ -537,13 +542,14 @@ module updateVarsWithPrime_module
     iState = (blockidx%x-1) * blockdim%x + threadidx%x
     iGRU = (blockidx%y-1) * blockdim%y + threadidx%y
     ! print*, iState
-    if (iState .gt. size(ixMapFull2Subset,1) .or. iGRU .gt. nGRU) return
+    if (iState .gt. size(ixDomainType_subset,1) .or. iGRU .gt. nGRU) return
     enthalpyStateVec = ixNrgConserv.ne.closedForm
         ! get domain type, and index of the control volume within the domain
-    ixFullVector   = ixMapSubset2Full(iState,iGRU)       ! index within full state vector
+    ixFullVector   = iState       ! index within full state vector
     ixDomainType   = ixDomainType_subset(iState,iGRU)    ! named variables defining the domain (iname_cas, iname_veg, etc.)
     ixControlIndex = ixControlVolume(ixFullVector,iGRU)  ! index within a given domain
     ixStateType = ixStateType_(ixFullVector,iGRU)
+    ! print*, ixDomainType, iGRU, iState
   
     ! print*, ixControlIndex, ixFullVector, ixDomainType, iname_cas
     ! get the layer index
@@ -556,6 +562,8 @@ module updateVarsWithPrime_module
     case default; return
     ! case default; err=20; message=trim(message)//'expect case to be iname_cas, iname_veg, iname_snow, iname_soil, iname_aquifer'; return
   end select
+
+  ! print*, iGRU, iState, ixControlIndex
   
           ! get the index of the other (energy or mass) state variable within the full state vector
     select case(ixDomainType)
@@ -570,8 +578,9 @@ module updateVarsWithPrime_module
     if(ixDomainType==iname_cas)then
       ixOtherLocal = integerMissing
     else
-      ixOtherLocal = ixMapFull2Subset(ixOther,iGRU)  ! ixOtherLocal could equal integerMissing
+      ixOtherLocal = ixOther  ! ixOtherLocal could equal integerMissing
     endif
+    ! print*, ixOtherLocal, iLayer, iGRU
   
     ! check if we have a coupled solution
     isCoupled    = (ixOtherLocal/=integerMissing)
@@ -872,6 +881,7 @@ module updateVarsWithPrime_module
   
           ! *** soil layers
           case(iname_soil)
+          ! print*, 'update', iLayer, iGRU
   
             ! compute volumetric fraction of liquid water and ice
             call updateSoilPrime(&

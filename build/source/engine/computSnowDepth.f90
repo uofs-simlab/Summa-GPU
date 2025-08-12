@@ -329,6 +329,7 @@ baseViscosity)
   integer(i4b) :: iSnow
   real(rkind) :: massLiquid
   iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  print*, 'snowDepth', iGRU
   if (iGRU .gt. nGRU) return
 
     ! NOTE: this is done BEFORE densification

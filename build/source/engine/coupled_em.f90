@@ -2282,6 +2282,7 @@ attributes(global) subroutine enthtemp_soilnSoil(nGRU, nSnow,nSoil, &
   integer(i4b) :: iGRU, iLayer, iSoil
   
   iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  print*, 'eT', iGRU
   if (iGRU .gt. nGRU) return
   do iSoil=1,nSoil
     iLayer = iSoil + nSnow(iGRU)
