@@ -15,9 +15,6 @@ implicit none
 private
 public::updateSnowPrime
 public::updateSoilPrime
-
-real(rkind),parameter     :: verySmall=1e-14_rkind ! a very small number (used to avoid divide by zero)
-
 contains
 
 
@@ -58,7 +55,7 @@ attributes(device) subroutine updateSnowPrime(&
   integer(i4b),intent(out)      :: err                   ! error code
   ! character(*),intent(out)      :: message               ! error message
   ! initialize error control
-  err=0; !message="updateSnowPrime/"
+  err=0;! message="updateSnowPrime/"
 
   ! compute the volumetric fraction of liquid water and ice (-)
   fLiq = fracliquid(mLayerTemp,snowfrz_scale)
@@ -125,15 +122,14 @@ attributes(device) subroutine updateSoilPrime(&
   real(rkind)                  :: TcSoil                    ! critical soil temperature when all water is unfrozen (K)
   real(rkind)                  :: xConst                    ! constant in the freezing curve function (m K-1)
   real(rkind)                  :: mLayerPsiLiq              ! liquid water matric potential (m)
-  real(rkind),parameter        :: tinyVal=epsilon(1._rkind) ! used in balance check
   ! initialize error control
-  err=0; !message="updateSoilPrime/"
+  err=0!; message="updateSoilPrime/"
 
   ! compute fractional **volume** of total water (liquid plus ice)
   mLayerVolFracWat = volFracLiq(mLayerMatricHead,vGn_alpha,theta_res,theta_sat,vGn_n,vGn_m)
   mLayerVolFracWatPrime = dTheta_dPsi(mLayerMatricHead,vGn_alpha,theta_res,theta_sat,vGn_n,vGn_m) * mLayerMatricHeadPrime
 
-  if(mLayerVolFracWat > (theta_sat + tinyVal))then; err=20; return; end if
+  ! if(mLayerVolFracWat > (theta_sat + epsilon(1._rkind)))then; err=20; message=trim(message)//'volume of liquid and ice exceeds porosity'; return; end if
 
   ! compute the critical soil temperature where all water is unfrozen (K)
   ! (eq 17 in Dall'Amico 2011)

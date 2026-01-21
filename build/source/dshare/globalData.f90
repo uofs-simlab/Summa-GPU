@@ -34,6 +34,7 @@ MODULE globalData
   USE data_types,only:par_info        ! default parameter values and parameter bounds
   USE data_types,only:var_info        ! metadata for variables in each model structure
   USE data_types,only:flux2state      ! extended metadata to define flux-to-state mapping
+  use device_data_types,only:flux2state_device
   USE data_types,only:extended_info   ! extended metadata for variables in each model structure
   USE data_types,only:struct_info     ! summary information on all data structures
   USE data_types,only:var_i           ! vector of integers
@@ -63,7 +64,7 @@ MODULE globalData
 
   ! define missing values
   real(rkind),parameter,public                :: quadMissing    = nr_quadMissing    ! (from nrtype) missing quadruple precision number
-  real(rkind),parameter,public                :: realMissing    = nr_realMissing    ! (from nrtype) missing double precision number
+  real(rkind),parameter,public                :: realMissing    = nr_realMissing    ! (from nrtype) missing real number
   integer(i4b),parameter,public               :: integerMissing = nr_integerMissing ! (from nrtype) missing integer
   ! define run modes
   integer(i4b),parameter,public               :: iRunModeFull=1                     ! named variable defining running mode as full run (all GRUs)
@@ -119,10 +120,10 @@ MODULE globalData
   integer(i4b),parameter,public               :: iJac1=1                            ! first layer of the Jacobian to print
   integer(i4b),parameter,public               :: iJac2=100                          ! last layer of the Jacobian to print 
   ! define limit checks
-  real(rkind),parameter,public                :: verySmall=tiny(1.0_rkind)          ! a very small number
+  real(rkind),parameter,public                :: maxVolIceContent=0.7               ! snow maximum volumetric ice content to store water (-)
+  real(rkind),parameter,public                :: verySmall=1.e-6_rkind              ! a small number used as an additive constant to check if substantial difference among real numbers
+  real(rkind),parameter,public                :: verySmaller=1.e-12_rkind           ! a smaller number used as an additive constant to check if substantial difference among real numbers
   real(rkind),parameter,public                :: veryBig=1.e+20_rkind               ! a very big number
-  ! define algorithmic control parameters
-  real(rkind),parameter,public                :: dx = 1.e-8_rkind                   ! finite difference increment
   ! define summary information on all data structures
   integer(i4b),parameter                      :: nStruct=14                         ! number of data structures
   type(struct_info),parameter,public,dimension(nStruct) :: structInfo=(/&
@@ -170,6 +171,7 @@ MODULE globalData
   type(var_info),save,public                  :: bvar_meta(maxvarBvar)        ! basin variables for aggregated processes
   ! ancillary metadata structures
   type(flux2state),   save,public             :: flux2state_orig(maxvarFlux)  ! named variables for the states affected by each flux (original)
+  type(flux2state_device), save,public :: flux2state_orig_d
   type(flux2state),   save,public             :: flux2state_liq(maxvarFlux)   ! named variables for the states affected by each flux (liquid water)
   type(extended_info),save,public,allocatable :: averageFlux_meta(:)          ! timestep-average model fluxes
   ! mapping from original to child structures
@@ -201,6 +203,7 @@ MODULE globalData
   type(hru2gru_map),allocatable,save,public      :: index_map(:)                      ! hru2gru map
   ! define variables used for the vegetation phenology
   real(rkind),dimension(12),save,public          :: greenVegFrac_monthly              ! fraction of green vegetation in each month (0-1)
+  real(rkind),save,public                        :: minExpLogHgtFac=0.02_rkind        ! factor for minimum height of transition from the exponential to the logarithmic wind profile
   ! define the model output file
   character(len=256),save,public                 :: fileout=''                        ! output filename
   character(len=256),save,public                 :: output_fileSuffix=''              ! suffix for the output file
@@ -227,8 +230,7 @@ MODULE globalData
   real(rkind),save,public                        :: dJulianFinsh                      ! julian day of end time of simulation
   integer(i4b),save,public                       :: nHRUfile                          ! number of HRUs in the file
   integer(i4b),save,public                       :: urbanVegCategory                  ! vegetation category for urban areas
-  logical(lgt),save,public                       :: doJacobian=.false.                ! flag to compute the Jacobian
-  logical(lgt),save,public                       :: globalPrintFlag=.false.           ! flag to compute the Jacobian
+  logical(lgt),save,public                       :: globalPrintFlag=.false.           ! flag to compute the Jacobian, residual, and step progress
   integer(i4b),save,public                       :: chunksize=1024                    ! chunk size for the netcdf read/write
   integer(i4b),save,public                       :: outputPrecision=nf90_double       ! variable type
   integer(i4b),save,public                       :: outputCompressionLevel=4          ! output netcdf file deflate level: 0-9. 0 is no compression.
@@ -273,8 +275,8 @@ MODULE globalData
   real(rkind),save,public                        :: tmZoneOffsetFracDay               ! time zone offset in fractional days
   integer(i4b),save,public                       :: yearLength                        ! number of days in the current year
   ! define fixed dimensions
-  integer(i4b),parameter,public                  :: nBand=2                          ! number of spectral bands
-  integer(i4b),parameter,public                  :: nTimeDelay=2000                  ! number of time steps in the time delay histogram (default: ~1 season = 24*365/4)
+  integer(i4b),parameter,public                  :: nSpecBand=2                       ! number of spectral bands
+  integer(i4b),parameter,public                  :: nTimeDelay=2000                   ! number of time steps in the time delay histogram (default: ~1 season = 24*365/4)
   ! printing step frequency
   integer(i4b),parameter,public                  :: print_step_freq = 1000           
   character(len=1024),public,save                :: fname                            ! temporary filename

@@ -154,6 +154,20 @@ integer(i4b),parameter,public :: enthalpyForm         = 325    ! use enthalpy wi
 ! look-up values for the choice of choice of full or empty aquifer at start
 integer(i4b),parameter,public :: fullStart            = 326    ! full aquifer at start
 integer(i4b),parameter,public :: emptyStart           = 327    ! empty aquifer at start
+! look-up values for the infiltration method
+integer(i4b),parameter,public :: GreenAmpt            = 331    ! Green-Ampt
+integer(i4b),parameter,public :: topmodel_GA          = 332    ! Green-Ampt-ish for use with qbaseTopmodel hydraulic conductivity
+integer(i4b),parameter,public :: noInfiltrationExcess = 333    ! No infiltration excess runoff
+! look-up values for the infiltration excess surface runoff method
+integer(i4b),parameter,public :: zero_IE              = 341    ! zero infiltration excess surface runoff
+integer(i4b),parameter,public :: homegrown_IE         = 342    ! homegrown infiltration excess surface runoff
+! look-up values for the saturation excess surface runoff method
+integer(i4b),parameter,public :: zero_SE              = 351    ! zero saturation excess surface runoff
+integer(i4b),parameter,public :: homegrown_SE         = 352    ! homegrown saturation excess surface runoff
+integer(i4b),parameter,public :: FUSEPRMS             = 353    ! FUSE PRMS surface runoff
+integer(i4b),parameter,public :: FUSEAVIC             = 354    ! FUSE ARNO/VIC surface runoff
+integer(i4b),parameter,public :: FUSETOPM             = 355    ! FUSE TOPMODEL surface runoff
+
 ! ----------------------------------------------------------------------------------------------------------- 
 
 contains
@@ -430,12 +444,13 @@ subroutine mDecisions(err,message)
   end select
 
   ! choice of choice of full or empty aquifer at start
-  ! conventionally, start with this full, since easier to spin up by draining than filling (filling we need to wait for precipitation)
+  ! default ('notPopulatedYet') start with this full, since easier to spin up by draining than filling (filling we need to wait for precipitation)
   ! but, if want to compare model method outputs, empty start leads to quicker equilibrium
   select case(trim(model_decisions(iLookDECISIONS%aquiferIni)%cDecision))
-    case('fullStart' ); model_decisions(iLookDECISIONS%aquiferIni)%iDecision = fullStart        ! start with full aquifer
+    case('fullStart','notPopulatedYet'); model_decisions(iLookDECISIONS%aquiferIni)%iDecision = fullStart        ! start with full aquifer
     case('emptyStart'); model_decisions(iLookDECISIONS%aquiferIni)%iDecision = emptyStart       ! start with empty aquifer
-    case default;       model_decisions(iLookDECISIONS%aquiferIni)%iDecision = fullStart        ! most users will want to start with full aquifer, make this decision on their behalf
+    case default
+      err=10; message=trim(message)//"unknown choice of full or empty aquifer at start [option="//trim(model_decisions(iLookDECISIONS%aquiferIni)%cDecision)//"]"; return
   end select
 
   ! identify the method used to calculate flux derivatives
@@ -663,6 +678,40 @@ subroutine mDecisions(err,message)
       err=10; message=trim(message)//"unknown option for snow unloading [option="//trim(model_decisions(iLookDECISIONS%snowUnload)%cDecision)//"]"; return
   end select
 
+  ! choice of maximum infiltration rate method (for liq_flux soil hydrology upper boundary condition only, all others go by the behavior of noInfExc)
+  ! NOTE: use topmodel_GA as the default, where infiltration method is undefined (not populated yet)
+  select case(trim(model_decisions(iLookDECISIONS%infRateMax)%cDecision))
+    case('GreenAmpt'); model_decisions(iLookDECISIONS%infRateMax)%iDecision = GreenAmpt     ! Green-Ampt
+    case('topmodel_GA'); model_decisions(iLookDECISIONS%infRateMax)%iDecision = topmodel_GA ! Green-Ampt with TOPMODEL conductivity rate
+    case('noInfExc'); model_decisions(iLookDECISIONS%infRateMax)%iDecision = noInfiltrationExcess ! no infiltration excess runoff (saturation excess may still occur)
+    case default
+      if (trim(model_decisions(iLookDECISIONS%num_method)%cDecision)=='itertive')then
+        model_decisions(iLookDECISIONS%infRateMax)%iDecision = topmodel_GA ! included for backwards compatibility
+      else
+        err=10; message=trim(message)//"unknown option for infiltration method [option="//trim(model_decisions(iLookDECISIONS%infRateMax)%cDecision)//"]"; return
+      endif
+  end select
+
+  ! choice of method for infiltration excess surface runoff
+  ! NOTE: use homegrown surface runoff procedure as the default
+  select case(trim(model_decisions(iLookDECISIONS%surfRun_IE)%cDecision))
+    case('zero_IE'); model_decisions(iLookDECISIONS%surfRun_IE)%iDecision = zero_IE           ! infiltration excess surface runoff is zero
+    case('homegrown_IE','notPopulatedYet'); model_decisions(iLookDECISIONS%surfRun_IE)%iDecision = homegrown_IE ! use SUMMA's homegrown surface runoff procedure for infiltration excess runoff
+    case default
+      err=10; message=trim(message)//"unknown option for infiltration excess surface runoff method [option="//trim(model_decisions(iLookDECISIONS%surfRun_IE)%cDecision)//"]"; return
+  end select
+
+  ! choice of method for saturation excess surface runoff
+  ! NOTE: use homegrown surface runoff procedure as the default
+  select case(trim(model_decisions(iLookDECISIONS%surfRun_SE)%cDecision))
+    case('zero_SE'); model_decisions(iLookDECISIONS%surfRun_SE)%iDecision = zero_SE           ! saturation excess surface runoff is zero
+    case('homegrown_SE','notPopulatedYet'); model_decisions(iLookDECISIONS%surfRun_SE)%iDecision = homegrown_SE ! use SUMMA's homegrown surface runoff procedure for saturation excess runoff
+    case('FUSEPRMS'); model_decisions(iLookDECISIONS%surfRun_SE)%iDecision = FUSEPRMS ! use FUSE PRMS for saturation excess surface runoff
+    case('FUSEAVIC'); model_decisions(iLookDECISIONS%surfRun_SE)%iDecision = FUSEAVIC ! use FUSE ARNO/VIC for saturation excess surface runoff
+    case('FUSETOPM'); model_decisions(iLookDECISIONS%surfRun_SE)%iDecision = FUSETOPM ! use FUSE TOPMODEL for saturation excess surface runoff
+    case default
+      err=10; message=trim(message)//"unknown option for saturation excess surface runoff method [option="//trim(model_decisions(iLookDECISIONS%surfRun_SE)%cDecision)//"]"; return
+  end select
 
   ! -----------------------------------------------------------------------------------------------------------------------------------------------
   ! check for consistency among options
@@ -671,7 +720,7 @@ subroutine mDecisions(err,message)
   select case(model_decisions(iLookDECISIONS%groundwatr)%iDecision)
     case(qbaseTopmodel)
       if(model_decisions(iLookDECISIONS%bcLowrSoiH)%iDecision /= zeroFlux)then
-        message=trim(message)//'lower boundary condition for soil hydology must be zeroFlux with qbaseTopmodel option for groundwater'
+        message=trim(message)//'lower boundary condition for soil hydology must be zeroFlux with qbaseTopmodel option for groundwater (set "bcLowrSoiH" to "zeroFlux" in model decisions input file)'
         err=20; return
       end if
   end select
@@ -680,7 +729,7 @@ subroutine mDecisions(err,message)
   select case(model_decisions(iLookDECISIONS%groundwatr)%iDecision)
     case(qbaseTopmodel)
       if(model_decisions(iLookDECISIONS%hc_profile)%iDecision /= powerLaw_profile)then
-        message=trim(message)//'power-law hydraulic conductivity profile must be selected when using topmodel baseflow option'
+        message=trim(message)//'power-law hydraulic conductivity profile must be selected when using topmodel baseflow option (set "hc_profile" to "pow_prof" in model decisions input file)'
         err=20; return
       end if
   end select
@@ -688,13 +737,30 @@ subroutine mDecisions(err,message)
   ! check bigBucket groundwater option is used when for spatial groundwater is singleBasin
   if(model_decisions(iLookDECISIONS%spatial_gw)%iDecision == singleBasin)then
     if(model_decisions(iLookDECISIONS%groundwatr)%iDecision /= bigBucket)then
-      message=trim(message)//'groundwater parameterization must be bigBucket when using singleBasin for spatial_gw'
+      message=trim(message)//'groundwater parameterization must be bigBucket when using singleBasin for spatial_gw (set "groundwatr" to "bigBuckt" in model decisions input file)'
       err=20; return
     end if
   end if
 
-end subroutine mDecisions
+  ! check that maximum infiltration rate assumption aligns with groundwater option
+  ! TOPMODEL baseflow assumes a reduction in hydraulic conductivity with depth, possibly to 0 at the bottom of the soil, and infiltration rate assumptions must match these conductivities
+  ! BigBucket means we have an aquifer below the soil column, for which Green-Ampt is the most basic assumption. TOPMODEL_GA is not appropriate for this but for backward compatability we throw a warning instead of a graceful exit
+  select case(model_decisions(iLookDECISIONS%groundwatr)%iDecision)
+    case(qbaseTopmodel)
+      if(model_decisions(iLookDECISIONS%infRateMax)%iDecision /= topModel_GA)then
+        message=trim(message)//'maximum infiltration rate method must be topmodel_GA when using qTopmodl for groundwatr, not '//trim(model_decisions(iLookDECISIONS%infRateMax)%cDecision)//' (set "infRateMax" to "topmodel_GA" in model decisions input file)'
+        err=20; return
+      end if
+    case(bigBucket)
+      if(model_decisions(iLookDECISIONS%infRateMax)%iDecision == topModel_GA)then
+        write(*,*) 'DEPRECATION WARNING: Combining groundwater parametrization bigBucket with maximum infiltration rate method topModel_GA is not recommended. This was the default in SUMMA v3.x.x and below, but is not appropriate for this groundwater option. Please use Green-Ampt instead (set "infRateMax" to "GreenAmpt" in model decisions input file)'
+        ! This preps us for when we want to remove this option in the future
+        !message=trim(message)//'maximum infiltration rate method (infRateMax) cannot be topModel_GA when using BigBucket for groundwater, use GreenAmpt instead'
+        !err=20; return
+      end if
+  end select
 
+end subroutine mDecisions
 
 ! ************************************************************************************************
 ! private subroutine readoption: read information from model decisions file

@@ -23,6 +23,9 @@ USE nrtype
 USE netcdf
 USE globalData,only: ixHRUfile_min,ixHRUfile_max
 USE globalData,only: nTimeDelay   ! number of hours in the time delay histogram
+USE globalData,only: nSpecBand    ! number of spectral bands
+USE globalData,only:verySmaller   ! a smaller number used as an additive constant to check if substantial difference among real numbers
+
 implicit none
 private
 public::read_icond
@@ -166,6 +169,7 @@ contains
  USE data_types,only:var_info                           ! metadata
  USE get_ixName_module,only:get_varTypeName             ! to access type strings for error messages
  USE updatState_module,only:updateSoil                  ! update soil states
+ use device_data_types
 
  implicit none
  ! --------------------------------------------------------------------------------------------------------
@@ -173,10 +177,10 @@ contains
  ! dummies
  character(*)           ,intent(in)     :: iconFile                 ! name of netcdf file containing the initial conditions
  integer(i4b)           ,intent(in)     :: nGRU                     ! number of grouped response units in simulation domain
- type(gru_hru_doubleVec),intent(in)     :: mparData                 ! model parameters
- type(gru_hru_doubleVec),intent(inout)  :: progData                 ! model prognostic variables
- type(gru_doubleVec)    ,intent(inout)  :: bvarData                 ! model basin (GRU) variables
- type(gru_hru_intVec)   ,intent(inout)  :: indxData                 ! model indices
+ type(mpar_data_device),intent(in)     :: mparData                 ! model parameters
+ type(prog_data_device),intent(inout)  :: progData                 ! model prognostic variables
+ type(bvar_data_device)    ,intent(inout)  :: bvarData                 ! model basin (GRU) variables
+ type(indx_data_device)   ,intent(inout)  :: indxData                 ! model indices
  logical                ,intent(out)    :: no_icond_enth            ! flag that enthalpy variables are not in the file
  integer(i4b)           ,intent(out)    :: err                      ! error code
  character(*)           ,intent(out)    :: message                  ! returned error message
@@ -200,12 +204,14 @@ contains
  integer(i4b)                           :: nSoil, nSnow, nToto      ! # layers
  integer(i4b)                           :: nTDH                     ! number of points in time-delay histogram
  integer(i4b)                           :: iLayer,jLayer            ! layer indices
- integer(i4b),parameter                 :: nBand=2                  ! number of spectral bands
  character(len=32),parameter            :: scalDimName   ='scalarv' ! dimension name for scalar data
  character(len=32),parameter            :: midSoilDimName='midSoil' ! dimension name for soil-only layers
  character(len=32),parameter            :: midTotoDimName='midToto' ! dimension name for layered varaiables
  character(len=32),parameter            :: ifcTotoDimName='ifcToto' ! dimension name for layered varaiables
  character(len=32),parameter            :: tdhDimName    ='tdh'     ! dimension name for time-delay basin variables
+     type(dim3) :: blocks,threads
+     threads = dim3(128,1,1)
+  blocks = dim3(nGRU/128+1,1,1)
 
  ! --------------------------------------------------------------------------------------------------------
  ! Start procedure here
@@ -297,36 +303,68 @@ contains
     ! put the data into data structures and check that none of the values are set to nf90_fill_double
     select case (prog_meta(iVar)%varType)
      case (iLookVarType%scalarv)
-      progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(1)       = varData(ixFile,1)
-      if(abs(progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(1) - nf90_fill_double) < epsilon(varData))then; err=20; endif
+      select case(iVar)
+     case(iLookPROG%dt_init); progData%dt_init = varData(ixFile,1)
+     case(iLookPROG%scalarCanopyIce); progData%scalarCanopyIce(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarCanopyLiq); progData%scalarCanopyLiq(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarCanopyWat); progData%scalarCanopyWat(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarCanairTemp); progData%scalarCanairTemp(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarCanopyTemp); progData%scalarCanopyTemp(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarSnowAlbedo); progData%scalarSnowAlbedo(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarSnowDepth); progData%scalarSnowDepth(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarSWE); progData%scalarSWE(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarSfcMeltPond); progData%scalarSfcMeltPond(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarCanairEnthalpy); progData%scalarCanairEnthalpy(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarCanopyEnthalpy); progData%scalarCanopyEnthalpy(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarAquiferStorage); progData%scalarAquiferStorage(iGRU) = varData(ixFile,1)
+     case(iLookPROG%scalarSurfaceTemp); progData%scalarSurfaceTemp(iGRU) = varData(ixFile,1)
+     end select
+     print*, prog_meta(iVar)%varName, iGRU, varData(ixFile,1)
      case (iLookVarType%midSoil)
-      progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(1:nSoil) = varData(ixFile,1:nSoil)
-      if(any(abs(progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(1:nSoil) - nf90_fill_double) < epsilon(varData)))then; err=20; endif
+      select case (iVar)
+     case(iLookPROG%spectralSnowAlbedoDiffuse); progData%spectralSnowAlbedoDiffuse(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerTemp); progData%mLayerTemp(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerVolFracIce); progData%mLayerVolFracIce(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerVolFracLiq); progData%mLayerVolFracLiq(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerVolFracWat); progData%mLayerVolFracWat(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerMatricHead); progData%mLayerMatricHead(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerEnthalpy); progData%mLayerEnthalpy(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerDepth); progData%mLayerDepth(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%mLayerHeight); progData%mLayerHeight(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     case(iLookPROG%iLayerHeight); progData%iLayerHeight(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
+     end select
      case (iLookVarType%midToto)
-      progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(1:nToto) = varData(ixFile,1:nToto)
-      if(any(abs(progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(1:nToto) - nf90_fill_double) < epsilon(varData)))then; err=20; endif
+      select case (iVar)
+     case(iLookPROG%spectralSnowAlbedoDiffuse); progData%spectralSnowAlbedoDiffuse(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerTemp); progData%mLayerTemp(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerVolFracIce); progData%mLayerVolFracIce(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerVolFracLiq); progData%mLayerVolFracLiq(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerVolFracWat); progData%mLayerVolFracWat(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerMatricHead); progData%mLayerMatricHead(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerEnthalpy); progData%mLayerEnthalpy(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerDepth); progData%mLayerDepth(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%mLayerHeight); progData%mLayerHeight(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     case(iLookPROG%iLayerHeight); progData%iLayerHeight(1:nToto,iGRU) = varData(ixFile,1:nToto)
+     end select
      case (iLookVarType%ifcToto)
-      progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(0:nToto) = varData(ixFile,1:nToto+1)
-      if(any(abs(progData%gru(iGRU)%hru(iHRU)%var(iVar)%dat(0:nToto) - nf90_fill_double) < epsilon(varData)))then; err=20; endif
+      select case (iVar)
+     case(iLookPROG%spectralSnowAlbedoDiffuse); progData%spectralSnowAlbedoDiffuse(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerTemp); progData%mLayerTemp(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerVolFracIce); progData%mLayerVolFracIce(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerVolFracLiq); progData%mLayerVolFracLiq(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerVolFracWat); progData%mLayerVolFracWat(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerMatricHead); progData%mLayerMatricHead(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerEnthalpy); progData%mLayerEnthalpy(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerDepth); progData%mLayerDepth(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%mLayerHeight); progData%mLayerHeight(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     case(iLookPROG%iLayerHeight); progData%iLayerHeight(0:nToto,iGRU) = varData(ixFile,1:nToto+1)
+     end select
      case default
-      message=trim(message)//"unexpectedVariableType[name='"//trim(prog_meta(iVar)%varName)//"';type='"//trim(get_varTypeName(prog_meta(iVar)%varType))//"']"
+      print*, "unexpectedVariableType[name='"//trim(prog_meta(iVar)%varName)//"';type='"//trim(get_varTypeName(prog_meta(iVar)%varType))//"']"
       err=20; return
     end select
 
     if(err==20)then; message=trim(message)//"data set to the fill value (name='"//trim(prog_meta(iVar)%varName)//"')"; return; endif
-
-    ! make sure snow albedo is not negative
-    if(progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%scalarSnowAlbedo)%dat(1) < 0._rkind)then
-     progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%scalarSnowAlbedo)%dat(1) = mparData%gru(iGRU)%hru(iHRU)%var(iLookPARAM%albedoMax)%dat(1)
-    endif
-
-    ! make sure canopy ice + liq is positive, otherwise add liquid water to canopy and make total water consistent later
-    if( (progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%scalarCanopyLiq)%dat(1) + progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%scalarCanopyIce)%dat(1)) < 0.0001_rkind)then
-     progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%scalarCanopyLiq)%dat(1) = 0.0001_rkind
-    endif
-
-    ! initialize the spectral albedo
-    progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%spectralSnowAlbedoDiffuse)%dat(1:nBand) = progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%scalarSnowAlbedo)%dat(1)
 
    end do ! iHRU
   end do ! iGRU
@@ -344,50 +382,19 @@ contains
   do iHRU = 1,gru_struc(iGRU)%hruCount
 
    ! save the number of layers
-   indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nSnow)%dat(1)   = gru_struc(iGRU)%hruInfo(iHRU)%nSnow
-   indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nSoil)%dat(1)   = gru_struc(iGRU)%hruInfo(iHRU)%nSoil
-   indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nLayers)%dat(1) = gru_struc(iGRU)%hruInfo(iHRU)%nSnow + gru_struc(iGRU)%hruInfo(iHRU)%nSoil
-
-   ! set layer type
-   indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%layerType)%dat(1:gru_struc(iGRU)%hruInfo(iHRU)%nSnow) = iname_snow
-   indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%layerType)%dat((gru_struc(iGRU)%hruInfo(iHRU)%nSnow+1):(gru_struc(iGRU)%hruInfo(iHRU)%nSnow+gru_struc(iGRU)%hruInfo(iHRU)%nSoil)) = iname_soil
+   indxData%nSnow(iGRU)   = gru_struc(iGRU)%hruInfo(iHRU)%nSnow
+   indxData%nSoil   = gru_struc(iGRU)%hruInfo(iHRU)%nSoil
+   indxData%nLayers_d(iGRU) = gru_struc(iGRU)%hruInfo(iHRU)%nSnow + gru_struc(iGRU)%hruInfo(iHRU)%nSoil
 
   end do
  end do
-
- ! --------------------------------------------------------------------------------------------------------
- ! (3) update soil layers (diagnostic variables)
- ! --------------------------------------------------------------------------------------------------------
- ! loop through GRUs and HRUs
- do iGRU = 1,nGRU
-  do iHRU = 1,gru_struc(iGRU)%hruCount
-
-   ! loop through soil layers
-   do iLayer = 1,indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nSoil)%dat(1)
-
-    ! get layer in the total vector
-    jLayer = iLayer+indxData%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nSnow)%dat(1)
-
-    ! update soil layers
-    call updateSoil(&
-                    ! input
-                    progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%mLayerTemp          )%dat(jLayer),& ! intent(in): temperature vector (K)
-                    progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%mLayerMatricHead    )%dat(iLayer),& ! intent(in): matric head (m)
-                    mparData%gru(iGRU)%hru(iHRU)%var(iLookPARAM%vGn_alpha          )%dat(iLayer),& ! intent(in): van Genutchen "alpha" parameter
-                    mparData%gru(iGRU)%hru(iHRU)%var(iLookPARAM%vGn_n              )%dat(iLayer),& ! intent(in): van Genutchen "n" parameter
-                    mparData%gru(iGRU)%hru(iHRU)%var(iLookPARAM%theta_sat          )%dat(iLayer),& ! intent(in): soil porosity (-)
-                    mparData%gru(iGRU)%hru(iHRU)%var(iLookPARAM%theta_res          )%dat(iLayer),& ! intent(in): soil residual volumetric water content (-)
-                    1._rkind - 1._rkind/mparData%gru(iGRU)%hru(iHRU)%var(iLookPARAM%vGn_n)%dat(iLayer),& ! intent(in): van Genutchen "m" parameter (-)
-                    ! output
-                    progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%mLayerVolFracWat    )%dat(jLayer),& ! intent(out): volumetric fraction of total water (-)
-                    progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%mLayerVolFracLiq    )%dat(jLayer),& ! intent(out): volumetric fraction of liquid water (-)
-                    progData%gru(iGRU)%hru(iHRU)%var(iLookPROG%mLayerVolFracIce    )%dat(jLayer),& ! intent(out): volumetric fraction of ice (-)
-                    err,message)                                                                   ! intent(out): error control
-    if (err/=0) then; message=trim(message)//trim(cmessage); return; end if
-
-   end do  ! looping through soil layers
-  end do  ! looping through HRUs
- end do  ! looping through GRUs
+ call read_icond_corrections<<<blocks,threads>>>(nGRU,&
+ progData%scalarSnowAlbedo,mparData%albedoMax_,progData%spectralSnowAlbedoDiffuse,&
+ indxData%nSnow,indxData%nSoil,indxData%layerType,&
+ progData%mLayerTemp,progData%mLayerMatricHead,&
+ mparData%vGn_alpha_,mparData%vGn_n_,&
+ mparData%theta_sat_,mparData%theta_res_,&
+ progData%mLayerVolFracWat,progData%mLayerVolFracLiq,progData%mLayerVolFracIce)
 
  ! --------------------------------------------------------------------------------------------------------
  ! (2) now get the basin variable(s)
@@ -447,10 +454,11 @@ contains
     do iGRU = 1,nGRU
 
      ! put the data into data structures
-     bvarData%gru(iGRU)%var(iVar)%dat(1:nTDH) = varData((iGRU+startGRU-1),1:nTDH)
+      select case(iVar)
+      case(iLookBVAR%routingRunoffFuture); bvarData%routingRunoffFuture(:,iGRU) = varData((iGRU+startGRU-1),1:nTDH)
+      case(iLookBVAR%routingFractionFuture); bvarData%routingFractionFuture(:,iGRU) = varData((iGRU+startGRU-1),1:nTDH)
+      end select
      ! check whether the first values is set to nf90_fill_double
-     if(any(abs(bvarData%gru(iGRU)%var(iVar)%dat(1:nTDH) - nf90_fill_double) < epsilon(varData)))then; err=20; endif
-     if(err==20)then; message=trim(message)//"data set to the fill value (name='"//trim(bvar_meta(iVar)%varName)//"')"; return; endif
 
     end do ! end iGRU loop
 
@@ -461,7 +469,80 @@ contains
    end do ! end looping through basin variables
   endif  ! end if case for tdh variables being in init. cond. file
  endif  ! end if case for not being a singleHRU run
+ 
+ call nc_file_close(ncID,err,cmessage)
+ if(err/=0)then;message=trim(message)//trim(cmessage);return;end if
 
  end subroutine read_icond
+ attributes(global) subroutine read_icond_corrections(nGRU,&
+ scalarSnowAlbedo_,albedoMax_,spectralSnowAlbedoDiffuse_,&
+ nSnow_,nSoil,layerType_,&
+ mLayerTemp_,mLayerMatricHead_,&
+ vGn_alpha_,vGn_n_,&
+ theta_sat_,theta_res_,&
+ mLayerVolFracWat_,mLayerVolFracLiq_,mLayerVolFracIce_)
+  USE globalData,only:iname_soil,iname_snow              ! named variables to describe the type of layer
+  USE updatState_module,only:updateSoil                  ! update soil states
+
+  integer(i4b),intent(in),value :: nGRU
+  real(rkind) :: scalarSnowAlbedo_(:)
+  real(rkind) :: albedoMax_(:), spectralSnowAlbedoDiffuse_(:,:)
+  integer(i4b),intent(in),value :: nSoil
+  integer(i4b),intent(in) :: nSnow_(:)
+  integer(i4b),intent(inout) :: layerType_(:,:)
+  real(rkind) :: mLayerTemp_(:,:),mLayerMatricHead_(:,:)
+  real(rkind) :: vGn_alpha_(:,:), vGn_n_(:,:)
+  real(rkind) :: theta_sat_(:,:),theta_res_(:,:)
+  real(rkind) :: mLayerVolFracWat_(:,:),mLayerVolFracLiq_(:,:),mLayerVolFracIce_(:,:)
+
+
+   integer(i4b) :: iGRU, iLayer, jLayer
+  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  if (iGRU .gt. nGRU) return
+
+     ! make sure snow albedo is not negative
+     if(scalarSnowAlbedo_(iGRU) < 0._rkind)then
+      scalarSnowAlbedo_(iGRU) = albedoMax_(iGRU)
+     endif
+
+     ! initialize the spectral albedo
+     spectralSnowAlbedoDiffuse_(:,iGRU) = scalarSnowAlbedo_(iGRU)
+
+  ! --------------------------------------------------------------------------------------------------------
+ ! (2) set number of layers
+ ! --------------------------------------------------------------------------------------------------------
+   ! set layer type
+   layerType_(1:nSnow_(iGRU),iGRU) = iname_snow
+   layerType_(nSnow_(iGRU)+1:(nSnow_(iGRU)+nSoil),iGRU) = iname_soil
+
+
+  ! --------------------------------------------------------------------------------------------------------
+ ! (3) update soil layers (diagnostic variables)
+ ! --------------------------------------------------------------------------------------------------------
+   ! loop through soil layers
+   do iLayer = 1,nSoil
+
+    ! get layer in the total vector
+    jLayer = iLayer+nSnow_(iGRU)
+
+    ! update soil layers
+    call updateSoil(&
+                    ! input
+                    mLayerTemp_(jLayer,iGRU),& ! intent(in): temperature vector (K)
+                    mLayerMatricHead_(iLayer,iGRU),& ! intent(in): matric head (m)
+                    vGn_alpha_(iLayer,iGRU),& ! intent(in): van Genutchen "alpha" parameter
+                    vGn_n_(iLayer,iGRU),& ! intent(in): van Genutchen "n" parameter
+                    theta_sat_(iLayer,iGRU),& ! intent(in): soil porosity (-)
+                    theta_res_(iLayer,iGRU),& ! intent(in): soil residual volumetric water content (-)
+                    1._rkind - 1._rkind/vGn_n_(iLayer,iGRU),& ! intent(in): van Genutchen "m" parameter (-)
+                    ! output
+                    mLayerVolFracWat_(jLayer,iGRU),& ! intent(out): volumetric fraction of total water (-)
+                    mLayerVolFracLiq_(jLayer,iGRU),& ! intent(out): volumetric fraction of liquid water (-)
+                    mLayerVolFracIce_(jLayer,iGRU)& ! intent(out): volumetric fraction of ice (-)
+                    )                                                                   ! intent(out): error control
+
+   end do  ! looping through soil layers
+
+ end subroutine
 
 end module read_icond_module

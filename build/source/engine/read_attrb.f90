@@ -207,13 +207,16 @@ end subroutine read_dimension
  USE globalData,only:gru_struc                              ! gru-hru mapping structure
  USE globalData,only:attr_meta,type_meta,id_meta            ! metadata structures
  USE get_ixname_module,only:get_ixAttr,get_ixType,get_ixId  ! access function to find index of elements in structure
+ use device_data_types
+   USE var_lookup,only:iLookTYPE
+
  implicit none
 
  ! io vars
  character(*)                         :: attrFile           ! input filename
  integer(i4b),intent(in)              :: nGRU               ! number of grouped response units
  type(gru_hru_double),intent(inout)   :: attrStruct         ! local attributes for each HRU
- type(gru_hru_int),intent(inout)      :: typeStruct         ! local classification of soil veg etc. for each HRU
+ type(type_data_device),intent(inout)      :: typeStruct         ! local classification of soil veg etc. for each HRU
  type(gru_hru_int8),intent(inout)     :: idStruct           ! local classification of hru and gru IDs
  integer(i4b),intent(out)             :: err                ! error code
  character(*),intent(out)             :: message            ! error message
@@ -298,7 +301,13 @@ end subroutine read_dimension
      do iHRU = 1,gru_struc(iGRU)%hruCount
       err = nf90_get_var(ncID,iVar,categorical_var,start=(/gru_struc(iGRU)%hruInfo(iHRU)%hru_nc/),count=(/1/))
       if(err/=nf90_noerr)then; message=trim(message)//'problem reading: '//trim(varName); return; end if
-      typeStruct%gru(iGRU)%hru(iHRU)%var(varIndx) = categorical_var(1)
+      select case(varIndx)
+       case(iLookTYPE%vegTypeIndex); typeStruct%vegTypeIndex(iGRU) = categorical_var(1)
+       case(iLookTYPE%soilTypeIndex); typeStruct%soilTypeIndex(iGRU) = categorical_var(1)
+       case(iLookTYPE%slopeTypeIndex); typeStruct%slopeTypeIndex(iGRU) = categorical_var(1)
+       case(iLookTYPE%downHRUindex); typeStruct%downHRUindex(iGRU) = categorical_var(1)
+       end select
+      ! typeStruct%gru(iGRU)%hru(iHRU)%var(varIndx) = categorical_var(1)
      end do
     end do
 

@@ -22,6 +22,7 @@ module snowAlbedo_module
 
 ! data types
 USE nrtype                          ! numerical recipes data types
+USE globalData,only:realMissing     ! missing real number
 
 ! physical constants
 USE multiconst,only:Tfreeze         ! freezing point of pure water (K)
@@ -55,111 +56,119 @@ USE mDecisions_module,only:  &
 implicit none
 private
 public::snowAlbedo
-
-! dimensions
-integer(i4b),parameter        :: nBands=2      ! number of spectral bands for shortwave radiation
 contains
 
 
  ! *******************************************************************************************************
  ! public subroutine snowAlbedo: muster program to compute energy fluxes at vegetation and ground surfaces
  ! *******************************************************************************************************
- subroutine snowAlbedo(&
+ attributes(device) subroutine snowAlbedo(&
                        ! input: model control
                        dt,                                    & ! intent(in):    model time step (s)
-                       nSnow,                          & ! intent(in):    logical flag to denote if snow is present
-                       nGRU, &
+                       snowPresence,                          & ! intent(in):    logical flag to denote if snow is present
                        ! input/output: data structures
-                       model_decisions,                       & ! intent(in):    model decisions
-                       decisions, &
-                       mpar_data,                             & ! intent(in):    model parameters
-                       flux_data,                             & ! intent(in):    model flux variables
-                       diag_data,                             & ! intent(inout): model diagnostic variables for a local HRU
-                       prog_data,                             & ! intent(inout): model prognostic variables for a local HRU
+                       ixCanopySrad,ixAlbedoMethod,&
+                    !    model_decisions,                       & ! intent(in):    model decisions
+                    !    mpar_data,                             & ! intent(in):    model parameters
+                       Frad_vis,Frad_direct,&
+                       albedoMax,albedoMinWinter,albedoMinSpring,&
+                       albedoMaxVisible,albedoMinVisible,&
+                       albedoMaxNearIR,albedoMinNearIR,&
+                       albedoDecayRate,tempScalGrowth,&
+                       albedoSootLoad,albedoRefresh,snowfrz_scale,&
+                    !    flux_data,                             & ! intent(in):    model flux variables
+                       snowfallRate, &
+                    !    diag_data,                             & ! intent(inout): model diagnostic variables for a local HRU
+                       cosZenith,spectralSnowAlbedoDirect, &
+                    !    prog_data,                             & ! intent(inout): model prognostic variables for a local HRU
+                       surfaceTemp,scalarSnowAlbedo,spectralSnowAlbedoDiffuse, &
                        ! output: error control
-                       err,message)                             ! intent(out):   error control
+                       err)                             ! intent(out):   error control
  ! --------------------------------------------------------------------------------------------------------------------------------------
  ! provide access to desired modules
- USE snow_utils_module,only:fracliquid_d                          ! compute fraction of liquid water at a given temperature
- use device_data_types
+ USE snow_utils_module,only:fracliquid                          ! compute fraction of liquid water at a given temperature
  ! --------------------------------------------------------------------------------------------------------------------------------------
  ! input: model control
  real(rkind),intent(in)          :: dt                            ! model time step
- integer(i4b),intent(in),device         :: nSnow(:)                  ! logical flag to denote if snow is present
- integer(i4b),intent(in) :: nGRU
+ logical(lgt),intent(in)         :: snowPresence                  ! logical flag to denote if snow is present
  ! input/output: data structures
- type(model_options),intent(in)  :: model_decisions(:)            ! model decisions
- type(decisions_device) :: decisions
- type(mpar_data_device),intent(in)    :: mpar_data                     ! model parameters
- type(flux_data_device),intent(in)    :: flux_data                     ! model flux variables
- type(diag_data_device),intent(inout) :: diag_data                     ! model diagnostic variables for a local HRU
- type(prog_data_device),intent(inout) :: prog_data                     ! model prognostic variables for a local HRU
+!  type(model_options),intent(in)  :: model_decisions(:)            ! model decisions
+ integer(i4b),intent(in) :: ixCanopySrad,ixAlbedoMethod
+!  type(var_dlength),intent(in)    :: mpar_data                     ! model parameters
+ real(rkind),intent(in) :: Frad_vis,Frad_direct
+ real(rkind),intent(in) :: albedoMax,albedoMinWinter,albedoMinSpring
+ real(rkind),intent(in) :: albedoMaxVisible,albedoMinVisible
+ real(rkind),intent(in) :: albedoMaxNearIR,albedoMinNearIR
+ real(rkind),intent(in) :: albedoDecayRate,tempScalGrowth
+ real(rkind),intent(in) :: albedoSootLoad,albedoRefresh,snowfrz_scale
+!  type(var_dlength),intent(in)    :: flux_data                     ! model flux variables
+ real(rkind),intent(in) :: snowfallRate
+!  type(var_dlength),intent(inout) :: diag_data                     ! model diagnostic variables for a local HRU
+ real(rkind),intent(inout) :: cosZenith,spectralSnowAlbedoDirect(:)
+!  type(var_dlength),intent(inout) :: prog_data                     ! model prognostic variables for a local HRU
+ real(rkind),intent(inout) :: surfaceTemp,scalarSnowAlbedo,spectralSnowAlbedoDiffuse(:)
  ! output: error control
  integer(i4b),intent(out)        :: err                           ! error code
- character(*),intent(out)        :: message                       ! error message
+!  character(*),intent(out)        :: message                       ! error message
  ! local variables
  integer(i4b),parameter          :: ixVisible=1                   ! named variable to define index in array of visible part of the spectrum
  integer(i4b),parameter          :: ixNearIR=2                    ! named variable to define index in array of near IR part of the spectrum
- real(rkind),parameter           :: valueMissing=-9999._rkind     ! missing value -- will cause problems if snow albedo is ever used for the non-snow case
  real(rkind),parameter           :: slushExp=10._rkind            ! "slush" exponent, to increase decay when snow is near Tfreeze
  real(rkind),parameter           :: fractionLiqThresh=0.001_rkind ! threshold for the fraction of liquid water to switch to spring albedo minimum
  real(rkind)                     :: fractionLiq                   ! fraction of liquid water (-)
  real(rkind)                     :: age1,age2,age3                ! aging factors (-)
- real(rkind),device                     :: decayFactor(nGRU)                   ! albedo decay factor (-)
- real(rkind),device                     :: refreshFactor(nGRU)                 ! albedo refreshment factor, representing albedo increase due to snowfall (-)
- real(rkind),device                     :: albedoMin(nGRU)                     ! minimum albedo -- depends if in winter or spring conditions (-)
+ real(rkind)                     :: decayFactor                   ! albedo decay factor (-)
+ real(rkind)                     :: refreshFactor                 ! albedo refreshment factor, representing albedo increase due to snowfall (-)
+ real(rkind)                     :: albedoMin                     ! minimum albedo -- depends if in winter or spring conditions (-)
  real(rkind)                     :: fZen                          ! factor to modify albedo at low zenith angles (-)
  real(rkind),parameter           :: bPar=2._rkind                 ! empirical parameter in fZen
- integer(i4b) :: iGRU
  ! initialize error control
- err=0; message='snowAlbedo/'
+ err=0; !message='snowAlbedo/'
  ! --------------------------------------------------------------------------------------------------------------------------------------
  ! associate variables in the data structure
- associate(&
+!  associate(&
  ! input: model decisions
- ixCanopySrad              => model_decisions(iLookDECISIONS%canopySrad)%iDecision,   & ! intent(in): index of method used for canopy sw radiation
- ixAlbedoMethod            => decisions%alb_method,   & ! intent(in): index of method used for snow albedo
+!  ixCanopySrad              => model_decisions(iLookDECISIONS%canopySrad)%iDecision,   & ! intent(in): index of method used for canopy sw radiation
+!  ixAlbedoMethod            => model_decisions(iLookDECISIONS%alb_method)%iDecision,   & ! intent(in): index of method used for snow albedo
  ! input: model parameters
- Frad_vis                  => mpar_data%Frad_vis,              & ! intent(in): fraction of radiation in visible part of spectrum (-)
- Frad_direct               => mpar_data%Frad_direct,           & ! intent(in): fraction direct solar radiation (-)
- albedoMax                 => mpar_data%albedoMax,             & ! intent(in): maximum snow albedo for a single spectral band (-)
- albedoMinWinter           => mpar_data%albedoMinWinter,       & ! intent(in): minimum snow albedo during winter for a single spectral band (-)
- albedoMinSpring           => mpar_data%albedoMinSpring,       & ! intent(in): minimum snow albedo during spring for a single spectral band (-)
- albedoMaxVisible          => mpar_data%albedoMaxVisible,      & ! intent(in): maximum snow albedo in the visible part of the spectrum (-)
- albedoMinVisible          => mpar_data%albedoMinVisible,      & ! intent(in): minimum snow albedo in the visible part of the spectrum (-)
- albedoMaxNearIR           => mpar_data%albedoMaxNearIR,       & ! intent(in): maximum snow albedo in the near infra-red part of the spectrum (-)
- albedoMinNearIR           => mpar_data%albedoMinNearIR,       & ! intent(in): minimum snow albedo in the near infra-red part of the spectrum (-)
- albedoDecayRate           => mpar_data%albedoDecayRate,       & ! intent(in): albedo decay rate (s)
- tempScalGrowth            => mpar_data%tempScalGrowth,        & ! intent(in): temperature scaling factor for grain growth (K-1)
- albedoSootLoad            => mpar_data%albedoSootLoad,        & ! intent(in): soot load factor (-)
- albedoRefresh             => mpar_data%albedoRefresh,         & ! intent(in): critical mass necessary for albedo refreshment (kg m-2)
- snowfrz_scale             => mpar_data%snowfrz_scale,         & ! intent(in): scaling parameter for the freezing curve for snow (K-1)
+!  Frad_vis                  => mpar_data%var(iLookPARAM%Frad_vis)%dat(1),              & ! intent(in): fraction of radiation in visible part of spectrum (-)
+!  Frad_direct               => mpar_data%var(iLookPARAM%Frad_direct)%dat(1),           & ! intent(in): fraction direct solar radiation (-)
+!  albedoMax                 => mpar_data%var(iLookPARAM%albedoMax)%dat(1),             & ! intent(in): maximum snow albedo for a single spectral band (-)
+!  albedoMinWinter           => mpar_data%var(iLookPARAM%albedoMinWinter)%dat(1),       & ! intent(in): minimum snow albedo during winter for a single spectral band (-)
+!  albedoMinSpring           => mpar_data%var(iLookPARAM%albedoMinSpring)%dat(1),       & ! intent(in): minimum snow albedo during spring for a single spectral band (-)
+!  albedoMaxVisible          => mpar_data%var(iLookPARAM%albedoMaxVisible)%dat(1),      & ! intent(in): maximum snow albedo in the visible part of the spectrum (-)
+!  albedoMinVisible          => mpar_data%var(iLookPARAM%albedoMinVisible)%dat(1),      & ! intent(in): minimum snow albedo in the visible part of the spectrum (-)
+!  albedoMaxNearIR           => mpar_data%var(iLookPARAM%albedoMaxNearIR)%dat(1),       & ! intent(in): maximum snow albedo in the near infra-red part of the spectrum (-)
+!  albedoMinNearIR           => mpar_data%var(iLookPARAM%albedoMinNearIR)%dat(1),       & ! intent(in): minimum snow albedo in the near infra-red part of the spectrum (-)
+!  albedoDecayRate           => mpar_data%var(iLookPARAM%albedoDecayRate)%dat(1),       & ! intent(in): albedo decay rate (s)
+!  tempScalGrowth            => mpar_data%var(iLookPARAM%tempScalGrowth)%dat(1),        & ! intent(in): temperature scaling factor for grain growth (K-1)
+!  albedoSootLoad            => mpar_data%var(iLookPARAM%albedoSootLoad)%dat(1),        & ! intent(in): soot load factor (-)
+!  albedoRefresh             => mpar_data%var(iLookPARAM%albedoRefresh)%dat(1),         & ! intent(in): critical mass necessary for albedo refreshment (kg m-2)
+!  snowfrz_scale             => mpar_data%var(iLookPARAM%snowfrz_scale)%dat(1),         & ! intent(in): scaling parameter for the freezing curve for snow (K-1)
  ! input: model variables
- surfaceTemp               => prog_data%mLayerTemp,             & ! intent(in): surface temperature
- snowfallRate              => flux_data%scalarSnowfall,         & ! intent(in): snowfall rate (kg m-2 s-1)
- cosZenith                 => diag_data%scalarCosZenith,        & ! intent(in): cosine of the zenith angle (-)
+!  surfaceTemp               => prog_data%var(iLookPROG%mLayerTemp)%dat(1),             & ! intent(in): surface temperature
+!  snowfallRate              => flux_data%var(iLookFLUX%scalarSnowfall)%dat(1),         & ! intent(in): snowfall rate (kg m-2 s-1)
+!  cosZenith                 => diag_data%var(iLookDIAG%scalarCosZenith)%dat(1),        & ! intent(in): cosine of the zenith angle (-)
  ! input/output: model variables
- scalarSnowAlbedo          => prog_data%scalarSnowAlbedo,       & ! intent(inout): snow albedo for the entire spectral band (-)
- spectralSnowAlbedoDirect  => diag_data%spectralSnowAlbedoDirect,  & ! intent(inout): direct snow albedo in each spectral band (-)
- spectralSnowAlbedoDiffuse => prog_data%spectralSnowAlbedoDiffuse  & ! intent(inout): diffuse snow albedo in each spectral band (-)
- ) ! end associate statement
+!  scalarSnowAlbedo          => prog_data%var(iLookPROG%scalarSnowAlbedo)%dat(1),       & ! intent(inout): snow albedo for the entire spectral band (-)
+!  spectralSnowAlbedoDirect  => diag_data%var(iLookDIAG%spectralSnowAlbedoDirect)%dat,  & ! intent(inout): direct snow albedo in each spectral band (-)
+!  spectralSnowAlbedoDiffuse => prog_data%var(iLookPROG%spectralSnowAlbedoDiffuse)%dat  & ! intent(inout): diffuse snow albedo in each spectral band (-)
+!  ) ! end associate statement
  ! --------------------------------------------------------------------------------------------------------------------------------------
 
  ! return early if computing radiation in noah-MP
  if(ixCanopySrad==noah_mp) return
 
- !$cuf kernel do(1) <<<*,*>>>
- do iGRU=1,nGRU
  ! return early if no snow
- if(nSnow(iGRU) == 0)then
-  scalarSnowAlbedo(iGRU)             = valueMissing
-  spectralSnowAlbedoDirect(:,iGRU)  = valueMissing
-  spectralSnowAlbedoDiffuse(:,iGRU) = valueMissing
-  cycle
+ if(.not. snowPresence)then
+  scalarSnowAlbedo             = realMissing
+  spectralSnowAlbedoDirect(:)  = realMissing
+  spectralSnowAlbedoDiffuse(:) = realMissing
+  return
  end if
 
  ! compute fractional increase in albedo associated with snowfall
- refreshFactor(iGRU) = dt*snowfallRate(iGRU)/albedoRefresh
+ refreshFactor = dt*snowfallRate/albedoRefresh
 
  ! identify option for snow albedo
  select case(ixAlbedoMethod)
@@ -168,57 +177,57 @@ contains
   ! *** constant decay rate
   case(constantDecay)
    ! compute decay rate
-   decayFactor(iGRU) = dt/albedoDecayRate
+   decayFactor = dt/albedoDecayRate
    ! compute minimum albedo
-   fractionLiq = fracliquid_d(surfaceTemp(1,iGRU),snowfrz_scale) ! fraction of liquid water
-   if(scalarSnowAlbedo(iGRU) < albedoMinWinter .or. fractionLiq > fractionLiqThresh)then
-    albedoMin(iGRU) = albedoMinSpring
+   fractionLiq = fracliquid(surfaceTemp,snowfrz_scale) ! fraction of liquid water
+   if(scalarSnowAlbedo < albedoMinWinter .or. fractionLiq > fractionLiqThresh)then
+    albedoMin = albedoMinSpring
    else
-    albedoMin(iGRU) = albedoMinWinter
+    albedoMin = albedoMinWinter
    end if
    ! compute average albedo
-   call computeAlbedo(scalarSnowAlbedo(iGRU),refreshFactor(iGRU),decayFactor(iGRU),albedoMax,albedoMin(iGRU))
+   call computeAlbedo(scalarSnowAlbedo,refreshFactor,decayFactor,albedoMax,albedoMin)
    ! assume albedo is the same in visible and near infra-red bands, and for direct and diffuse radiation
-   spectralSnowAlbedoDiffuse(ixVisible,iGRU) = scalarSnowAlbedo(iGRU)
-   spectralSnowAlbedoDiffuse(ixNearIR,iGRU)  = scalarSnowAlbedo(iGRU)
-   spectralSnowAlbedoDirect(ixVisible,iGRU)  = scalarSnowAlbedo(iGRU)
-   spectralSnowAlbedoDirect(ixNearIR,iGRU)   = scalarSnowAlbedo(iGRU)
+   spectralSnowAlbedoDiffuse(ixVisible) = scalarSnowAlbedo
+   spectralSnowAlbedoDiffuse(ixNearIR)  = scalarSnowAlbedo
+   spectralSnowAlbedoDirect(ixVisible)  = scalarSnowAlbedo
+   spectralSnowAlbedoDirect(ixNearIR)   = scalarSnowAlbedo
 
 
   ! *** variable decay rate
   case(variableDecay)
    ! compute decay factor
-   age1 = exp(-tempScalGrowth*(Tfreeze - surfaceTemp(1,iGRU) ))  ! temperature dependence
+   age1 = exp(-tempScalGrowth*(Tfreeze - surfaceTemp ))  ! temperature dependence
    age2 = age1**slushExp                                 ! increase with liquid water
    age3 = albedoSootLoad                                 ! soot loading
-   decayFactor(iGRU) = dt*(age1 + age2 + age3)/albedoDecayRate
+   decayFactor = dt*(age1 + age2 + age3)/albedoDecayRate
    ! compute diffuse albedo for the different spectral bands
-   call computeAlbedo(spectralSnowAlbedoDiffuse(ixVisible,iGRU),refreshFactor(iGRU),decayFactor(iGRU),albedoMaxVisible,albedoMinVisible)
-   call computeAlbedo(spectralSnowAlbedoDiffuse(ixNearIR,iGRU), refreshFactor(iGRU),decayFactor(iGRU),albedoMaxNearIR, albedoMinNearIR)
+   call computeAlbedo(spectralSnowAlbedoDiffuse(ixVisible),refreshFactor,decayFactor,albedoMaxVisible,albedoMinVisible)
+   call computeAlbedo(spectralSnowAlbedoDiffuse(ixNearIR), refreshFactor,decayFactor,albedoMaxNearIR, albedoMinNearIR)
    ! compute factor to modify direct albedo at low zenith angles
-   if(cosZenith(iGRU) < 0.5_rkind)then
-    fZen = (1._rkind/bPar)*( ((1._rkind + bPar)/(1._rkind + 2._rkind*bPar*cosZenith(iGRU))) - 1._rkind)
+   if(cosZenith < 0.5_rkind)then
+    fZen = (1._rkind/bPar)*( ((1._rkind + bPar)/(1._rkind + 2._rkind*bPar*cosZenith)) - 1._rkind)
    else
     fZen = 0._rkind
    end if
    ! compute direct albedo
-   spectralSnowAlbedoDirect(ixVisible,iGRU) = spectralSnowAlbedoDiffuse(ixVisible,iGRU) + 0.4_rkind*fZen*(1._rkind - spectralSnowAlbedoDiffuse(ixVisible,iGRU))
-   spectralSnowAlbedoDirect(ixNearIR,iGRU)  = spectralSnowAlbedoDiffuse(ixNearIR,iGRU)  + 0.4_rkind*fZen*(1._rkind - spectralSnowAlbedoDiffuse(ixNearIR,iGRU))
+   spectralSnowAlbedoDirect(ixVisible) = spectralSnowAlbedoDiffuse(ixVisible) + 0.4_rkind*fZen*(1._rkind - spectralSnowAlbedoDiffuse(ixVisible))
+   spectralSnowAlbedoDirect(ixNearIR)  = spectralSnowAlbedoDiffuse(ixNearIR)  + 0.4_rkind*fZen*(1._rkind - spectralSnowAlbedoDiffuse(ixNearIR))
 
    ! compute average albedo
-   scalarSnowAlbedo(iGRU) = (        Frad_direct)*(Frad_vis*spectralSnowAlbedoDirect(ixVisible,iGRU) + (1._rkind - Frad_vis)*spectralSnowAlbedoDirect(ixNearIR,iGRU) ) + &
-                      (1._rkind - Frad_direct)*(Frad_vis*spectralSnowAlbedoDirect(ixVisible,iGRU) + (1._rkind - Frad_vis)*spectralSnowAlbedoDirect(ixNearIR,iGRU) )
+   scalarSnowAlbedo = (        Frad_direct)*(Frad_vis*spectralSnowAlbedoDirect(ixVisible) + (1._rkind - Frad_vis)*spectralSnowAlbedoDirect(ixNearIR) ) + &
+                      (1._rkind - Frad_direct)*(Frad_vis*spectralSnowAlbedoDirect(ixVisible) + (1._rkind - Frad_vis)*spectralSnowAlbedoDirect(ixNearIR) )
 
   ! check that we identified the albedo option
-!   case default; cycle;! err=20; message=trim(message)//'unable to identify option for snow albedo'; return
+!   case default; err=20; message=trim(message)//'unable to identify option for snow albedo'; return
 
  end select  ! identify option for snow albedo
 
  ! check
-!  if(scalarSnowAlbedo(iGRU) < 0._rkind)then; err=20; message=trim(message)//'unable to identify option for snow albedo'; return; end if
-end do
+!  if(scalarSnowAlbedo < 0._rkind)then; err=20; message=trim(message)//'unable to identify option for snow albedo'; return; end if
+
  ! end association to data structures
- end associate
+!  end associate
 
  end subroutine snowAlbedo
 

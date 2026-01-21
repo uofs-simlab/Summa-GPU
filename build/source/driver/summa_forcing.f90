@@ -45,6 +45,8 @@ contains
  ! timing variables
  USE globalData,only:startRead,endRead                       ! date/time for the start and end of reading forcing data
  USE globalData,only:elapsedRead                             ! elapsed time to read forcing data
+ use device_data_types
+ use initialize_device
  ! ---------------------------------------------------------------------------------------
  ! * variables
  ! ---------------------------------------------------------------------------------------

@@ -45,9 +45,6 @@ private
 public::liquidHeadPrime
 public::d2Theta_dPsi2
 public::d2Theta_dTk2
-
-! constant parameters
-real(rkind),parameter     :: verySmall=epsilon(1.0_rkind) ! a very small number (used to avoid divide by zero)
 contains
 
 
@@ -99,10 +96,10 @@ attributes(device) subroutine liquidHeadPrime(&
   real(rkind)                       :: effSatPrime                               ! effective saturation time derivative (-)
   ! ------------------------------------------------------------------------------------------------------------------------------
   ! initialize error control
-  ! err=0; message='liquidHeadPrime/'
+  err=0!; message='liquidHeadPrime/'
 
   ! ** partially frozen soil
-  if(volFracIce > verySmall .and. matricHeadTotal < 0._rkind)then  ! check that ice exists and that the soil is unsaturated
+  if(volFracIce > epsilon(1._rkind) .and. matricHeadTotal < 0._rkind)then  ! check that ice exists and that the soil is unsaturated
 
 
     ! -----
@@ -139,8 +136,7 @@ attributes(device) subroutine liquidHeadPrime(&
       ! (check required input derivative is present)
       if(.not.present(dVolTot_dPsi0))then
         ! message=trim(message)//'dVolTot_dPsi0 argument is missing'
-        ! err=20; 
-        return
+        err=20; return
       endif
 
       ! (compute derivative in the liquid water matric potential w.r.t. the total water matric potential)
@@ -158,8 +154,7 @@ attributes(device) subroutine liquidHeadPrime(&
       ! (check required input derivative is present)
       if(.not.present(dTheta_dT))then
         ! message=trim(message)//'dTheta_dT argument is missing'
-        ! err=20; 
-        return
+        err=20; return
       endif
       ! (compute the derivative in the liquid water matric potential w.r.t. temperature)
       dEffSat_dTemp = -dTheta_dT*xNum/(xDen**2_i4b) + dTheta_dT/xDen

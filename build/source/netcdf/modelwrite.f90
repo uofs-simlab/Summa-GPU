@@ -85,6 +85,8 @@ contains
  USE data_types,only:var_info                    ! metadata info
  USE var_lookup,only:iLookSTAT                   ! index in statistics vector
  USE var_lookup,only:iLookFREQ                   ! index in vector of model output frequencies
+ use device_data_types
+ use initialize_device
  implicit none
 
  ! declare input variables
@@ -95,6 +97,8 @@ contains
  character(*)  ,intent(out)  :: message          ! error message
  ! local variables
  integer(i4b)                :: iVar             ! loop through variables
+ integer(i4b),allocatable :: output_i4b(:)
+ real(rkind),allocatable :: output_rkind(:)
 
  ! initialize error control
  err=0;message="writeParm/"
@@ -111,6 +115,12 @@ contains
   ! HRU data
   if (iSpatial/=integerMissing) then
    select type (struct)
+    class is (type_data_device)
+     call get_device_type_data(struct, iVar, iSpatial, output_i4b)
+     err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/output_i4b/),start=(/iSpatial/),count=(/1/))
+    class is (mpar_data_device)
+     call get_device_param_data(struct, iVar, iSpatial, output_rkind)
+     err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/output_rkind/),start=(/iSpatial,1/),count=(/1,size(output_rkind)/))
     class is (var_i)
      err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/struct%var(iVar)/),start=(/iSpatial/),count=(/1/))
     class is (var_i8)

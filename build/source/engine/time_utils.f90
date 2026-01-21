@@ -315,7 +315,7 @@ contains
  ! source: https://en.wikipedia.org/wiki/Julian_day#Julian_or_Gregorian_calendar_from_Julian_day_number
  ! ***************************************************************************************
 
- attributes(host,device) subroutine compcalday(julday,                              & !input
+ attributes(device,host) subroutine compcalday(julday,                              & !input
                        iyyy,mm,id,ih,imin,dsec,err)   !output
  implicit none
 
@@ -330,7 +330,6 @@ contains
  integer(i4b), intent(out)     :: imin         ! minute
  real(rkind),  intent(out)     :: dsec         ! seconds
  integer(i4b), intent(out)     :: err          ! error code
-!  character(*), intent(out)     :: message      ! error message
 
  ! local parameters
  integer(i4b),parameter       :: y = 4716
@@ -355,8 +354,8 @@ contains
  real(rkind)              :: remainder ! remainder of modulus operation
 
  ! initialize errors
- err=0
- if(julday<=0)then;err=10; return; end if
+ err=0;
+ if(julday<=0)then;err=10;return; end if
 
  ! step 1
  step_1a = 4*int(julday)+b

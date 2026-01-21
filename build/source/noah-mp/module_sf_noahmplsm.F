@@ -58,12 +58,12 @@ module noahmp_globals
 !------------------------------------------------------------------------------------------!
 ! From the VEGPARM.TBL tables, as functions of vegetation category.
 !------------------------------------------------------------------------------------------!
-  INTEGER :: NROOT        !rooting depth [as the number of layers] ( Assigned in REDPRM )
-  REAL(rkind)    :: RGL          !parameter used in radiation stress function ( Assigned in REDPRM )
-  REAL(rkind)    :: RSMIN        !minimum Canopy Resistance [s/m] ( Assigned in REDPRM )
-  REAL(rkind)    :: HS           !parameter used in vapor pressure deficit function ( Assigned in REDPRM )
-  REAL(rkind)    :: RSMAX        !maximum stomatal resistance ( Assigned in REDPRM )
-  REAL(rkind)    :: TOPT         !optimum transpiration air temperature.
+  ! INTEGER :: NROOT        !rooting depth [as the number of layers] ( Assigned in REDPRM )
+  ! REAL(rkind)    :: RGL          !parameter used in radiation stress function ( Assigned in REDPRM )
+  ! REAL(rkind)    :: RSMIN        !minimum Canopy Resistance [s/m] ( Assigned in REDPRM )
+  ! REAL(rkind)    :: HS           !parameter used in vapor pressure deficit function ( Assigned in REDPRM )
+  ! REAL(rkind)    :: RSMAX        !maximum stomatal resistance ( Assigned in REDPRM )
+  ! REAL(rkind)    :: TOPT         !optimum transpiration air temperature.
 
   ! MPC change: make variables private for a given thread
   !$omp threadprivate(NROOT, RGL, RSMIN, HS, RSMAX, TOPT)
@@ -71,17 +71,17 @@ module noahmp_globals
 !------------------------------------------------------------------------------------------!
 ! From the SOILPARM.TBL tables, as functions of soil category.
 !------------------------------------------------------------------------------------------!
-  REAL(rkind)    :: BEXP         !B parameter ( Assigned in REDPRM )
-  REAL(rkind)    :: SMCDRY       !dry soil moisture threshold where direct evap from top
-                          !layer ends (volumetric) ( Assigned in REDPRM )
-  REAL(rkind)    :: F1           !soil thermal diffusivity/conductivity coef ( Assigned in REDPRM )
-  REAL(rkind)    :: SMCMAX       !porosity, saturated value of soil moisture (volumetric)
-  REAL(rkind)    :: SMCREF       !reference soil moisture (field capacity) (volumetric) ( Assigned in REDPRM )
-  REAL(rkind)    :: PSISAT       !saturated soil matric potential ( Assigned in REDPRM )
-  REAL(rkind)    :: DKSAT        !saturated soil hydraulic conductivity ( Assigned in REDPRM )
-  REAL(rkind)    :: DWSAT        !saturated soil hydraulic diffusivity ( Assigned in REDPRM )
-  REAL(rkind)    :: SMCWLT       !wilting point soil moisture (volumetric) ( Assigned in REDPRM )
-  REAL(rkind)    :: QUARTZ       !soil quartz content ( Assigned in REDPRM )
+  ! REAL(rkind)    :: BEXP         !B parameter ( Assigned in REDPRM )
+  ! REAL(rkind)    :: SMCDRY       !dry soil moisture threshold where direct evap from top
+  !                         !layer ends (volumetric) ( Assigned in REDPRM )
+  ! REAL(rkind)    :: F1           !soil thermal diffusivity/conductivity coef ( Assigned in REDPRM )
+  ! REAL(rkind)    :: SMCMAX       !porosity, saturated value of soil moisture (volumetric)
+  ! REAL(rkind)    :: SMCREF       !reference soil moisture (field capacity) (volumetric) ( Assigned in REDPRM )
+  ! REAL(rkind)    :: PSISAT       !saturated soil matric potential ( Assigned in REDPRM )
+  ! REAL(rkind)    :: DKSAT        !saturated soil hydraulic conductivity ( Assigned in REDPRM )
+  ! REAL(rkind)    :: DWSAT        !saturated soil hydraulic diffusivity ( Assigned in REDPRM )
+  ! REAL(rkind)    :: SMCWLT       !wilting point soil moisture (volumetric) ( Assigned in REDPRM )
+  ! REAL(rkind)    :: QUARTZ       !soil quartz content ( Assigned in REDPRM )
 
   ! MPC change: make variables private for a given thread
   !$omp threadprivate(BEXP, SMCDRY, F1, SMCMAX, SMCREF, PSISAT, DKSAT, DWSAT, SMCWLT, QUARTZ)
@@ -89,16 +89,16 @@ module noahmp_globals
 !------------------------------------------------------------------------------------------!
 ! From the GENPARM.TBL file
 !------------------------------------------------------------------------------------------!
-  REAL(rkind)    :: SLOPE       !slope index (0 - 1) ( Assigned in REDPRM )
-  REAL(rkind)    :: CSOIL       !vol. soil heat capacity [j/m3/K] ( Assigned in REDPRM )
-  REAL(rkind)    :: ZBOT        !Depth (m) of lower boundary soil temperature ( Assigned in REDPRM )
-  REAL(rkind)    :: CZIL        !Calculate roughness length of heat ( Assigned in REDPRM )
+  ! REAL(rkind)    :: SLOPE       !slope index (0 - 1) ( Assigned in REDPRM )
+  ! REAL(rkind)    :: CSOIL       !vol. soil heat capacity [j/m3/K] ( Assigned in REDPRM )
+  ! REAL(rkind)    :: ZBOT        !Depth (m) of lower boundary soil temperature ( Assigned in REDPRM )
+  ! REAL(rkind)    :: CZIL        !Calculate roughness length of heat ( Assigned in REDPRM )
 
   ! MPC note: FRZK_DATA, REFDK_DATA, and REFKDT_DATA are used in REDPRM to compute KDT and FRZX
   !           (FRZK, REFDK, and REFKDT are local variables within REDPRM and do not need to be thread private)
 
-  REAL(rkind)    :: KDT         !used in compute maximum infiltration rate (in INFIL) ( Assigned in REDPRM )
-  REAL(rkind)    :: FRZX        !used in compute maximum infiltration rate (in INFIL) ( Assigned in REDPRM )
+  ! REAL(rkind)    :: KDT         !used in compute maximum infiltration rate (in INFIL) ( Assigned in REDPRM )
+  ! REAL(rkind)    :: FRZX        !used in compute maximum infiltration rate (in INFIL) ( Assigned in REDPRM )
 
   ! MPC change: make variables private for a given thread
   !$omp threadprivate(SLOPE, CSOIL, ZBOT, CZIL, KDT, FRZX)
@@ -505,13 +505,14 @@ contains
 ! ==================================================================================================
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE PHENOLOGY (VEGTYP , ISURBAN, SNOWH  , TV     , LAT   , YEARLEN , JULIAN , & !in
-                        LAI    , SAI    , TROOT  , HTOP  , ELAI    , ESAI   , IGS)
+  attributes(host,device) SUBROUTINE PHENOLOGY (VEGTYP , ISURBAN, SNOWH  , TV     , LAT   , YEARLEN , JULIAN , & !in
+                        LAI    , SAI    , TROOT  , HTOP  , ELAI    , ESAI   , IGS, &
+                        hvt, hvb, laim, saim, tmin, iswater, isbarren, issnow, dveg)
 
 ! --------------------------------------------------------------------------------------------------
 ! vegetation phenology considering vegeation canopy being buries by snow and evolution in time
 ! --------------------------------------------------------------------------------------------------
-  USE NOAHMP_VEG_PARAMETERS
+  ! USE NOAHMP_VEG_PARAMETERS
 ! --------------------------------------------------------------------------------------------------
   IMPLICIT NONE
 ! --------------------------------------------------------------------------------------------------
@@ -532,7 +533,9 @@ contains
   REAL(rkind)            , INTENT(OUT  ) :: ELAI   !leaf area index, after burying by snow
   REAL(rkind)            , INTENT(OUT  ) :: ESAI   !stem area index, after burying by snow
   REAL(rkind)            , INTENT(OUT  ) :: IGS    !growing season index (0=off, 1=on)
-
+  real(rkind) :: hvt(:), hvb(:)
+  real(rkind) :: laim(:,:), saim(:,:), tmin(:)
+  integer :: iswater, isbarren, issnow, dveg
 ! locals
 
   REAL(rkind)                            :: DB     !thickness of canopy buried by snow (m)
@@ -575,7 +578,7 @@ contains
 
   ! Realism check: warn about no stems for vegetated land classes
   IF ( (SAI == 0.0) .and. ( VEGTYP /= ISWATER ) .and. ( VEGTYP /= ISBARREN ) .and. ( VEGTYP /= ISSNOW ) .and. ( VEGTYP /= ISURBAN) ) THEN
-   write(*,'(A,I3,A)') ' WARNING: module_sf_noahmplsm/PHENOLOGY: Stem Area Index (SAI) = 0.0 may be unrealistic for vegetation type ',VEGTYP,'. Continuing.'
+  !  write(*,'(A,I3,A)') ' WARNING: module_sf_noahmplsm/PHENOLOGY: Stem Area Index (SAI) = 0.0 may be unrealistic for vegetation type ',VEGTYP,'. Continuing.'
   ENDIF
   
   ! Realism check: no vegetation should exist on certain land classes
@@ -588,7 +591,6 @@ contains
 
      DB = MIN( MAX(SNOWH - HVB(VEGTYP),0.), HVT(VEGTYP)-HVB(VEGTYP) )
      FB = DB / MAX(1.E-06,HVT(VEGTYP)-HVB(VEGTYP))
-     !print*, 'HVB(VEGTYP), HVT(VEGTYP), DB, FB = ', HVB(VEGTYP), HVT(VEGTYP), DB, FB
 
      IF(HVT(VEGTYP)> 0. .AND. HVT(VEGTYP) <= 0.5) THEN
        SNOWHC = HVT(VEGTYP)*EXP(-SNOWH/0.1)
@@ -614,7 +616,7 @@ contains
 ! ==================================================================================================
 ! ==================================================================================================
 ! ==================================================================================================
-  SUBROUTINE RADIATION (VEGTYP  ,IST     ,ISC     ,ICE     ,NSOIL   , & !in
+  attributes(device) SUBROUTINE RADIATION (VEGTYP  ,IST     ,ISC     ,ICE     ,NSOIL   , & !in
                         SNEQVO  ,SNEQV   ,DT      ,COSZ    ,SNOWH   , & !in
                         TG      ,TV      ,FSNO    ,QSNOW   ,FWET    , & !in
                         ELAI    ,ESAI    ,SMC     ,SOLAD   ,SOLAI   , & !in
@@ -622,7 +624,10 @@ contains
                         ALBOLD  ,TAUSS   ,                            & !inout
                         FSUN    ,LAISUN  ,LAISHA  ,PARSUN  ,PARSHA  , & !out
                         SAV     ,SAG     ,FSR     ,FSA     ,FSRV    , &
-                        FSRG    ,BGAP    ,WGAP)            !out
+                        FSRG    ,BGAP    ,WGAP, &
+                        betais, betads, omegas, xl, hvb, hvt, rc, opt_rad, &
+                        albsat, albdry, alblak, &
+                        opt_alb, rhol, rhos, taul, taus)            !out
 ! --------------------------------------------------------------------------------------------------
   IMPLICIT NONE
 ! --------------------------------------------------------------------------------------------------
@@ -697,6 +702,13 @@ contains
 
   REAL(rkind),PARAMETER :: MPE = 1.E-6
   LOGICAL VEG  !true: vegetated for surface temperature calculation
+   real(rkind) :: betais, betads
+   real(rkind) :: omegas(:)
+   real(rkind) :: xl(:), hvb(:), hvt(:), rc(:)
+   integer :: opt_rad
+   real(rkind) :: albsat(:,:), albdry(:,:), alblak(:)
+   integer :: opt_alb
+   real(rkind) :: rhol(:,:), rhos(:,:), taul(:,:), taus(:,:)
 
 ! --------------------------------------------------------------------------------------------------
 
@@ -711,7 +723,10 @@ contains
                 ALBGRD ,ALBGRI ,ALBD   ,ALBI   ,FABD   , & !out
                 FABI   ,FTDD   ,FTID   ,FTII   ,FSUN   , & !)   !out
                 FREVI  ,FREVD   ,FREGD ,FREGI  ,BGAP   , & !inout
-                WGAP)
+                WGAP, &
+                        betais, betads, omegas, xl, hvb, hvt, rc, opt_rad, &
+                        albsat, albdry, alblak, &
+                        opt_alb, rhol, rhos, taul, taus)
 
 ! surface radiation
 
@@ -737,7 +752,7 @@ contains
   END SUBROUTINE RADIATION
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE ALBEDO (VEGTYP ,IST    ,ISC    ,ICE    ,NSOIL  , & !in
+  attributes(device) SUBROUTINE ALBEDO (VEGTYP ,IST    ,ISC    ,ICE    ,NSOIL  , & !in
                      DT     ,COSZ   ,FAGE   ,ELAI   ,ESAI   , & !in
                      TG     ,TV     ,SNOWH  ,FSNO   ,FWET   , & !in
                      SMC    ,SNEQVO ,SNEQV  ,QSNOW  ,FVEG   , & !in
@@ -746,7 +761,10 @@ contains
                      ALBGRD ,ALBGRI ,ALBD   ,ALBI   ,FABD   , & !out
                      FABI   ,FTDD   ,FTID   ,FTII   ,FSUN   , & !out
                      FREVI  ,FREVD  ,FREGD  ,FREGI  ,BGAP   , & !out
-                     WGAP)
+                     WGAP, &
+                        betais, betads, omegas, xl, hvb, hvt, rc, opt_rad, &
+                        albsat, albdry, alblak, &
+                        opt_alb, rhol, rhos, taul, taus)
 
 ! --------------------------------------------------------------------------------------------------
 ! surface albedos. also fluxes (per unit incoming direct and diffuse
@@ -804,6 +822,14 @@ contains
   REAL(rkind), INTENT(OUT) :: BGAP
   REAL(rkind), INTENT(OUT) :: WGAP
 !jref:end
+   real(rkind) :: betais, betads
+   real(rkind) :: omegas(:)
+   real(rkind) :: xl(:), hvb(:), hvt(:), rc(:)
+   integer :: opt_rad
+   real(rkind) :: albsat(:,:), albdry(:,:), alblak(:)
+   integer :: opt_alb
+   real(rkind) :: rhol(:,:), rhos(:,:), taul(:,:), taus(:,:)
+
 
 ! ------------------------------------------------------------------------
 ! ------------------------ local variables -------------------------------
@@ -880,7 +906,8 @@ contains
   CALL GROUNDALB (NSOIL   ,NBAND   ,ICE     ,IST     ,ISC     , & !in
                   FSNO    ,SMC     ,ALBSND  ,ALBSNI  ,COSZ    , & !in
                   TG      ,ILOC    ,JLOC    ,                   & !in
-                  ALBGRD  ,ALBGRI  )                              !out
+                  ALBGRD  ,ALBGRI, &
+                  albsat, albdry, alblak  )                              !out
 
 
 ! loop over NBAND wavebands to calculate surface albedos and solar
@@ -892,14 +919,16 @@ contains
                       FWET   ,TV      ,ALBGRD  ,ALBGRI  ,RHO    , & !in
                       TAU    ,FVEG    ,IST     ,ILOC    ,JLOC   , & !in
                       FABD   ,ALBD    ,FTDD    ,FTID    ,GDIR   , &!)   !out
-                      FREVD  ,FREGD   ,BGAP    ,WGAP)
+                      FREVD  ,FREGD   ,BGAP    ,WGAP, &
+                        betais, betads, omegas, xl, hvb, hvt, rc, opt_rad)
 
       IC = 1      ! diffuse
       CALL TWOSTREAM (IB     ,IC      ,VEGTYP  ,COSZ    ,VAI    , & !in
                       FWET   ,TV      ,ALBGRD  ,ALBGRI  ,RHO    , & !in
                       TAU    ,FVEG    ,IST     ,ILOC    ,JLOC   , & !in
                       FABI   ,ALBI    ,FTDI    ,FTII    ,GDIR   , & !)   !out
-                      FREVI  ,FREGI   ,BGAP    ,WGAP)
+                      FREVI  ,FREGI   ,BGAP    ,WGAP, &
+                        betais, betads, omegas, xl, hvb, hvt, rc, opt_rad)
 
   END DO
 
@@ -921,7 +950,7 @@ contains
   END SUBROUTINE ALBEDO
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE SURRAD (MPE     ,FSUN    ,FSHA    ,ELAI    ,VAI     , & !in
+  attributes(device) SUBROUTINE SURRAD (MPE     ,FSUN    ,FSHA    ,ELAI    ,VAI     , & !in
                      LAISUN  ,LAISHA  ,SOLAD   ,SOLAI   ,FABD    , & !in
                      FABI    ,FTDD    ,FTID    ,FTII    ,ALBGRD  , & !in
                      ALBGRI  ,ALBD    ,ALBI    ,ILOC    ,JLOC    , & !in
@@ -1043,7 +1072,7 @@ contains
   END SUBROUTINE SURRAD
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE SNOW_AGE (DT,TG,SNEQVO,SNEQV,TAUSS,FAGE)
+  attributes(device) SUBROUTINE SNOW_AGE (DT,TG,SNEQVO,SNEQV,TAUSS,FAGE)
 ! --------------------------------------------------------------------------------------------------
   IMPLICIT NONE
 ! ------------------------ code history ------------------------------------------------------------
@@ -1096,7 +1125,7 @@ contains
   END SUBROUTINE SNOW_AGE
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE SNOWALB_BATS (NBAND,FSNO,COSZ,FAGE,ALBSND,ALBSNI)
+  attributes(device) SUBROUTINE SNOWALB_BATS (NBAND,FSNO,COSZ,FAGE,ALBSND,ALBSNI)
 ! --------------------------------------------------------------------------------------------------
   IMPLICIT NONE
 ! --------------------------------------------------------------------------------------------------
@@ -1149,7 +1178,7 @@ contains
   END SUBROUTINE SNOWALB_BATS
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE SNOWALB_CLASS (NBAND,QSNOW,DT,ALB,ALBOLD,ALBSND,ALBSNI,ILOC,JLOC)
+  attributes(device) SUBROUTINE SNOWALB_CLASS (NBAND,QSNOW,DT,ALB,ALBOLD,ALBSND,ALBSNI,ILOC,JLOC)
 ! --------------------------------------------------------------------------------------------------
   IMPLICIT NONE
 ! --------------------------------------------------------------------------------------------------
@@ -1201,10 +1230,11 @@ contains
   END SUBROUTINE SNOWALB_CLASS
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE GROUNDALB (NSOIL   ,NBAND   ,ICE     ,IST     ,ISC     , & !in
+  attributes(device) SUBROUTINE GROUNDALB (NSOIL   ,NBAND   ,ICE     ,IST     ,ISC     , & !in
                         FSNO    ,SMC     ,ALBSND  ,ALBSNI  ,COSZ    , & !in
                         TG      ,ILOC    ,JLOC    ,                   & !in
-                        ALBGRD  ,ALBGRI  )                              !out
+                        ALBGRD  ,ALBGRI,&
+                        albsat, albdry, alblak  )                              !out
 ! --------------------------------------------------------------------------------------------------
   USE NOAHMP_RAD_PARAMETERS
 ! --------------------------------------------------------------------------------------------------
@@ -1230,6 +1260,7 @@ contains
 
   REAL(rkind), DIMENSION(1:    2), INTENT(OUT) :: ALBGRD !ground albedo (direct beam: vis, nir)
   REAL(rkind), DIMENSION(1:    2), INTENT(OUT) :: ALBGRI !ground albedo (diffuse: vis, nir)
+  real(rkind) :: albsat(:,:), albdry(:,:), alblak(:)
 
 !local
 
@@ -1266,11 +1297,12 @@ contains
   END SUBROUTINE GROUNDALB
 ! ==================================================================================================
 ! --------------------------------------------------------------------------------------------------
-  SUBROUTINE TWOSTREAM (IB     ,IC      ,VEGTYP  ,COSZ    ,VAI    , & !in
+  attributes(device) SUBROUTINE TWOSTREAM (IB     ,IC      ,VEGTYP  ,COSZ    ,VAI    , & !in
                         FWET   ,T       ,ALBGRD  ,ALBGRI  ,RHO    , & !in
                         TAU    ,FVEG    ,IST     ,ILOC    ,JLOC   , & !in
                         FAB    ,FRE     ,FTD     ,FTI     ,GDIR   , & !)   !out
-                        FREV   ,FREG    ,BGAP    ,WGAP)
+                        FREV   ,FREG    ,BGAP    ,WGAP, &
+                        betais, betads, omegas, xl, hvb, hvt, rc, opt_rad)
 
 ! --------------------------------------------------------------------------------------------------
 ! use two-stream approximation of Dickinson (1983) Adv Geophysics
@@ -1279,8 +1311,8 @@ contains
 ! and transmitted through vegetation for unit incoming direct or diffuse
 ! flux given an underlying surface with known albedo.
 ! --------------------------------------------------------------------------------------------------
-  USE NOAHMP_VEG_PARAMETERS
-  USE NOAHMP_RAD_PARAMETERS
+  ! USE NOAHMP_VEG_PARAMETERS
+  ! USE NOAHMP_RAD_PARAMETERS
 ! --------------------------------------------------------------------------------------------------
   IMPLICIT NONE
 ! --------------------------------------------------------------------------------------------------
@@ -1338,6 +1370,11 @@ contains
 !jref:start
    REAL(rkind)                              :: FREVEG,FREBAR,FTDVEG,FTIVEG,FTDBAR,FTIBAR
    REAL(rkind)                              :: THETAZ
+
+   real(rkind) :: betais, betads
+   real(rkind) :: omegas(:)
+   real(rkind) :: xl(:), hvb(:), hvt(:), rc(:)
+   integer :: opt_rad
 !jref:end
 
 !  variables for the modified two-stream scheme
@@ -1510,19 +1547,15 @@ contains
      FAB(IB) = 1. - FRE(IB) - (1.-ALBGRD(IB))*FTD(IB) &
                             - (1.-ALBGRI(IB))*FTI(IB)
 
-!if(iloc == 1.and.jloc ==  2) then
-  !write(*,'(a7,2i2,5(a6,f8.4),2(a9,f8.4))') "ib,ic: ",ib,ic," GAP: ",GAP," FTD: ",FTD(IB)," FTI: ",FTI(IB)," FRE: ", &
-  !       FRE(IB)," FAB: ",FAB(IB)," ALBGRD: ",ALBGRD(IB)," ALBGRI: ",ALBGRI(IB)
-!end if
-
   END SUBROUTINE TWOSTREAM
 ! ==================================================================================================
   ! ==================================================================================================
 ! ----------------------------------------------------------------------
-  SUBROUTINE STOMATA (VEGTYP  ,MPE     ,APAR    ,FOLN    ,ILOC    , JLOC, & !in
+  attributes(device) SUBROUTINE STOMATA (VEGTYP  ,MPE     ,APAR    ,FOLN    ,ILOC    , JLOC, & !in
                       TV      ,EI0     ,EA      ,SFCTMP  ,SFCPRS  , & !in
                       O2      ,CO2     ,IGS     ,BTRAN   ,RB      , & !in
-                      RS      ,PSN     )                              !out
+                      RS      ,PSN     ,&
+                      bp,mp,c3psn,avcmx,vcmx25,ako,ko25,akc,kc25,qe25,folnmx)                              !out
 ! --------------------------------------------------------------------------------------------------
   USE NOAHMP_VEG_PARAMETERS
 ! --------------------------------------------------------------------------------------------------
@@ -1554,6 +1587,8 @@ contains
 
 ! in&out
       REAL(rkind)                :: RLB    !boundary layer resistance (s m2 / umol)
+      real(rkind) :: bp(:),mp(:),c3psn(:),AVCMX(:),vcmx25(:),ako(:),ko25(:)
+      real(rkind) :: akc(:),kc25(:),qe25(:),folnmx(:)
 ! ---------------------------------------------------------------------------------------------
 
 ! ------------------------ local variables ----------------------------------------------------
@@ -1607,7 +1642,6 @@ contains
          CF = SFCPRS/(8.314*SFCTMP)*1.e06
          RS = 1./(BP(VEGTYP)*BTRAN) * CF    ! MPC change: include BTRAN multiplier
          PSN = 0.
-         !write(*,'(a,1x,20(f16.6,1x))') 'TV-TFRZ, RS, CF = ', TV-TFRZ, RS, CF
 
          IF (APAR .LE. 0.) RETURN
 
@@ -1615,20 +1649,15 @@ contains
          TC  = TV-TFRZ
          PPF = 4.6*APAR
          J   = PPF*QE25(VEGTYP)
-         !write(*,'(a,1x,10(f20.10,1x))') 'J, APAR, QE25(VEGTYP) = ', J, APAR, QE25(VEGTYP)
          KC  = KC25(VEGTYP) * F1(AKC(VEGTYP),TC)
          KO  = KO25(VEGTYP) * F1(AKO(VEGTYP),TC)
          AWC = KC * (1.+O2/KO)
          CP  = 0.5*KC/KO*O2*0.21
          VCMX = VCMX25(VEGTYP) / F2(TC) * FNF * BTRAN * F1(AVCMX(VEGTYP),TC)
-         !write(*,'(a,1x,20(f14.8,1x))') 'F1, F2, VCMX25(VEGTYP), AVCMX(VEGTYP), TC = ', F1(AVCMX(VEGTYP),TC), F2(TC), VCMX25(VEGTYP), AVCMX(VEGTYP), TC
 
 ! first guess ci
 
          CI = 0.7*CO2*C3PSN(VEGTYP) + 0.4*CO2*(1.-C3PSN(VEGTYP))
-
-         !write(*,'(a,1x,10(f20.10,1x))') 'KC25(VEGTYP), AKC(VEGTYP), KO25(VEGTYP), AKO(VEGTYP) = ', KC25(VEGTYP), AKC(VEGTYP), KO25(VEGTYP), AKO(VEGTYP)
-         !write(*,'(a,1x,10(f20.10,1x))') 'CO2, CI, CP, KC, KO = ', CO2, CI, CP, KC, KO
 
 ! rb: s/m -> s m**2 / umol
 
@@ -1637,10 +1666,6 @@ contains
 ! constrain ea
 
          CEA = MAX(0.25*EI*C3PSN(VEGTYP)+0.40*EI*(1.-C3PSN(VEGTYP)), MIN(EA,EI) )
-
-         !print*, '**'
-         !write(*,'(a,1x,20(f14.8,1x))') 'BTRAN, VCMX, MP(VEGTYP), EA, EI, CEA/EI, O2, CO2, KC, KO, J, TC, RLB, SFCPRS = ', &
-         !                                BTRAN, VCMX, MP(VEGTYP), EA, EI, CEA/EI, O2, CO2, KC, KO, J, TC, RLB, SFCPRS
 
 ! ci iteration
 !jref: C3PSN is equal to 1 for all veg types.
@@ -1666,21 +1691,17 @@ contains
             RS = MAX(R1,R2)
             CI = MAX( CS-PSN*SFCPRS*1.65*RS, 0. )
 
-            !write(*,'(a,1x10(f14.10,1x))') 'WJ, WC, WE, PSN, CI, CS, RS, TV, VCMX, J = ', &
-            !                                WJ, WC, WE, PSN, CI, CS, RS, TV, VCMX, J
-
        END DO
-       !pause
 
 ! rs, rb:  s m**2 / umol -> s/m
 
          RS = RS*CF
-         !write(*,'(a,1x,10(f20.10,1x))') 'RS, G, CEA, EA, EI = ', RS, 1./RS, CEA, EA, EI
 
   END SUBROUTINE STOMATA
 ! ==================================================================================================
-  SUBROUTINE CANRES (PAR   ,SFCTMP,RCSOIL ,EAH   ,SFCPRS , & !in
-                     RC    ,PSN   ,ILOC   ,JLOC  )           !out
+  attributes(device) SUBROUTINE CANRES (PAR   ,SFCTMP,RCSOIL ,EAH   ,SFCPRS , & !in
+                     RC    ,PSN   ,ILOC   ,JLOC,&
+                     rsmin,hs,topt,rsmax,rgl  )           !out
 
 ! --------------------------------------------------------------------------------------------------
 ! calculate canopy resistance which depends on incoming solar radiation,
@@ -1710,7 +1731,7 @@ contains
 
     REAL(rkind),                     INTENT(OUT) :: RC     !canopy resistance per unit LAI
     REAL(rkind),                     INTENT(OUT) :: PSN    !foliage photosynthesis (umolco2/m2/s)
-
+  real(rkind) :: rsmin,hs,topt,rsmax,rgl
 !local
 
     REAL(rkind)                                  :: RCQ
@@ -1760,7 +1781,7 @@ contains
 
   END SUBROUTINE CANRES
 ! ==================================================================================================
-  SUBROUTINE CALHUM(SFCTMP, SFCPRS, Q2SAT, DQSDT2)
+  attributes(device) SUBROUTINE CALHUM(SFCTMP, SFCPRS, Q2SAT, DQSDT2)
         IMPLICIT NONE
         REAL(rkind), INTENT(IN)       :: SFCTMP, SFCPRS
         REAL(rkind), INTENT(OUT)      :: Q2SAT, DQSDT2
@@ -1784,8 +1805,16 @@ contains
 ! ==================================================================================================
 ! ********************************* end of carbon subroutines *****************************
 ! ==================================================================================================
-  SUBROUTINE REDPRM (VEGTYP,SOILTYP,SLOPETYP,ZSOIL,NSOIL,ISURBAN)
-
+  attributes(device) SUBROUTINE REDPRM (VEGTYP,SOILTYP,SLOPETYP,ISURBAN,&
+  ! bb,drysmc,f11,MAXSMC,REFSMC,satpsi,satdk,satdw,WLTSMC,qtz,&
+  ! bexp, SMCDRY,F1,SMCMAX,SMCREF,PSISAT,DKSAT,DWSAT,SMCWLT,QUARTZ, &
+  ! SLOPE_DATA,CSOIL_DATA,REFDK_DATA,REFKDT_DATA,FRZK_DATA,ZBOT_DATA,CZIL_DATA,&
+  RSTBL,RGLTBL,HSTBL, &
+  TOPT_DATA,RSMAX_DATA, &
+  RGL,RSMIN,HS,RSMAX,TOPT&
+  ! kdt,frzx,&
+  ! slope,csoil,zbot,czil&
+  )
 !niu  use module_sf_noahlsm_param_init
 
     IMPLICIT NONE
@@ -1834,10 +1863,19 @@ contains
     INTEGER, INTENT(IN)    :: SOILTYP
 ! General parameters
     INTEGER, INTENT(IN)    :: SLOPETYP
-! General parameters
-    INTEGER, INTENT(IN)    :: NSOIL
-! Layer parameters
-    REAL(rkind),DIMENSION(NSOIL),INTENT(IN) :: ZSOIL
+    ! real(rkind),intent(inout) :: bb(:),drysmc(:),f11(:),MAXSMC(:),REFSMC(:),satpsi(:),satdk(:),satdw(:),WLTSMC(:),qtz(:)
+    ! real(rkind),intent(inout) :: bexp, SMCDRY,F1,SMCMAX,SMCREF,PSISAT,DKSAT,DWSAT,SMCWLT,QUARTZ
+    ! real(rkind),intent(inout) :: SLOPE_DATA(:),CSOIL_DATA,REFDK_DATA,REFKDT_DATA,FRZK_DATA,ZBOT_DATA,CZIL_DATA
+    real(rkind),intent(inout) :: RSTBL(:),RGLTBL(:),HSTBL(:)
+    real(rkind),intent(inout) :: TOPT_DATA,RSMAX_DATA
+  REAL(rkind),intent(inout)    :: RGL          !parameter used in radiation stress function ( Assigned in REDPRM )
+  REAL(rkind),intent(inout)    :: RSMIN        !minimum Canopy Resistance [s/m] ( Assigned in REDPRM )
+  REAL(rkind),intent(inout)    :: HS           !parameter used in vapor pressure deficit function ( Assigned in REDPRM )
+  REAL(rkind),intent(inout)    :: RSMAX        !maximum stomatal resistance ( Assigned in REDPRM )
+  REAL(rkind),intent(inout)    :: TOPT         !optimum transpiration air temperature.
+
+  ! real(rkind),intent(inout) :: slope,csoil,zbot,czil
+  ! real(rkind),intent(inout) :: kdt,frzx
 
 ! Locals
     REAL(rkind)    :: REFDK
@@ -1848,60 +1886,47 @@ contains
     CHARACTER(len=256)     :: message
 ! ----------------------------------------------------------------------
 !
-    IF (SOILTYP .gt. SLCATS) THEN
-       call wrf_message('SOILTYP must be less than SLCATS:')
-       write(message, '("SOILTYP = ", I6, ";    SLCATS = ", I6)') SOILTYP, SLCATS
-       call wrf_message(trim(message))
-       call wrf_error_fatal ('REDPRM: Error: too many input soil types')
-    END IF
-    IF (VEGTYP .gt. LUCATS) THEN
-       call wrf_message('VEGTYP must be less than LUCATS:')
-       write(message, '("VEGTYP = ", I6, ";    LUCATS = ", I6)') VEGTYP, LUCATS
-       call wrf_message(trim(message))
-       call wrf_error_fatal ('Error: too many input landuse types')
-    END IF
-
 ! ----------------------------------------------------------------------
 !  SET-UP SOIL PARAMETERS
 ! ----------------------------------------------------------------------
-    CSOIL  = CSOIL_DATA
-    BEXP   = BB (SOILTYP)
-    DKSAT  = SATDK (SOILTYP)
-    DWSAT  = SATDW (SOILTYP)
-    F1     = F11 (SOILTYP)
-    PSISAT = SATPSI (SOILTYP)
-    QUARTZ = QTZ (SOILTYP)
-    SMCDRY = DRYSMC (SOILTYP)
-    SMCMAX = MAXSMC (SOILTYP)
-    SMCREF = REFSMC (SOILTYP)
-    SMCWLT = WLTSMC (SOILTYP)
+    ! CSOIL  = CSOIL_DATA
+    ! BEXP   = BB (SOILTYP)
+    ! DKSAT  = SATDK (SOILTYP)
+    ! DWSAT  = SATDW (SOILTYP)
+    ! F1     = F11 (SOILTYP)
+    ! PSISAT = SATPSI (SOILTYP)
+    ! QUARTZ = QTZ (SOILTYP)
+    ! SMCDRY = DRYSMC (SOILTYP)
+    ! SMCMAX = MAXSMC (SOILTYP)
+    ! SMCREF = REFSMC (SOILTYP)
+    ! SMCWLT = WLTSMC (SOILTYP)
 
-    IF(VEGTYP==ISURBAN)THEN
-       SMCMAX = 0.45
-       SMCREF = 0.42
-       SMCWLT = 0.40
-       SMCDRY = 0.40
-       CSOIL  = 3.E6
-    ENDIF
+    ! IF(VEGTYP==ISURBAN)THEN
+    !    SMCMAX = 0.45
+    !    SMCREF = 0.42
+    !    SMCWLT = 0.40
+    !    SMCDRY = 0.40
+    !    CSOIL  = 3.E6
+    ! ENDIF
 
 ! ----------------------------------------------------------------------
 ! Set-up universal parameters (not dependent on SOILTYP, VEGTYP)
 ! ----------------------------------------------------------------------
-    ZBOT   = ZBOT_DATA
-    CZIL   = CZIL_DATA
+    ! ZBOT   = ZBOT_DATA
+    ! CZIL   = CZIL_DATA
 
-    FRZK   = FRZK_DATA
-    REFDK  = REFDK_DATA
-    REFKDT = REFKDT_DATA
-    KDT    = REFKDT * DKSAT / REFDK
-    SLOPE  = SLOPE_DATA (SLOPETYP)
+    ! FRZK   = FRZK_DATA
+    ! REFDK  = REFDK_DATA
+    ! REFKDT = REFKDT_DATA
+    ! KDT    = REFKDT * DKSAT / REFDK
+    ! SLOPE  = SLOPE_DATA (SLOPETYP)
 
 ! adjust FRZK parameter to actual soil type: FRZK * FRZFACT
 
-    if(SOILTYP /= 14) then
-      FRZFACT = (SMCMAX / SMCREF) * (0.412 / 0.468)
-      FRZX = FRZK * FRZFACT
-    end if
+    ! if(SOILTYP /= 14) then
+    !   FRZFACT = (SMCMAX / SMCREF) * (0.412 / 0.468)
+    !   FRZX = FRZK * FRZFACT
+    ! end if
 
 !    write(*,*) FRZK, FRZX, KDT, SLOPE, SLOPETYP
 ! ----------------------------------------------------------------------
@@ -1913,7 +1938,7 @@ contains
     RSMAX = RSMAX_DATA
     RSMIN = RSTBL (VEGTYP)
     HS = HSTBL (VEGTYP)
-    NROOT = NROTBL (VEGTYP)
+    ! NROOT = NROTBL (VEGTYP)
 
     IF(VEGTYP==ISURBAN)THEN
        RSMIN=400.0
@@ -1921,13 +1946,6 @@ contains
 
 !    SHDFAC = SHDTBL(VEGTYP)
 !    IF (VEGTYP .eq. BARE) SHDFAC = 0.0
-
-    IF (NROOT .gt. NSOIL) THEN
-       WRITE (*,*) 'Warning: too many root layers'
-       write (*,*) 'NROOT = ', nroot
-       write (*,*) 'NSOIL = ', nsoil
-       call wrf_error_fatal("STOP in Noah-MP")
-    END IF
 
 ! ----------------------------------------------------------------------
 

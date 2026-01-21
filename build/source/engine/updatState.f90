@@ -37,7 +37,7 @@ contains
 ! *************************************************************************************************************
 ! public subroutine updateSnow: compute phase change impacts on volumetric liquid water and ice (veg or soil)
 ! *************************************************************************************************************
-subroutine updateSnow(&
+attributes(host,device) subroutine updateSnow(&
                   ! input
                   mLayerTemp       ,& ! intent(in): temperature (K)
                   mLayerTheta      ,& ! intent(in): volume fraction of total water (-)
@@ -45,8 +45,8 @@ subroutine updateSnow(&
                   ! output
                   mLayerVolFracLiq ,& ! intent(out): volumetric fraction of liquid water (-)
                   mLayerVolFracIce ,& ! intent(out): volumetric fraction of ice (-)
-                  fLiq             ,& ! intent(out): fraction of liquid water (-)
-                  err,message)        ! intent(out): error control
+                  fLiq             & ! intent(out): fraction of liquid water (-)
+                  )        ! intent(out): error control
   ! utility routines
   USE snow_utils_module,only:fracliquid     ! compute volumetric fraction of liquid water
   implicit none
@@ -59,10 +59,10 @@ subroutine updateSnow(&
   real(rkind),intent(out)       :: mLayerVolFracIce        ! volumetric fraction of ice (-)
   real(rkind),intent(out)       :: fLiq                    ! fraction of liquid water (-)
   ! error control
-  integer(i4b),intent(out)      :: err                     ! error code
-  character(*),intent(out)      :: message                 ! error message
+  ! integer(i4b),intent(out)      :: err                     ! error code
+  ! character(*),intent(out)      :: message                 ! error message
   ! initialize error control
-  err=0; message="updateSnow/"
+  ! err=0; message="updateSnow/"
 
   ! compute the volumetric fraction of liquid water and ice (-)
   fLiq = fracliquid(mLayerTemp,snowfrz_scale)
@@ -73,7 +73,7 @@ end subroutine updateSnow
 ! *************************************************************************************************************
 ! public subroutine updateSoil: compute phase change impacts on matric head and volumetric liquid water and ice
 ! *************************************************************************************************************
-subroutine updateSoil(&
+attributes(host,device) subroutine updateSoil(&
                       ! input
                       mLayerTemp       ,& ! intent(in): temperature vector (K)
                       mLayerMatricHead ,& ! intent(in): matric head (m)
@@ -85,8 +85,8 @@ subroutine updateSoil(&
                       ! output
                       mLayerVolFracWat ,& ! intent(out): volumetric fraction of total water (-)
                       mLayerVolFracLiq ,& ! intent(out): volumetric fraction of liquid water (-)
-                      mLayerVolFracIce ,& ! intent(out): volumetric fraction of ice (-)
-                      err,message)        ! intent(out): error control
+                      mLayerVolFracIce & ! intent(out): volumetric fraction of ice (-)
+                      )        ! intent(out): error control
   ! utility routines
   USE soil_utils_module,only:volFracLiq     ! compute volumetric fraction of liquid water based on matric head
   USE soil_utils_module,only:matricHead     ! compute the matric head based on volumetric liquid water content
@@ -103,19 +103,17 @@ subroutine updateSoil(&
   real(rkind),intent(out)       :: mLayerVolFracWat          ! fractional volume of total water (-)
   real(rkind),intent(out)       :: mLayerVolFracLiq          ! volumetric fraction of liquid water (-)
   real(rkind),intent(out)       :: mLayerVolFracIce          ! volumetric fraction of ice (-)
-  integer(i4b),intent(out)      :: err                       ! error code
-  character(*),intent(out)      :: message                   ! error message
+  ! integer(i4b),intent(out)      :: err                       ! error code
+  ! character(*),intent(out)      :: message                   ! error message
   ! define local variables
   real(rkind)                   :: TcSoil                    ! critical soil temperature when all water is unfrozen (K)
   real(rkind)                   :: xConst                    ! constant in the freezing curve function (m K-1)
   real(rkind)                   :: mLayerPsiLiq              ! liquid water matric potential (m)
-  real(rkind),parameter         :: tinyVal=epsilon(1._rkind) ! used in balance check
   ! initialize error control
-  err=0; message="updateSoil/"
 
   ! compute fractional **volume** of total water (liquid plus ice)
   mLayerVolFracWat = volFracLiq(mLayerMatricHead,vGn_alpha,theta_res,theta_sat,vGn_n,vGn_m)
-  if(mLayerVolFracWat > (theta_sat + tinyVal))then; err=20; message=trim(message)//'volume of liquid and ice exceeds porosity'; return; end if
+  ! if(mLayerVolFracWat > (theta_sat + epsilon(1._rkind)))then; err=20; message=trim(message)//'volume of liquid and ice exceeds porosity'; return; end if
 
   ! compute the critical soil temperature where all water is unfrozen (K)
   ! (eq 17 in Dall'Amico 2011)

@@ -23,7 +23,7 @@ module summa_globalData
 
 ! access missing values
 USE globalData,only:integerMissing   ! missing integer
-USE globalData,only:realMissing      ! missing double precision number
+USE globalData,only:realMissing      ! missing real number
 
 ! size of data structures
 USE var_lookup,only:maxvarForc      ! forcing data:             maximum number variables
@@ -77,7 +77,6 @@ subroutine summa_defineGlobalData(err, message)
   USE childStruc_module,only:childStruc                       ! module to create a child data structure
   ! miscellaneous global data
   USE globalData,only:dNaN                                    ! double precision NaN
-  USE globalData,only:doJacobian                              ! flag to compute the Jacobian
   USE globalData,only:structInfo                              ! information on the data structures
   ! named variables that describe elements of child  model structures
   USE var_lookup,only:iLookVarType                            ! look-up values for variable type structure
@@ -103,9 +102,6 @@ subroutine summa_defineGlobalData(err, message)
   ! initialize error control
   err=0; message='summa_defineGlobalData/'
 
-  ! initialize the Jacobian flag
-  doJacobian=.false.        ! initialize the Jacobian flag
-
   ! define double precision NaNs (shared in globalData)
   dNaN = ieee_value(1._rkind, ieee_quiet_nan)
 
@@ -114,7 +110,7 @@ subroutine summa_defineGlobalData(err, message)
   if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
   ! define mapping between fluxes and states
-  call flxMapping(err,cmessage)
+  ! call flxMapping(err,cmessage)
   if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
   ! check data structures

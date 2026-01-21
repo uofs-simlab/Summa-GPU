@@ -24,7 +24,11 @@ module vegPhenlgy_module
 USE nrtype
 
 ! global variables
-USE globalData,only:urbanVegCategory    ! vegetation category for urban areas
+USE globalData,only:&
+                    realMissing,        & ! missing value for real numbers
+                    urbanVegCategory,   & ! vegetation category for urban areas
+                    minExpLogHgtFac       ! factor for minimum height of transition from the exponential to the logarithmic wind profile
+
 
 ! provide access to the derived types to define the data structures
 USE data_types,only:&
@@ -55,9 +59,6 @@ USE mDecisions_module,only:      &
 implicit none
 private
 public::vegPhenlgy,vegPhenlgy_d
-! algorithmic parameters
-real(rkind),parameter     :: valueMissing=-9999._rkind  ! missing value, used when diagnostic or state variables are undefined
-real(rkind),parameter     :: verySmall=1.e-6_rkind      ! used as an additive constant to check if substantial difference among real numbers
 contains
 
 
@@ -66,6 +67,7 @@ contains
  ! ************************************************************************************************
  subroutine vegPhenlgy(&
                        ! model control
+                       nSnow,                       & ! intent(in):    number of snow layers
                        model_decisions,             & ! intent(in):    model decisions
                        fracJulDay,                  & ! intent(in):    fractional julian days since the start of year
                        yearLength,                  & ! intent(in):    number of days in the current year
@@ -84,9 +86,12 @@ contains
  ! -------------------------------------------------------------------------------------------------
  ! modules
  USE NOAHMP_ROUTINES,only:phenology         ! determine vegetation phenology
+  USE NOAHMP_VEG_PARAMETERS
+  USE NOAHMP_ROUTINES
  implicit none
  ! -------------------------------------------------------------------------------------------------
  ! input/output
+ integer(i4b),intent(in)         :: nSnow               ! number of snow layers
  type(model_options),intent(in)  :: model_decisions(:)  ! model decisions
  real(rkind),intent(in)          :: fracJulDay          ! fractional julian days since the start of year
  integer(i4b),intent(in)         :: yearLength          ! number of days in the current year
@@ -103,8 +108,11 @@ contains
  character(*),intent(out)        :: message             ! error message
  ! -------------------------------------------------------------------------------------------------
  ! local
+ real(rkind)                     :: z0Ground                   ! roughness length of the ground (ground below the canopy or non-vegetated surface) (m)
  real(rkind)                     :: notUsed_heightCanopyTop    ! height of the top of the canopy layer (m)
  real(rkind)                     :: heightAboveSnow            ! height top of canopy is above the snow surface (m)
+ real(rkind)                     :: minExpLogHgt               ! minimum height above ground for logarithmic wind profile (m)
+
  ! initialize error control
  err=0; message="vegPhenlgy/"
  ! ----------------------------------------------------------------------------------------------------------------------------------
@@ -121,19 +129,28 @@ contains
  scalarCanopyTemp                => prog_data%var(iLookPROG%scalarCanopyTemp)%dat(1),          & ! intent(in):    [dp] temperature of the vegetation canopy at the start of the sub-step (K)
  scalarCanopyLiq                 => prog_data%var(iLookPROG%scalarCanopyLiq)%dat(1),           & ! intent(inout): [dp] liquid water in the vegetation canopy at the start of the sub-step
  ! diagnostic variables and parameters (input)
- heightCanopyTop                 => mpar_data%var(iLookPARAM%heightCanopyTop)%dat(1),          & ! intent(in):    [dp] height of the top of the canopy layer (m)
- heightCanopyBottom              => mpar_data%var(iLookPARAM%heightCanopyBottom)%dat(1),       & ! intent(in):    [dp] height of the bottom of the canopy layer (m)
- scalarRootZoneTemp              => diag_data%var(iLookDIAG%scalarRootZoneTemp)%dat(1),        & ! intent(in):    [dp] root zone temperature (K)
+ z0Snow                          => mpar_data%var(iLookPARAM%z0Snow)%dat(1),                   & ! intent(in): [dp] roughness length of snow (m)
+ z0Soil                          => mpar_data%var(iLookPARAM%z0Soil)%dat(1),                   & ! intent(in): [dp] roughness length of soil (m)
+ heightCanopyTop                 => mpar_data%var(iLookPARAM%heightCanopyTop)%dat(1),          & ! intent(in): [dp] height of the top of the canopy layer (m)
+ heightCanopyBottom              => mpar_data%var(iLookPARAM%heightCanopyBottom)%dat(1),       & ! intent(in): [dp] height of the bottom of the canopy layer (m)
+ scalarRootZoneTemp              => diag_data%var(iLookDIAG%scalarRootZoneTemp)%dat(1),        & ! intent(in): [dp] root zone temperature (K)
  ! diagnostic variables and parameters (input/output)
  scalarLAI                       => diag_data%var(iLookDIAG%scalarLAI)%dat(1),                 & ! intent(inout): [dp] one-sided leaf area index (m2 m-2)
  scalarSAI                       => diag_data%var(iLookDIAG%scalarSAI)%dat(1),                 & ! intent(inout): [dp] one-sided stem area index (m2 m-2)
  ! diagnostic variables and parameters (output)
  scalarExposedLAI                => diag_data%var(iLookDIAG%scalarExposedLAI)%dat(1),          & ! intent(out): [dp] exposed leaf area index after burial by snow (m2 m-2)
  scalarExposedSAI                => diag_data%var(iLookDIAG%scalarExposedSAI)%dat(1),          & ! intent(out): [dp] exposed stem area index after burial by snow (m2 m-2)
- scalarGrowingSeasonIndex        => diag_data%var(iLookDIAG%scalarGrowingSeasonIndex)%dat(1)   & ! intent(out): [dp] growing season index (0=off, 1=on)
+ scalarGrowingSeasonIndex        => diag_data%var(iLookDIAG%scalarGrowingSeasonIndex)%dat(1),  & ! intent(out): [dp] growing season index (0=off, 1=on)
+ scalarGroundSnowFraction        => diag_data%var(iLookDIAG%scalarGroundSnowFraction)%dat(1)   & ! intent(out): [dp] fraction of ground covered with snow (-)
+
  ) ! associate variables in data structure
  ! ----------------------------------------------------------------------------------------------------------------------------------
-
+  if (nSnow > 0) then ! case when there is snow on the ground (EXCLUDE "snow without a layer" -- in this case, evaporate from the soil)
+    scalarGroundSnowFraction  = 1._rkind
+  else ! case when the ground is less than a layer of snow (e.g., bare soil or snow without a layer)
+    scalarGroundSnowFraction  = 0._rkind
+  end if  ! (there is snow enough for a layer on the ground)
+  
  ! check if we have isolated the snow-soil domain (used in test cases)
  if(ix_bcUpprTdyn == prescribedTemp .or. ix_bcUpprTdyn == zeroFlux .or. ix_bcUpprSoiH == prescribedHead)then
 
@@ -141,14 +158,14 @@ contains
   computeVegFlux = .false.
 
   ! set vegetation phenology variables to missing
-  scalarLAI                = valueMissing    ! one-sided leaf area index (m2 m-2)
-  scalarSAI                = valueMissing    ! one-sided stem area index (m2 m-2)
-  scalarExposedLAI         = valueMissing    ! exposed leaf area index after burial by snow (m2 m-2)
-  scalarExposedSAI         = valueMissing    ! exposed stem area index after burial by snow (m2 m-2)
-  scalarGrowingSeasonIndex = valueMissing    ! growing season index (0=off, 1=on)
-  exposedVAI               = valueMissing    ! exposed vegetation area index (m2 m-2)
-  canopyDepth              = valueMissing    ! canopy depth (m)
-  heightAboveSnow          = valueMissing    ! height top of canopy is above the snow surface (m)
+  scalarLAI                = realMissing    ! one-sided leaf area index (m2 m-2)
+  scalarSAI                = realMissing    ! one-sided stem area index (m2 m-2)
+  scalarExposedLAI         = realMissing    ! exposed leaf area index after burial by snow (m2 m-2)
+  scalarExposedSAI         = realMissing    ! exposed stem area index after burial by snow (m2 m-2)
+  scalarGrowingSeasonIndex = realMissing    ! growing season index (0=off, 1=on)
+  exposedVAI               = realMissing    ! exposed vegetation area index (m2 m-2)
+  canopyDepth              = realMissing    ! canopy depth (m)
+  heightAboveSnow          = realMissing    ! height top of canopy is above the snow surface (m)
 
  ! compute vegetation phenology (checks for complete burial of vegetation)
  else
@@ -171,18 +188,19 @@ contains
                  notUsed_heightCanopyTop,     & ! intent(out): height of the top of the canopy layer (m)
                  scalarExposedLAI,            & ! intent(out): exposed leaf area index after burial by snow (m2 m-2)
                  scalarExposedSAI,            & ! intent(out): exposed stem area index after burial by snow (m2 m-2)
-                 scalarGrowingSeasonIndex     ) ! intent(out): growing season index (0=off, 1=on)
+                 scalarGrowingSeasonIndex,hvt, hvb, laim, saim, tmin, iswater, isbarren, issnow, dveg     ) ! intent(out): growing season index (0=off, 1=on)
 
   ! determine additional phenological variables
   exposedVAI      = scalarExposedLAI + scalarExposedSAI   ! exposed vegetation area index (m2 m-2)
   canopyDepth     = heightCanopyTop - heightCanopyBottom  ! canopy depth (m)
   heightAboveSnow = heightCanopyTop - scalarSnowDepth     ! height top of canopy is above the snow surface (m)
 
-  ! determine if need to include vegetation in the energy flux routines
-  computeVegFlux = (exposedVAI > 0.05_rkind .and. heightAboveSnow > 0.05_rkind)
+  ! compute the roughness length of the ground (ground below the canopy or non-vegetated surface)
+  z0Ground = z0Soil*(1._rkind - scalarGroundSnowFraction) + z0Snow*scalarGroundSnowFraction     ! roughness length (m)
 
-  ! if no vegetation ever, should not have initialized scalarCanopyLiq to 0.0001 in read_icond.f90
-  if((scalarLAI + scalarSAI) == 0.0_rkind) scalarCanopyLiq = 0.0_rkind
+  ! determine if need to include vegetation in the energy flux routines
+  minExpLogHgt = minExpLogHgtFac*sqrt(heightCanopyTop) ! minimum height above ground for logarithmic wind profile (m)
+  computeVegFlux = (exposedVAI > 0.05_rkind .and. heightAboveSnow > z0Ground + minExpLogHgt)
 
  end if  ! (check if the snow-soil column is isolated)
 
@@ -190,99 +208,122 @@ contains
  end associate
 
  end subroutine vegPhenlgy
-
-
-
  ! ************************************************************************************************
  ! public subroutine vegPhenlgy: compute vegetation phenology
  ! ************************************************************************************************
- subroutine vegPhenlgy_d(&
+ attributes(device) subroutine vegPhenlgy_d(&
                        ! model control
-                       model_decisions,             & ! intent(in):    model decisions
-                       nGRU, &
+                       nSnow,                       & ! intent(in):    number of snow layers
+                      !  model_decisions,             & ! intent(in):    model decisions
+                       ix_bcUpprTdyn,ix_bcUpprSoiH, &
                        fracJulDay,                  & ! intent(in):    fractional julian days since the start of year
                        yearLength,                  & ! intent(in):    number of days in the current year
                        ! input/output: data structures
-                       type_data,                   & ! intent(in):    type of vegetation and soil
-                       attr_data,                   & ! intent(in):    spatial attributes
-                       mpar_data,                   & ! intent(in):    model parameters
-                       prog_data,                   & ! intent(inout): prognostic variables for a local HRU
-                       diag_data,                   & ! intent(inout): diagnostic variables for a local HRU
-                       decisions, veg_param, &
+                      !  type_data,                   & ! intent(in):    type of vegetation and soil
+                       vegTypeIndex, &
+                      !  attr_data,                   & ! intent(in):    spatial attributes
+                       latitude, &
+                      !  mpar_data,                   & ! intent(in):    model parameters
+                       z0Snow,z0Soil,&
+                       heightCanopyTop,heightCanopyBottom,&
+                      !  prog_data,                   & ! intent(inout): prognostic variables for a local HRU
+                       scalarSnowDepth,scalarCanopyTemp,scalarCanopyLiq, &
+                      !  diag_data,                   & ! intent(inout): diagnostic variables for a local HRU
+                       scalarRootZoneTemp,scalarLAI,scalarSAI, &
+                       scalarExposedLAI,scalarExposedSAI,&
+                       scalarGrowingSeasonIndex,scalarGroundSnowFraction,&
                        ! output
                        computeVegFlux,              & ! intent(out): flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
                        canopyDepth,                 & ! intent(out): canopy depth (m)
                        exposedVAI,                  & ! intent(out): exposed vegetation area index (LAI + SAI)
-                       err,message)                   ! intent(out): error control
+                       err,&
+                       dveg,iswater,ISBARREN,issnow,&
+                        hvt,hvb,laim,saim,tmin,urbanVegCategory,minExpLogHgtFac)                   ! intent(out): error control
 
  ! -------------------------------------------------------------------------------------------------
  ! modules
-!  USE NOAHMP_ROUTINES,only:phenology_d         ! determine vegetation phenology
- use device_data_types
+ USE NOAHMP_ROUTINES,only:phenology         ! determine vegetation phenology
  implicit none
  ! -------------------------------------------------------------------------------------------------
  ! input/output
- type(model_options),intent(in)  :: model_decisions(:)  ! model decisions
- integer(i4b) :: nGRU
- real(rkind),intent(in),device          :: fracJulDay          ! fractional julian days since the start of year
- integer(i4b),intent(in),device         :: yearLength          ! number of days in the current year
- type(type_data_device),intent(in)          :: type_data           ! type of vegetation and soil
- type(attr_data_device),intent(in)          :: attr_data           ! spatial attributes
- type(mpar_data_device),intent(in)    :: mpar_data           ! model parameters
- type(prog_data_device),intent(inout) :: prog_data           ! prognostic variables for a local HRU
- type(diag_data_device),intent(inout) :: diag_data           ! diagnostic variables for a local HRU
- type(decisions_device) :: decisions
- type(veg_parameters) :: veg_param
+ integer(i4b),intent(in)         :: nSnow               ! number of snow layers
+!  type(model_options),intent(in)  :: model_decisions(:)  ! model decisions
+ integer(i4b),intent(in) :: ix_bcUpprTdyn,ix_bcUpprSoiH
+ real(rkind),intent(in)          :: fracJulDay          ! fractional julian days since the start of year
+ integer(i4b),intent(in)         :: yearLength          ! number of days in the current year
+!  type(var_i),intent(in)          :: type_data           ! type of vegetation and soil
+ integer(i4b),intent(in) :: vegTypeIndex
+!  type(var_d),intent(in)          :: attr_data           ! spatial attributes
+ real(rkind),intent(in) :: latitude
+!  type(var_dlength),intent(in)    :: mpar_data           ! model parameters
+ real(rkind),intent(in) :: z0Snow,z0Soil
+ real(rkind),intent(in) :: heightCanopyTop,heightCanopyBottom
+!  type(var_dlength),intent(inout) :: prog_data           ! prognostic variables for a local HRU
+ real(rkind),intent(inout) :: scalarSnowDepth,scalarCanopyLiq
+ real(rkind),intent(in) :: scalarCanopyTemp
+!  type(var_dlength),intent(inout) :: diag_data           ! diagnostic variables for a local HRU
+ real(rkind),intent(inout) :: scalarRootZoneTemp,scalarLAI,scalarSAI
+ real(rkind),intent(inout) :: scalarExposedLAI,scalarExposedSAI
+ real(rkind),intent(inout) :: scalarGrowingSeasonIndex,scalarGroundSnowFraction
  ! output
- logical(lgt),intent(out),device        :: computeVegFlux(:)      ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
- real(rkind),intent(out),device         :: canopyDepth(:)         ! canopy depth (m)
- real(rkind),intent(out),device         :: exposedVAI(:)          ! exposed vegetation area index (LAI + SAI)
+ logical(lgt),intent(out)        :: computeVegFlux      ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+ real(rkind),intent(out)         :: canopyDepth         ! canopy depth (m)
+ real(rkind),intent(out)         :: exposedVAI          ! exposed vegetation area index (LAI + SAI)
  integer(i4b),intent(out)        :: err                 ! error code
- character(*),intent(out)        :: message             ! error message
+!  character(*),intent(out)        :: message             ! error message
+   real(rkind),intent(in) :: hvt(:), hvb(:)
+  real(rkind),intent(in) :: laim(:,:), saim(:,:)
+  integer(i4b),intent(in) :: dveg,iswater,ISBARREN,issnow
+  real(rkind),intent(in) :: tmin(:)
+  integer(i4b),intent(in) :: urbanVegCategory
+  real(rkind),intent(in) :: minExpLogHgtFac
+
+
  ! -------------------------------------------------------------------------------------------------
  ! local
- real(rkind),device                     :: notUsed_heightCanopyTop(nGRU)    ! height of the top of the canopy layer (m)
+ real(rkind)                     :: z0Ground                   ! roughness length of the ground (ground below the canopy or non-vegetated surface) (m)
+ real(rkind)                     :: notUsed_heightCanopyTop    ! height of the top of the canopy layer (m)
  real(rkind)                     :: heightAboveSnow            ! height top of canopy is above the snow surface (m)
- integer(i4b) :: iGRU
+ real(rkind)                     :: minExpLogHgt               ! minimum height above ground for logarithmic wind profile (m)
+
  ! initialize error control
- err=0; message="vegPhenlgy/"
+ err=0; !message="vegPhenlgy/"
  ! ----------------------------------------------------------------------------------------------------------------------------------
  ! associate variables in the data structure
- associate(&
+!  associate(&
  ! input: model decisions
- ix_bcUpprTdyn                   => model_decisions(iLookDECISIONS%bcUpprTdyn)%iDecision,      & ! intent(in): [i4b] choice of upper boundary condition for thermodynamics
- ix_bcUpprSoiH                   => model_decisions(iLookDECISIONS%bcUpprSoiH)%iDecision,      & ! intent(in): [i4b] index of method used for the upper boundary condition for soil hydrology
- hvt => veg_param%hvt, &
- tmin => veg_param%tmin, &
- hvb => veg_param%hvb, &
- isbarren => veg_param%isbarren, &
- ISSNOW => veg_param%ISSNOW, &
- ISWATER => veg_param%ISWATER, &
- saim => veg_param%saim, &
- laim => veg_param%laim, &
- dveg => veg_param%dveg, &
- urbanVegCategory => decisions%urbanVegCategory, &
+!  ix_bcUpprTdyn                   => model_decisions(iLookDECISIONS%bcUpprTdyn)%iDecision,      & ! intent(in): [i4b] choice of upper boundary condition for thermodynamics
+!  ix_bcUpprSoiH                   => model_decisions(iLookDECISIONS%bcUpprSoiH)%iDecision      & ! intent(in): [i4b] index of method used for the upper boundary condition for soil hydrology
  ! local attributes
- vegTypeIndex                    => type_data%vegTypeIndex,                     & ! intent(in): [i4b] vegetation type index
- latitude                        => attr_data%latitude,                         & ! intent(in): [dp] latitude
+!  vegTypeIndex                    => type_data%var(iLookTYPE%vegTypeIndex),                     & ! intent(in): [i4b] vegetation type index
+!  latitude                        => attr_data%var(iLookATTR%latitude),                         & ! intent(in): [dp] latitude
  ! model state variables
- scalarSnowDepth                 => prog_data%scalarSnowDepth,           & ! intent(in):    [dp] snow depth on the ground surface (m)
- scalarCanopyTemp                => prog_data%scalarCanopyTemp,          & ! intent(in):    [dp] temperature of the vegetation canopy at the start of the sub-step (K)
- scalarCanopyLiq                 => prog_data%scalarCanopyLiq,           & ! intent(inout): [dp] liquid water in the vegetation canopy at the start of the sub-step
+!  scalarSnowDepth                 => prog_data%var(iLookPROG%scalarSnowDepth)%dat(1),           & ! intent(in):    [dp] snow depth on the ground surface (m)
+!  scalarCanopyTemp                => prog_data%var(iLookPROG%scalarCanopyTemp)%dat(1),          & ! intent(in):    [dp] temperature of the vegetation canopy at the start of the sub-step (K)
+!  scalarCanopyLiq                 => prog_data%var(iLookPROG%scalarCanopyLiq)%dat(1),           & ! intent(inout): [dp] liquid water in the vegetation canopy at the start of the sub-step
  ! diagnostic variables and parameters (input)
- heightCanopyTop                 => mpar_data%heightCanopyTop,          & ! intent(in):    [dp] height of the top of the canopy layer (m)
- heightCanopyBottom              => mpar_data%heightCanopyBottom,       & ! intent(in):    [dp] height of the bottom of the canopy layer (m)
- scalarRootZoneTemp              => diag_data%scalarRootZoneTemp,        & ! intent(in):    [dp] root zone temperature (K)
+!  z0Snow                          => mpar_data%var(iLookPARAM%z0Snow)%dat(1),                   & ! intent(in): [dp] roughness length of snow (m)
+!  z0Soil                          => mpar_data%var(iLookPARAM%z0Soil)%dat(1),                   & ! intent(in): [dp] roughness length of soil (m)
+!  heightCanopyTop                 => mpar_data%var(iLookPARAM%heightCanopyTop)%dat(1),          & ! intent(in): [dp] height of the top of the canopy layer (m)
+!  heightCanopyBottom              => mpar_data%var(iLookPARAM%heightCanopyBottom)%dat(1),       & ! intent(in): [dp] height of the bottom of the canopy layer (m)
+!  scalarRootZoneTemp              => diag_data%var(iLookDIAG%scalarRootZoneTemp)%dat(1),        & ! intent(in): [dp] root zone temperature (K)
  ! diagnostic variables and parameters (input/output)
- scalarLAI                       => diag_data%scalarLAI,                 & ! intent(inout): [dp] one-sided leaf area index (m2 m-2)
- scalarSAI                       => diag_data%scalarSAI,                 & ! intent(inout): [dp] one-sided stem area index (m2 m-2)
+!  scalarLAI                       => diag_data%var(iLookDIAG%scalarLAI)%dat(1),                 & ! intent(inout): [dp] one-sided leaf area index (m2 m-2)
+!  scalarSAI                       => diag_data%var(iLookDIAG%scalarSAI)%dat(1),                 & ! intent(inout): [dp] one-sided stem area index (m2 m-2)
  ! diagnostic variables and parameters (output)
- scalarExposedLAI                => diag_data%scalarExposedLAI,          & ! intent(out): [dp] exposed leaf area index after burial by snow (m2 m-2)
- scalarExposedSAI                => diag_data%scalarExposedSAI,          & ! intent(out): [dp] exposed stem area index after burial by snow (m2 m-2)
- scalarGrowingSeasonIndex        => diag_data%scalarGrowingSeasonIndex   & ! intent(out): [dp] growing season index (0=off, 1=on)
- ) ! associate variables in data structure
- ! ----------------------------------------------------------------------------------------------------------------------------------
+!  scalarExposedLAI                => diag_data%var(iLookDIAG%scalarExposedLAI)%dat(1),          & ! intent(out): [dp] exposed leaf area index after burial by snow (m2 m-2)
+!  scalarExposedSAI                => diag_data%var(iLookDIAG%scalarExposedSAI)%dat(1),          & ! intent(out): [dp] exposed stem area index after burial by snow (m2 m-2)
+!  scalarGrowingSeasonIndex        => diag_data%var(iLookDIAG%scalarGrowingSeasonIndex)%dat(1),  & ! intent(out): [dp] growing season index (0=off, 1=on)
+!  scalarGroundSnowFraction        => diag_data%var(iLookDIAG%scalarGroundSnowFraction)%dat(1)   & ! intent(out): [dp] fraction of ground covered with snow (-)
 
+!  ) ! associate variables in data structure
+ ! ----------------------------------------------------------------------------------------------------------------------------------
+  if (nSnow > 0) then ! case when there is snow on the ground (EXCLUDE "snow without a layer" -- in this case, evaporate from the soil)
+    scalarGroundSnowFraction  = 1._rkind
+  else ! case when the ground is less than a layer of snow (e.g., bare soil or snow without a layer)
+    scalarGroundSnowFraction  = 0._rkind
+  end if  ! (there is snow enough for a layer on the ground)
+  
  ! check if we have isolated the snow-soil domain (used in test cases)
  if(ix_bcUpprTdyn == prescribedTemp .or. ix_bcUpprTdyn == zeroFlux .or. ix_bcUpprSoiH == prescribedHead)then
 
@@ -290,173 +331,56 @@ contains
   computeVegFlux = .false.
 
   ! set vegetation phenology variables to missing
-  scalarLAI                = valueMissing    ! one-sided leaf area index (m2 m-2)
-  scalarSAI                = valueMissing    ! one-sided stem area index (m2 m-2)
-  scalarExposedLAI         = valueMissing    ! exposed leaf area index after burial by snow (m2 m-2)
-  scalarExposedSAI         = valueMissing    ! exposed stem area index after burial by snow (m2 m-2)
-  scalarGrowingSeasonIndex = valueMissing    ! growing season index (0=off, 1=on)
-  exposedVAI               = valueMissing    ! exposed vegetation area index (m2 m-2)
-  canopyDepth              = valueMissing    ! canopy depth (m)
-  heightAboveSnow          = valueMissing    ! height top of canopy is above the snow surface (m)
+  scalarLAI                = realMissing    ! one-sided leaf area index (m2 m-2)
+  scalarSAI                = realMissing    ! one-sided stem area index (m2 m-2)
+  scalarExposedLAI         = realMissing    ! exposed leaf area index after burial by snow (m2 m-2)
+  scalarExposedSAI         = realMissing    ! exposed stem area index after burial by snow (m2 m-2)
+  scalarGrowingSeasonIndex = realMissing    ! growing season index (0=off, 1=on)
+  exposedVAI               = realMissing    ! exposed vegetation area index (m2 m-2)
+  canopyDepth              = realMissing    ! canopy depth (m)
+  heightAboveSnow          = realMissing    ! height top of canopy is above the snow surface (m)
 
  ! compute vegetation phenology (checks for complete burial of vegetation)
  else
+
   ! determine vegetation phenology
   ! NOTE: recomputing phenology every sub-step accounts for changes in exposed vegetation associated with changes in snow depth
-    do iGRU=1,nGRU
-  call phenology_d<<<1,1>>>(&
+  call phenology(&
                  ! input
-                 vegTypeIndex(iGRU),                & ! intent(in): vegetation type index
+                 vegTypeIndex,                & ! intent(in): vegetation type index
                  urbanVegCategory,            & ! intent(in): vegetation category for urban areas
-                 scalarSnowDepth(iGRU),             & ! intent(in): snow depth on the ground surface (m)
-                 scalarCanopyTemp(iGRU),            & ! intent(in): temperature of the vegetation canopy at the start of the sub-step (K)
-                 latitude(iGRU),                    & ! intent(in): latitude
+                 scalarSnowDepth,             & ! intent(in): snow depth on the ground surface (m)
+                 scalarCanopyTemp,            & ! intent(in): temperature of the vegetation canopy at the start of the sub-step (K)
+                 latitude,                    & ! intent(in): latitude
                  yearLength,                  & ! intent(in): number of days in the current year
                  fracJulDay,                  & ! intent(in): fractional julian days since the start of year
-                 scalarLAI(iGRU),                   & ! intent(inout): one-sided leaf area index (m2 m-2)
-                 scalarSAI(iGRU),                   & ! intent(inout): one-sided stem area index (m2 m-2)
-                 scalarRootZoneTemp(iGRU),          & ! intent(in): root zone temperature (K)
+                 scalarLAI,                   & ! intent(inout): one-sided leaf area index (m2 m-2)
+                 scalarSAI,                   & ! intent(inout): one-sided stem area index (m2 m-2)
+                 scalarRootZoneTemp,          & ! intent(in): root zone temperature (K)
                  ! output
-                 notUsed_heightCanopyTop(iGRU),     & ! intent(out): height of the top of the canopy layer (m)
-                 scalarExposedLAI(iGRU),            & ! intent(out): exposed leaf area index after burial by snow (m2 m-2)
-                 scalarExposedSAI(iGRU),            & ! intent(out): exposed stem area index after burial by snow (m2 m-2)
-                 scalarGrowingSeasonIndex(iGRU), &
-                 hvt,tmin,hvb,&
-                 isbarren,ISSNOW, ISWATER, &
-                 saim,laim,&
-                 dveg     ) ! intent(out): growing season index (0=off, 1=on)
-    end do
-    !$cuf kernel do(1) <<<*,*>>>
-    do iGRU=1,nGRU
+                 notUsed_heightCanopyTop,     & ! intent(out): height of the top of the canopy layer (m)
+                 scalarExposedLAI,            & ! intent(out): exposed leaf area index after burial by snow (m2 m-2)
+                 scalarExposedSAI,            & ! intent(out): exposed stem area index after burial by snow (m2 m-2)
+                 scalarGrowingSeasonIndex,hvt, hvb, laim, saim, tmin, iswater, isbarren, issnow, dveg     ) ! intent(out): growing season index (0=off, 1=on)
 
   ! determine additional phenological variables
-  exposedVAI(iGRU)      = scalarExposedLAI(iGRU) + scalarExposedSAI(iGRU)   ! exposed vegetation area index (m2 m-2)
-  canopyDepth(iGRU)     = heightCanopyTop - heightCanopyBottom  ! canopy depth (m)
-  heightAboveSnow = heightCanopyTop - scalarSnowDepth(iGRU)     ! height top of canopy is above the snow surface (m)
+  exposedVAI      = scalarExposedLAI + scalarExposedSAI   ! exposed vegetation area index (m2 m-2)
+  canopyDepth     = heightCanopyTop - heightCanopyBottom  ! canopy depth (m)
+  heightAboveSnow = heightCanopyTop - scalarSnowDepth     ! height top of canopy is above the snow surface (m)
+
+  ! compute the roughness length of the ground (ground below the canopy or non-vegetated surface)
+  z0Ground = z0Soil*(1._rkind - scalarGroundSnowFraction) + z0Snow*scalarGroundSnowFraction     ! roughness length (m)
 
   ! determine if need to include vegetation in the energy flux routines
-  computeVegFlux(iGRU) = (exposedVAI(iGRU) > 0.05_rkind .and. heightAboveSnow > 0.05_rkind)
+  minExpLogHgt = minExpLogHgtFac*sqrt(heightCanopyTop) ! minimum height above ground for logarithmic wind profile (m)
+  computeVegFlux = (exposedVAI > 0.05_rkind .and. heightAboveSnow > z0Ground + minExpLogHgt)
 
-  ! if no vegetation ever, should not have initialized scalarCanopyLiq to 0.0001 in read_icond.f90
-  if((scalarLAI(iGRU) + scalarSAI(iGRU)) == 0.0_rkind) scalarCanopyLiq(iGRU) = 0.0_rkind
-    end do
  end if  ! (check if the snow-soil column is isolated)
+
  ! end association to variables in the data structure
- end associate
+!  end associate
 
  end subroutine vegPhenlgy_d
 
- attributes(global) SUBROUTINE PHENOLOGY_d (VEGTYP , ISURBAN, SNOWH  , TV     , LAT   , YEARLEN , JULIAN , & !in
- LAI    , SAI    , TROOT  , HTOP  , ELAI    , ESAI   , IGS, &
- HVT, tmin, hvb, &
- ISBARREN, ISSNOW, ISWATER,&
-  saim,laim,&
-  dveg)
-
-! --------------------------------------------------------------------------------------------------
-! vegetation phenology considering vegeation canopy being buries by snow and evolution in time
-! --------------------------------------------------------------------------------------------------
-! --------------------------------------------------------------------------------------------------
-IMPLICIT NONE
-! --------------------------------------------------------------------------------------------------
-! inputs
-INTEGER                , INTENT(IN   ) :: VEGTYP !vegetation type
-INTEGER                , INTENT(IN   ) :: ISURBAN!urban category
-REAL(rkind)            , INTENT(IN   ) :: SNOWH  !snow height [m]
-REAL(rkind)            , INTENT(IN   ) :: TV     !vegetation temperature (k)
-REAL(rkind)            , INTENT(IN   ) :: LAT    !latitude (radians)
-INTEGER                , INTENT(IN   ) :: YEARLEN!Number of days in the particular year
-REAL(rkind)            , INTENT(IN   ) :: JULIAN !Julian day of year (fractional) ( 0 <= JULIAN < YEARLEN )
-real(rkind)            , INTENT(IN   ) :: TROOT  !root-zone averaged temperature (k)
-REAL(rkind)            , INTENT(INOUT) :: LAI    !LAI, unadjusted for burying by snow
-REAL(rkind)            , INTENT(INOUT) :: SAI    !SAI, unadjusted for burying by snow
-
-! outputs
-REAL(rkind)            , INTENT(OUT  ) :: HTOP   !top of canopy layer (m)
-REAL(rkind)            , INTENT(OUT  ) :: ELAI   !leaf area index, after burying by snow
-REAL(rkind)            , INTENT(OUT  ) :: ESAI   !stem area index, after burying by snow
-REAL(rkind)            , INTENT(OUT  ) :: IGS    !growing season index (0=off, 1=on)
-REAL(rkind) :: hvt(:), tmin(:), hvb(:)
-integer(i4b) :: ISBARREN, ISSNOW, ISWATER, dveg
-real(rkind) :: saim(:,:), laim(:,:)
-
-! locals
-
-REAL(rkind)                            :: DB     !thickness of canopy buried by snow (m)
-REAL(rkind)                            :: FB     !fraction of canopy buried by snow
-REAL(rkind)                            :: SNOWHC !critical snow depth at which short vege
-                            !is fully covered by snow
-
-INTEGER                                :: K       !index
-INTEGER                                :: IT1,IT2 !interpolation months
-REAL(rkind)                            :: DAY     !current day of year ( 0 <= DAY < YEARLEN )
-REAL(rkind)                            :: WT1,WT2 !interpolation weights
-REAL(rkind)                            :: T       !current month (1.00, ..., 12.00)
-! --------------------------------------------------------------------------------------------------
-
-! Interpolate monthly SAI and LAI to daily values
-IF ( DVEG == 1 .or. DVEG == 3 .or. DVEG == 4 ) THEN
-
-IF (LAT >= 0.) THEN
-! Northern Hemisphere
-DAY = JULIAN
-ELSE
-! Southern Hemisphere.  DAY is shifted by 1/2 year.
-DAY = MOD ( JULIAN + ( 0.5 * YEARLEN ) , REAL(YEARLEN) )
-ENDIF
-
-T = 12. * DAY / REAL(YEARLEN)
-IT1 = T + 0.5
-IT2 = IT1 + 1
-WT1 = (IT1+0.5) - T
-WT2 = 1.-WT1
-IF (IT1 .LT.  1) IT1 = 12
-IF (IT2 .GT. 12) IT2 = 1
-
-LAI = WT1*LAIM(VEGTYP,IT1) + WT2*LAIM(VEGTYP,IT2)
-SAI = WT1*SAIM(VEGTYP,IT1) + WT2*SAIM(VEGTYP,IT2)
-ENDIF
-
-! Realism check: no leaves without stems
-IF (SAI == 0.0) LAI = 0.0  
-
-! Realism check: warn about no stems for vegetated land classes
-IF ( (SAI == 0.0) .and. ( VEGTYP /= ISWATER ) .and. ( VEGTYP /= ISBARREN ) .and. ( VEGTYP /= ISSNOW ) .and. ( VEGTYP /= ISURBAN) ) THEN
- print*, ' WARNING: module_sf_noahmplsm/PHENOLOGY: Stem Area Index (SAI) = 0.0 may be unrealistic for vegetation type ',VEGTYP,'. Continuing.'
-ENDIF
-
-! Realism check: no vegetation should exist on certain land classes
-IF ( ( VEGTYP == ISWATER ) .or. ( VEGTYP == ISBARREN ) .or. ( VEGTYP == ISSNOW ) .or. ( VEGTYP == ISURBAN) ) THEN
-LAI  = 0.
-SAI  = 0.
-ENDIF
-
-!buried by snow
-
-DB = MIN( MAX(SNOWH - HVB(VEGTYP),0.), HVT(VEGTYP)-HVB(VEGTYP) )
-FB = DB / MAX(1.E-06,HVT(VEGTYP)-HVB(VEGTYP))
-!print*, 'HVB(VEGTYP), HVT(VEGTYP), DB, FB = ', HVB(VEGTYP), HVT(VEGTYP), DB, FB
-
-IF(HVT(VEGTYP)> 0. .AND. HVT(VEGTYP) <= 0.5) THEN
-SNOWHC = HVT(VEGTYP)*EXP(-SNOWH/0.1)
-IF (SNOWH>SNOWHC) THEN
-FB = 1.
-ELSE
-FB = SNOWH/SNOWHC
-ENDIF
-ENDIF
-
-ELAI =  LAI*(1.-FB)
-ESAI =  SAI*(1.-FB)
-
-IF (TV .GT. TMIN(VEGTYP)) THEN
-IGS = 1.
-ELSE
-IGS = 0.
-ENDIF
-
-HTOP = HVT(VEGTYP)
-
-END SUBROUTINE PHENOLOGY_d
 
 end module vegPhenlgy_module

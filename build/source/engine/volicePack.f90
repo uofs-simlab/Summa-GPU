@@ -45,7 +45,7 @@ USE multiconst,only:&
 ! privacy
 implicit none
 private
-public::volicePack
+public::volicePack_device
 public::newsnwfall
 
 contains
@@ -54,109 +54,229 @@ contains
  ! ************************************************************************************************
  ! public subroutine volicePack: combine and sub-divide layers if necessary)
  ! ************************************************************************************************
- subroutine volicePack(&
-                       ! input/output: model data structures
-                       tooMuchMelt,                 & ! intent(in):    flag to force merge of snow layers
-                       nGRU, &
-                       decisions,             & ! intent(in):    model decisions
-                       mpar_data,                   & ! intent(in):    model parameters
-                       indx_data,                   & ! intent(inout): type of each layer
-                       prog_data,                   & ! intent(inout): model prognostic variables for a local HRU
-                       diag_data,                   & ! intent(inout): model diagnostic variables for a local HRU
-                       flux_data,                   & ! intent(inout): model fluxes for a local HRU
-                       ! output
-                       modifiedLayers,              & ! intent(out): flag to denote that layers were modified
-                       err,message)                   ! intent(out): error control
- ! ------------------------------------------------------------------------------------------------
- ! external subroutine
- USE layerMerge_module,only:layerMerge   ! merge snow layers if they are too thin
- USE layerDivide_module,only:layerDivide ! sub-divide layers if they are too thick
- use device_data_types
- implicit none
- ! ------------------------------------------------------------------------------------------------
- ! input/output: model data structures
- logical(lgt),intent(in)         :: tooMuchMelt         ! flag to denote that ice is insufficient to support melt
- type(decisions_device),intent(in)  :: decisions  ! model decisions
- integer(i4b),intent(in) :: nGRU
- type(mpar_data_device),intent(in)    :: mpar_data           ! model parameters
- type(indx_data_device),intent(inout) :: indx_data           ! type of each layer
- type(prog_data_device),intent(inout) :: prog_data           ! model prognostic variables for a local HRU
- type(diag_data_device),intent(inout) :: diag_data           ! model diagnostic variables for a local HRU
- type(flux_data_device),intent(inout) :: flux_data           ! model flux variables
- ! output
- logical(lgt),intent(out)        :: modifiedLayers      ! flag to denote that we modified the layers
- integer(i4b),intent(out)        :: err                 ! error code
- character(*),intent(out)        :: message             ! error message
- ! ------------------------------------------------------------------------------------------------
- ! local variables
- character(LEN=256)              :: cmessage            ! error message of downwind routine
- logical(lgt)                    :: mergedLayers        ! flag to denote that layers were merged
- logical(lgt)                    :: divideLayer         ! flag to denote that a layer was divided
-!  integer(i4b) :: nSnow, nLayers,nSoil
-!  type(decisions_device) :: decisions
-!  type(mpar_data_device) :: mpar_data_d
-!  type(indx_data_device) :: indx_data_d
-!  type(prog_data_device) :: prog_data_d
-!  type(diag_data_device) :: diag_data_d
-!  type(flux_data_device) :: flux_data_d
- ! initialize error control
- err=0; message='volicePack/'
+ attributes(global) subroutine volicePack_kernel(nGRU,ix_snowLayers,nSnow,nLayers,nSoil, &
+ mLayerTemp,mLayerVolFracIce,mLayerVolFracLiq, &
+mLayerVolFracWat,mLayerEnthalpy,mLayerDepth, mLayerHeight, iLayerHeight, &
+mLayerVolHtCapBulk, mLayerCm, mLayerThermalC, iLayerThermalC, &
+mLayerEnthTemp, mLayerFracLiqSnow, mLayerThetaResid, mLayerPoreSpace, &
+mLayerMeltFreeze, mLayerVolFracAir, balanceLayerNrg, balanceLayerMass,&
+flux_data, &
+iLayerConductiveFlux_start,iLayerConductiveFlux_end, &
+iLayerAdvectiveFlux_start,iLayerAdvectiveFlux_end, &
+iLayerNrgFlux_start,iLayerNrgFlux_end, mLayerNrgFlux_start,mLayerNrgFlux_end, &
+iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end,mLayerLiqFluxSnow_start,mLayerLiqFluxSnow_end, &
+    layerType,ixHydType, &
+    ixSnowSoilNrg, ixSnowOnlyNrg, &
+    ixSnowSoilHyd, ixSnowOnlyHyd, &
+    ixNrgLayer, ixHydLayer,&
+    tooMuchMelt, zMin,&
+    zMinLayer1,zMinLayer2,zminLayer3,zminLayer4,zminLayer5, &
+    modifiedLayers,snowfrz_scale,h_lookup_d,t_lookup_d, &
+    scalarSnowDepth, scalarSWE, &
+    zmax, &
+    zmaxLayer1_lower, zmaxLayer2_lower, zmaxLayer3_lower, zmaxLayer4_lower, &
+    zmaxLayer1_upper, zmaxLayer2_upper, zmaxLayer3_upper, zmaxLayer4_upper, &
+    canopySrad, alb_method, &
+    albedoMax, albedoMaxVisible, albedoMaxNearIR, &
+    spectralSnowAlbedoDiffuse, spectralSnowAlbedoDirect, scalarSnowAlbedo, &
+    veryBig,Frad_vis,maxSnowLayers)
+   integer(i4b),intent(in),value :: nGRU
+        integer(i4b),intent(in) :: ix_snowLayers
+    integer(i4b),intent(inout) :: nSnow(:),nLayers(:)
+    integer(i4b),intent(in),value :: nSoil
+    real(rkind),intent(inout) :: mLayerTemp(:,:)
+    real(rkind),intent(inout) :: mLayerVolFracIce(:,:)
+    real(rkind),intent(inout) :: mLayerVolFracLiq(:,:)
+    real(rkind),intent(inout) :: mLayerVolFracWat(:,:)
+    real(rkind),intent(inout) :: mLayerEnthalpy(:,:)
+    real(rkind),intent(inout) :: mLayerDepth(:,:)
+    real(rkind),intent(inout) :: mLayerHeight(0:,:)
+    real(rkind),intent(inout) :: iLayerHeight(0:,:)
+  real(rkind),intent(inout) :: mLayerVolHtCapBulk(:,:), mLayerCm(:,:), mLayerThermalC(:,:), iLayerThermalC(0:,:)
+  real(rkind),intent(inout) :: mLayerEnthTemp(:,:), mLayerFracLiqSnow(:,:), mLayerThetaResid(:,:), mLayerPoreSpace(:,:)
+  real(rkind),intent(inout) :: mLayerMeltFreeze(:,:), mLayerVolFracAir(:,:), balanceLayerNrg(:,:), balanceLayerMass(:,:)
+    real(rkind),intent(inout) :: flux_data(:,:)
+  integer(i4b),intent(in),value :: iLayerConductiveFlux_start,iLayerConductiveFlux_end
+  integer(i4b),intent(in),value :: iLayerAdvectiveFlux_start,iLayerAdvectiveFlux_end
+  integer(i4b),intent(in),value :: iLayerNrgFlux_start,iLayerNrgFlux_end, mLayerNrgFlux_start,mLayerNrgFlux_end
+  integer(i4b),intent(in),value :: iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end,mLayerLiqFluxSnow_start,mLayerLiqFluxSnow_end
+    integer(i4b),intent(inout) :: layerType(:,:), ixHydType(:,:)
+    integer(i4b),intent(inout) :: ixSnowSoilNrg(:,:), ixSnowOnlyNrg(:,:)
+    integer(i4b),intent(inout) :: ixSnowSoilHyd(:,:), ixSnowOnlyHyd(:,:)
+    integer(i4b),intent(inout) :: ixNrgLayer(:,:), ixHydLayer(:,:)
+    logical(lgt),intent(in),value :: tooMuchMelt
+    real(rkind),intent(in) :: zMin
+    real(rkind),intent(in) :: zMinLayer1,zMinLayer2,zminLayer3,zminLayer4,zminLayer5
+    logical(lgt),intent(inout) :: modifiedLayers(:)
+    real(rkind),intent(in) :: snowfrz_scale
+    real(rkind),intent(inout) :: h_lookup_d(:), t_lookup_d(:)
+    real(rkind),intent(inout) :: scalarSnowDepth(:), scalarSWE(:)
+    real(rkind),intent(in) :: zmax
+    real(rkind),intent(in) :: zmaxLayer1_lower, zmaxLayer2_lower, zmaxLayer3_lower, zmaxLayer4_lower
+    real(rkind),intent(in) :: zmaxLayer1_upper, zmaxLayer2_upper, zmaxLayer3_upper, zmaxLayer4_upper
+    integer(i4b),intent(in) :: canopySrad, alb_method
+    real(rkind),intent(in) :: albedoMax(:), albedoMaxVisible(:), albedoMaxNearIR(:)
+    real(rkind),intent(inout) :: spectralSnowAlbedoDiffuse(:,:), spectralSnowAlbedoDirect(:,:)
+    real(rkind),intent(inout) :: scalarSnowAlbedo(:)
+    real(rkind),intent(in),value :: veryBig
+    real(rkind),intent(in) :: Frad_vis
+    integer(i4b),intent(in),value :: maxSnowLayers
 
- ! divide snow layers if too thick, don't do it if need to merge
- if (.not.tooMuchMelt)then
-  ! nSoil = indx_data_d%nSoil
-  ! nLayers = indx_data_d%nLayers
-   call layerDivide(&
-                    ! input/output: model data structures
-                    decisions,             & ! intent(in):    model decisions
-                    nGRU, &
-                    mpar_data,                   & ! intent(in):    model parameters
-                    indx_data,                   & ! intent(inout): type of each layer
-                    prog_data,                   & ! intent(inout): model prognostic variables for a local HRU
-                    diag_data,                   & ! intent(inout): model diagnostic variables for a local HRU
-                    flux_data,                   & ! intent(inout): model fluxes for a local HRU
-                    ! output
-                    divideLayer,                 & ! intent(out): flag to denote that layers were modified
-                    err,cmessage)                  ! intent(out): error control
-   if(err/=0)then; err=65; message=trim(message)//trim(cmessage); return; end if
- endif
+       integer(i4b) :: iGRU
+  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  if (iGRU .gt. nGRU) return
 
- ! merge snow layers if they are too thin
- call layerMerge(&
-                 ! input/output: model data structures
-                 tooMuchMelt,                 & ! intent(in):    flag to force merge of snow layers
-                 nGRU, &
-                 decisions,             & ! intent(in):    model decisions
-                 mpar_data,                   & ! intent(in):    model parameters
-                 indx_data,                   & ! intent(inout): type of each layer
-                 prog_data,                   & ! intent(inout): model prognostic variables for a local HRU
-                 diag_data,                   & ! intent(inout): model diagnostic variables for a local HRU
-                 flux_data,                   & ! intent(inout): model fluxes for a local HRU
-                 ! output
-                 mergedLayers,                & ! intent(out): flag to denote that layers were modified
-                 err,cmessage)                  ! intent(out): error control
- if(err/=0)then; err=65; message=trim(message)//trim(cmessage); return; end if
+  call volicePack_device(mLayerTemp(:,iGRU), mLayerVolFracIce(:,iGRU), mLayerVolFracLiq(:,iGRU), mLayerVolFracWat(:,iGRU), &
+  mLayerEnthalpy(:,iGRU), mLayerDepth(:,iGRU), mLayerHeight(:,iGRU), iLayerHeight(:,iGRU), &
+  nLayers(iGRU), &
+  mLayerVolHtCapBulk(:,iGRU), mLayerCm(:,iGRU), mLayerThermalC(:,iGRU), iLayerThermalC(:,iGRU), &
+    mLayerEnthTemp(:,iGRU), mLayerFracLiqSnow(:,iGRU), mLayerThetaResid(:,iGRU), mLayerPoreSpace(:,iGRU), &
+    mLayerMeltFreeze(:,iGRU), mLayerVolFracAir(:,iGRU), balanceLayerNrg(:,iGRU), balanceLayerMass(:,iGRU), &
+flux_data(iLayerConductiveFlux_start:iLayerConductiveFlux_end,iGRU), flux_data(iLayerAdvectiveFlux_start:iLayerAdvectiveFlux_end,iGRU), &
+  flux_data(iLayerNrgFlux_start:iLayerNrgFlux_end,iGRU), flux_data(mLayerNrgFlux_start:mLayerNrgFlux_end,iGRU), &
+  flux_data(iLayerLiqFluxSnow_start:iLayerLiqFluxSnow_end,iGRU),flux_data(mLayerLiqFluxSnow_start:mLayerLiqFluxSnow_end,iGRU), &
+  layerType(:,iGRU), ixHydType(:,iGRU), &
+  ixSnowSoilNrg(:,iGRU), ixSnowOnlyNrg(:,iGRU), &
+  ixSnowSoilHyd(:,iGRU), ixSnowOnlyHyd(:,iGRU), &
+  ixNrgLayer(:,iGRU), ixHydLayer(:,iGRU), nSnow(iGRU), &
+  ix_snowLayers, zMax, &
+  zmaxLayer1_lower, zmaxLayer2_lower, zmaxLayer3_lower, zmaxLayer4_lower, &
+  zmaxLayer1_upper, zmaxLayer2_upper, zmaxLayer3_upper, zmaxLayer4_upper, &
+  maxSnowLayers, veryBig, &
+  canopySrad, alb_method, &
+  albedoMax(iGRU), albedoMaxVisible(iGRU), albedoMaxNearIR(iGRU), &
+  spectralSnowAlbedoDiffuse(:,iGRU), spectralSnowAlbedoDirect(:,iGRU), scalarSnowAlbedo(iGRU), &
+  scalarSnowDepth(iGRU), scalarSWE(iGRU), &
+  Frad_vis, nSoil,tooMuchMelt, &
+  zMin, zMinLayer1, zMinLayer2, zminLayer3, zminLayer4, zminLayer5, &
+  snowfrz_scale, h_lookup_d, t_lookup_d, modifiedLayers(iGRU))
 
- ! update the number of layers
-!  indx_data%var(iLookINDEX%nSnow)%dat(1)   = count(indx_data%var(iLookINDEX%layerType)%dat==iname_snow)
-!  indx_data%var(iLookINDEX%nSoil)%dat(1)   = count(indx_data%var(iLookINDEX%layerType)%dat==iname_soil)
-!  indx_data%var(iLookINDEX%nLayers)%dat(1) = indx_data%var(iLookINDEX%nSnow)%dat(1) + indx_data%var(iLookINDEX%nSoil)%dat(1)
+end subroutine
 
- ! flag if layers were modified
- modifiedLayers = (mergedLayers .or. divideLayer)
+ attributes(device) subroutine volicePack_device(mLayerTemp, mLayerVolFracIce, mLayerVolFracLiq, mLayerVolFracWat, &
+  mLayerEnthalpy, mLayerDepth, mLayerHeight, iLayerHeight, &
+  nLayers, &
+  mLayerVolHtCapBulk, mLayerCm, mLayerThermalC, iLayerThermalC, &
+    mLayerEnthTemp, mLayerFracLiqSnow, mLayerThetaResid, mLayerPoreSpace, &
+    mLayerMeltFreeze, mLayerVolFracAir, balanceLayerNrg, balanceLayerMass, &
+    iLayerConductiveFlux, iLayerAdvectiveFlux, &
+  iLayerNrgFlux, mLayerNrgFlux, &
+  iLayerLiqFluxSnow,mLayerLiqFluxSnow, &
+  layerType, ixHydType, &
+  ixSnowSoilNrg, ixSnowOnlyNrg, &
+  ixSnowSoilHyd, ixSnowOnlyHyd, &
+  ixNrgLayer, ixHydLayer, nSnow, &
+  ix_snowLayers, zMax, &
+  zmaxLayer1_lower, zmaxLayer2_lower, zmaxLayer3_lower, zmaxLayer4_lower, &
+  zmaxLayer1_upper, zmaxLayer2_upper, zmaxLayer3_upper, zmaxLayer4_upper, &
+  maxSnowLayers, veryBig, &
+  canopySrad, alb_method, &
+  albedoMax, albedoMaxVisible, albedoMaxNearIR, &
+  spectralSnowAlbedoDiffuse, spectralSnowAlbedoDirect, scalarSnowAlbedo, &
+  scalarSnowDepth, scalarSWE, &
+  Frad_vis, nSoil,tooMuchMelt, &
+  zMin, zMinLayer1, zMinLayer2, zminLayer3, zminLayer4, zminLayer5, &
+  snowfrz_scale, h_lookup_d, t_lookup_d, modifiedLayers)
+   USE layerMerge_module,only:layerMerge_device   ! merge snow layers if they are too thin
+ USE layerDivide_module,only:layerDivide_device ! sub-divide layers if they are too thick
+ integer(i4b) :: iLayer
 
-!  print*, 'volicepack', modifiedLayers
- end subroutine volicePack
+    real(rkind),intent(inout) :: mLayerTemp(:), mLayerVolFracIce(:), mLayerVolFracLiq(:), mLayerVolFracWat(:)
+  real(rkind),intent(inout) :: mLayerEnthalpy(:), mLayerDepth(:), mLayerHeight(0:), iLayerHeight(0:)
+  integer(i4b),intent(inout) :: nLayers
+  real(rkind),intent(inout) :: mLayerVolHtCapBulk(:), mLayerCm(:), mLayerThermalC(:), iLayerThermalC(0:)
+  real(rkind),intent(inout) :: mLayerEnthTemp(:), mLayerFracLiqSnow(:), mLayerThetaResid(:), mLayerPoreSpace(:)
+  real(rkind),intent(inout) :: mLayerMeltFreeze(:), mLayerVolFracAir(:), balanceLayerNrg(:), balanceLayerMass(:)
+  real(rkind),intent(inout) :: iLayerConductiveFlux(0:)
+  real(rkind),intent(inout) :: iLayerAdvectiveFlux(0:)
+  real(rkind),intent(inout) :: iLayerNrgFlux(0:)
+  real(rkind),intent(inout) :: mLayerNrgFlux(:)
+  real(rkind),intent(inout) :: iLayerLiqFluxSnow(0:)
+  real(rkind),intent(inout) :: mLayerLiqFluxSnow(:)
+  integer(i4b),intent(inout) :: layerType(:), ixHydType(:)
+  integer(i4b),intent(inout) :: ixSnowSoilNrg(:), ixSnowOnlyNrg(:)
+  integer(i4b),intent(inout) :: ixSnowSoilHyd(:), ixSnowOnlyHyd(:)
+  integer(i4b),intent(inout) :: ixNrgLayer(:), ixHydLayer(:)
+  integer(i4b),intent(inout) :: nSnow
+  
+  integer(i4b),intent(in) :: ix_snowLayers
+  real(rkind),intent(in) :: zmax
+  real(rkind),intent(in) :: zmaxLayer1_lower, zmaxLayer2_lower, zmaxLayer3_lower, zmaxLayer4_lower
+  real(rkind),intent(in) :: zmaxLayer1_upper, zmaxLayer2_upper, zmaxLayer3_upper, zmaxLayer4_upper
+  real(rkind),intent(in) :: veryBig
+  integer(i4b),intent(in) :: maxSnowLayers
+  integer(i4b),intent(in) :: canopySrad, alb_method
+  real(rkind),intent(in) :: albedoMax, albedoMaxVisible, albedoMaxNearIR
+  real(rkind),intent(inout) :: spectralSnowAlbedoDiffuse(:), spectralSnowAlbedoDirect(:), scalarSnowAlbedo
+  real(rkind),intent(inout) :: scalarSnowDepth, scalarSWE
+  real(rkind),intent(in) :: Frad_vis
+  integer(i4b),intent(in) :: nSoil
+  logical(lgt),intent(in) :: tooMuchMelt
+  real(rkind),intent(in) :: zMin, zMinLayer1, zMinLayer2, zminLayer3, zminLayer4, zminLayer5
+  real(rkind),intent(in) :: snowfrz_scale
+  real(rkind),intent(in) :: h_lookup_d(:), t_lookup_d(:)
+  logical(lgt),intent(inout) :: modifiedLayers
+
+  logical(lgt) :: divideLayer, mergedLayers
+  
+   call layerDivide_device(mLayerTemp, mLayerVolFracIce, mLayerVolFracLiq, mLayerVolFracWat, &
+  mLayerEnthalpy, mLayerDepth, mLayerHeight, iLayerHeight, &
+  nLayers, &
+  mLayerVolHtCapBulk, mLayerCm, mLayerThermalC, iLayerThermalC, &
+    mLayerEnthTemp, mLayerFracLiqSnow, mLayerThetaResid, mLayerPoreSpace, &
+    mLayerMeltFreeze, mLayerVolFracAir, balanceLayerNrg, balanceLayerMass, &
+    iLayerConductiveFlux, iLayerAdvectiveFlux, &
+  iLayerNrgFlux, mLayerNrgFlux, &
+  iLayerLiqFluxSnow,mLayerLiqFluxSnow, &
+  layerType, ixHydType, &
+  ixSnowSoilNrg, ixSnowOnlyNrg, &
+  ixSnowSoilHyd, ixSnowOnlyHyd, &
+  ixNrgLayer, ixHydLayer, nSnow, &
+  divideLayer, ix_snowLayers, zMax, &
+  zmaxLayer1_lower, zmaxLayer2_lower, zmaxLayer3_lower, zmaxLayer4_lower, &
+  zmaxLayer1_upper, zmaxLayer2_upper, zmaxLayer3_upper, zmaxLayer4_upper, &
+  maxSnowLayers, veryBig, &
+  canopySrad, alb_method, &
+  albedoMax, albedoMaxVisible, albedoMaxNearIR, &
+  spectralSnowAlbedoDiffuse, spectralSnowAlbedoDirect, scalarSnowAlbedo, &
+  scalarSnowDepth, scalarSWE, &
+  snowfrz_scale, Frad_vis, nSoil,tooMuchMelt)
+   
+   call layerMerge_device(ix_snowLayers,nSnow,nLayers,nSoil, &
+ mLayerTemp,mLayerVolFracIce,mLayerVolFracLiq, &
+mLayerVolFracWat,mLayerEnthalpy,mLayerDepth, mLayerHeight, iLayerHeight, &
+mLayerVolHtCapBulk, mLayerCm, mLayerThermalC, iLayerThermalC, &
+mLayerEnthTemp, mLayerFracLiqSnow, mLayerThetaResid, mLayerPoreSpace, &
+mLayerMeltFreeze, mLayerVolFracAir, balanceLayerNrg, balanceLayerMass,&
+iLayerConductiveFlux,iLayerAdvectiveFlux,&
+iLayerNrgFlux,mLayerNrgFlux,&
+iLayerLiqFluxSnow,mLayerLiqFluxSnow,&
+    layerType,ixHydType, &
+    ixSnowSoilNrg, ixSnowOnlyNrg, &
+    ixSnowSoilHyd, ixSnowOnlyHyd, &
+    ixNrgLayer, ixHydLayer,&
+    tooMuchMelt, zMin,&
+    zMinLayer1,zMinLayer2,zminLayer3,zminLayer4,zminLayer5, &
+    mergedLayers,snowfrz_scale,h_lookup_d,t_lookup_d, &
+    scalarSnowDepth, scalarSWE)
+
+    ! update the number of layers
+   nSnow   = count(layerType==iname_snow)
+   nLayers = nSnow + nSoil
+
+  modifiedLayers = (mergedLayers .or. divideLayer)
+
+end subroutine
+
 
 
  ! ************************************************************************************************
  ! public subroutine newsnwfall: add new snowfall to the system
  ! ************************************************************************************************
- subroutine newsnwfall(&
+ attributes(device) subroutine newsnwfall(&
                        ! input: model control
                        dt,                        & ! time step (seconds)
-                       nGRU, &
-                       nSnow,                & ! logical flag if snow layers exist
+                       snowLayers,                & ! logical flag if snow layers exist
                        fc_param,                  & ! freeezing curve parameter for snow (K-1)
                        ! input: diagnostic scalar variables
                        scalarSnowfallTemp,        & ! computed temperature of fresh snow (K)
@@ -171,31 +291,30 @@ contains
                        surfaceLayerVolFracIce,    & ! volumetric fraction of ice in surface layer (-)
                        surfaceLayerVolFracLiq,    & ! volumetric fraction of liquid water in surface layer (-)
                        ! output: error control
-                       err,message                ) ! error control
+                       err                ) ! error control
  ! computational modules
- USE snow_utils_module,only:fracliquid_d                  ! functions to compute temperature/liquid water
+ USE snow_utils_module,only:fracliquid,templiquid                  ! functions to compute temperature/liquid water
  ! add new snowfall to the system
  implicit none
  ! input: model control
  real(rkind),intent(in)                 :: dt                         ! time step (seconds)
- integer(i4b) :: nGRU
- integer(i4b),intent(in),device                :: nSnow(:)                 ! logical flag if snow layers exist
- real(rkind),intent(in),device                 :: fc_param                   ! freeezing curve parameter for snow (K-1)
+ logical(lgt),intent(in)                :: snowLayers                 ! logical flag if snow layers exist
+ real(rkind),intent(in)                 :: fc_param                   ! freeezing curve parameter for snow (K-1)
  ! input: diagnostic scalar variables
- real(rkind),intent(in),device                 :: scalarSnowfallTemp(:)         ! computed temperature of fresh snow (K)
- real(rkind),intent(in),device                 :: scalarNewSnowDensity(:)       ! computed density of new snow (kg m-3)
- real(rkind),intent(in),device                 :: scalarThroughfallSnow(:)      ! throughfall of snow through the canopy (kg m-2 s-1)
- real(rkind),intent(in),device                 :: scalarCanopySnowUnloading(:)  ! unloading of snow from the canopy (kg m-2 s-1)
+ real(rkind),intent(in)                 :: scalarSnowfallTemp         ! computed temperature of fresh snow (K)
+ real(rkind),intent(in)                 :: scalarNewSnowDensity       ! computed density of new snow (kg m-3)
+ real(rkind),intent(in)                 :: scalarThroughfallSnow      ! throughfall of snow through the canopy (kg m-2 s-1)
+ real(rkind),intent(in)                 :: scalarCanopySnowUnloading  ! unloading of snow from the canopy (kg m-2 s-1)
  ! input/output: state variables
- real(rkind),intent(inout),device              :: scalarSWE(:)                  ! SWE (kg m-2)
- real(rkind),intent(inout),device              :: scalarSnowDepth(:)            ! total snow depth (m)
- real(rkind),intent(inout),device              :: surfaceLayerTemp(:,:)           ! temperature of surface layer (K)
- real(rkind),intent(inout),device              :: surfaceLayerDepth(:,:)          ! depth of each layer (m)
- real(rkind),intent(inout),device              :: surfaceLayerVolFracIce(:,:)     ! volumetric fraction of ice in surface layer (-)
- real(rkind),intent(inout),device              :: surfaceLayerVolFracLiq(:,:)     ! volumetric fraction of liquid water in surface layer (-)
+ real(rkind),intent(inout)              :: scalarSWE                  ! SWE (kg m-2)
+ real(rkind),intent(inout)              :: scalarSnowDepth            ! total snow depth (m)
+ real(rkind),intent(inout)              :: surfaceLayerTemp           ! temperature of surface layer (K)
+ real(rkind),intent(inout)              :: surfaceLayerDepth          ! depth of each layer (m)
+ real(rkind),intent(inout)              :: surfaceLayerVolFracIce     ! volumetric fraction of ice in surface layer (-)
+ real(rkind),intent(inout)              :: surfaceLayerVolFracLiq     ! volumetric fraction of liquid water in surface layer (-)
  ! output: error control
  integer(i4b),intent(out)               :: err                        ! error code
- character(*),intent(out)               :: message                    ! error message
+!  character(*),intent(out)               :: message                    ! error message
  ! define local variables
  real(rkind)                            :: newSnowfall                ! new snowfall -- throughfall and unloading (kg m-2 s-1)
  real(rkind)                            :: newSnowDepth               ! new snow depth (m)
@@ -208,66 +327,59 @@ contains
  real(rkind)                            :: tempSWE0                   ! temporary SWE before snowfall, used to check mass balance (kg m-2)
  real(rkind)                            :: tempSWE1                   ! temporary SWE after snowfall, used to check mass balance (kg m-2)
  real(rkind)                            :: xMassBalance               ! mass balance check (kg m-2)
- real(rkind),parameter                  :: verySmall=1.e-8_rkind         ! a very small number -- used to check mass balance
- integer(i4b) :: iGRU
-! real(rkind),device :: fracLiq_d(nGRU)
+ real(rkind),parameter                  :: massBalTol=1.e-8_rkind     ! tolerance for mass balance check (kg m-2)
  ! initialize error control
- err=0; message="newsnwfall/"
-! newSnowfall_d = newSnowfall
-! newSnowDepth_d = newSnowDepth
-! tempSWE0_d = tempSWE0
-! totalMassIceSurfLayer_d = totalMassIceSurfLayer
-! totalDepthSurfLayer_d = totalDepthSurfLayer
-! fracLiq_d  = fracLiq
-! SWE_d = SWE
-! volFracWater_d = volFracWater
- !$cuf kernel do(1) <<<*,*>>>
-do iGRU=1,nGRU
+ err=0;! message="newsnwfall/"
+
  ! compute the new snowfall (kg m-2 s-1)
- newSnowfall = scalarThroughfallSnow(iGRU) + scalarCanopySnowUnloading(iGRU)
+ newSnowfall = scalarThroughfallSnow + scalarCanopySnowUnloading
+
  ! early return if there is no snowfall
- if(newSnowfall .ge. tiny(dt)) then
+ if(newSnowfall < tiny(dt)) return
 
  ! compute depth of new snow
- newSnowDepth     = dt*(scalarThroughfallSnow(iGRU)/scalarNewSnowDensity(iGRU) + scalarCanopySnowUnloading(iGRU)/densityCanopySnow)  ! new snow depth (m)
-  ! process special case of "snow without a layer"
- if(nSnow(iGRU) .eq. 0)then
+ newSnowDepth     = dt*(scalarThroughfallSnow/scalarNewSnowDensity + scalarCanopySnowUnloading/densityCanopySnow)  ! new snow depth (m)
+
+ ! process special case of "snow without a layer"
+ if(.not.snowLayers)then
   ! increment depth and water equivalent
-  scalarSnowDepth(iGRU) = scalarSnowDepth(iGRU) + newSnowDepth
-  scalarSWE(iGRU)       = scalarSWE(iGRU) + dt*newSnowfall
+  scalarSnowDepth = scalarSnowDepth + newSnowDepth
+  scalarSWE       = scalarSWE + dt*newSnowfall
+
+ ! add snow to the top layer (more typical case where snow layers already exist)
  else
-    ! get SWE in the upper layer (used to check mass balance)
-  tempSWE0 = (surfaceLayerVolFracIce(1,iGRU)*iden_ice + surfaceLayerVolFracLiq(1,iGRU)*iden_water)*surfaceLayerDepth(1,iGRU)
+
+  ! get SWE in the upper layer (used to check mass balance)
+  tempSWE0 = (surfaceLayerVolFracIce*iden_ice + surfaceLayerVolFracLiq*iden_water)*surfaceLayerDepth
 
   ! get the total mass of liquid water and ice (kg m-2)
-  totalMassIceSurfLayer  = iden_ice*surfaceLayerVolFracIce(1,iGRU)*surfaceLayerDepth(1,iGRU) + newSnowfall*dt
-    ! get the total snow depth
-  totalDepthSurfLayer    = surfaceLayerDepth(1,iGRU) + newSnowDepth
-  !write(*,'(a,1x,10(f20.10,1x))') 'scalarSnowfallTemp, surfaceLayerTemp, newSnowDepth, surfaceLayerDepth, tempSWE0, totalMassIceSurfLayer/totalDepthSurfLayer = ', &
-  !                                 scalarSnowfallTemp, surfaceLayerTemp, newSnowDepth, surfaceLayerDepth, tempSWE0, totalMassIceSurfLayer/totalDepthSurfLayer
-
+  totalMassIceSurfLayer  = iden_ice*surfaceLayerVolFracIce*surfaceLayerDepth + newSnowfall*dt
+  ! get the total snow depth
+  totalDepthSurfLayer    = surfaceLayerDepth + newSnowDepth
   ! compute the new temperature
-  surfaceLayerTemp(1,iGRU)       = (surfaceLayerTemp(1,iGRU)*surfaceLayerDepth(1,iGRU) + scalarSnowfallTemp(iGRU)*newSnowDepth) / totalDepthSurfLayer
+  surfaceLayerTemp       = (surfaceLayerTemp*surfaceLayerDepth + scalarSnowfallTemp*newSnowDepth) / totalDepthSurfLayer
   ! compute new SWE for the upper layer (kg m-2)
-  SWE = totalMassIceSurfLayer + iden_water*surfaceLayerVolFracLiq(1,iGRU)*surfaceLayerDepth(1,iGRU)
+  SWE = totalMassIceSurfLayer + iden_water*surfaceLayerVolFracLiq*surfaceLayerDepth
   ! compute new volumetric fraction of liquid water and ice (-)
   volFracWater = (SWE/totalDepthSurfLayer)/iden_water
-  fracLiq      = fracliquid_d(surfaceLayerTemp(1,iGRU),fc_param)                           ! fraction of liquid water
-  surfaceLayerVolFracIce(1,iGRU) = (1._rkind - fracLiq)*volFracWater*(iden_water/iden_ice)  ! volumetric fraction of ice (-)
-  surfaceLayerVolFracLiq(1,iGRU) =          fracLiq *volFracWater                        ! volumetric fraction of liquid water (-)
+  fracLiq      = fracliquid(surfaceLayerTemp,fc_param)                           ! fraction of liquid water
+  surfaceLayerVolFracIce = (1._rkind - fracLiq)*volFracWater*(iden_water/iden_ice)  ! volumetric fraction of ice (-)
+  surfaceLayerVolFracLiq =          fracLiq *volFracWater                        ! volumetric fraction of liquid water (-)
   ! update new layer depth (m)
-  surfaceLayerDepth(1,iGRU)      = totalDepthSurfLayer
+  surfaceLayerDepth      = totalDepthSurfLayer
 
+  ! get SWE in the upper layer (used to check mass balance)
+  tempSWE1 = (surfaceLayerVolFracIce*iden_ice + surfaceLayerVolFracLiq*iden_water)*surfaceLayerDepth
 
- end if
- end if
- end do
+  ! check SWE
+  xMassBalance = tempSWE1 - (tempSWE0 + newSnowfall*dt)
+  if (abs(xMassBalance) > massBalTol)then
+  !  write(*,'(a,1x,f20.10)') 'SWE mass balance = ', xMassBalance
+  !  message=trim(message)//'mass balance problem'
+   err=20; return
+  end if
 
-!  newSnowfall = newSnowfall_d(1)
-! newSnowDepth = newSnowDepth_d(1)
-! tempSWE0 = tempSWE0_d(1)
-! totalMassIceSurfLayer = totalMassIceSurfLayer_d(1)
-! totalDepthSurfLayer = totalDepthSurfLayer_d(1)
+ end if  ! if snow layers already exist
 
  end subroutine newsnwfall
 

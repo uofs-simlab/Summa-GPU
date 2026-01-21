@@ -63,7 +63,7 @@ private
 public::read_force
 
 ! global parameters
-real(rkind),parameter  :: verySmall=1e-3_rkind      ! tiny number
+real(rkind),parameter  :: timeDiffTol=1.e-3_rkind   ! time difference tolerance (units=days) to check if the time is correct
 real(rkind),parameter  :: smallOffset=1.e-8_rkind   ! small offset (units=days) to force ih=0 at the start of the day
 
 contains
@@ -79,7 +79,6 @@ contains
  USE time_utils_module,only:compcalday                 ! convert julian day to calendar date
  USE time_utils_module,only:elapsedSec                 ! calculate the elapsed time
  use device_data_types
- use initialize_device
  implicit none
  ! define input variables
  integer(i4b),intent(in)           :: istep            ! time index AFTER the start index
@@ -100,9 +99,6 @@ contains
  real(rkind)                          :: startJulDay      ! julian day at the start of the year
  real(rkind)                          :: currentJulDay    ! Julian day of current time step
  logical(lgt),parameter            :: checkTime=.false.  ! flag to check the time
-
- integer(i4b) :: nGRU 
- nGRU = size(gru_struc)
  ! Start procedure here
  err=0; message="read_force/"
 
@@ -203,15 +199,13 @@ contains
  if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
  ! compute the time since the start of the year (in fractional days)
  fracJulDay = currentJulDay - startJulDay
-
  ! set timing of current forcing vector (in seconds since reference day)
  ! NOTE: It is a bit silly to have time information for each HRU and GRU
-  associate(time => forcStruct%time)
-    !$cuf kernel do(1) <<<*,*>>>
- do iGRU=1,nGRU
-   time(iGRU) = (currentJulDay-refJulDay)*secprday
+ do iGRU=1,size(gru_struc)
+  do iHRU=1,gru_struc(iGRU)%hruCount
+   forcStruct%time(iGRU) = (currentJulDay-refJulDay)*secprday
+  end do  ! looping through HRUs
  end do  ! looping through GRUs
- end associate
 
  ! compute the number of days in the current year
  yearLength = 365
@@ -322,7 +316,7 @@ contains
   diffTime=abs(fileTime-currentJulDay)
 
   ! start time is in the current file
-  if(any(diffTime < verySmall))then
+  if(any(diffTime < timeDiffTol))then
 
    iRead=minloc(diffTime,1)
    exit
@@ -392,12 +386,12 @@ contains
                   err,cmessage)                            ! output = error code and error message
  if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
 
- select case(trim(NC_TIME_ZONE))
-  case('ncTime'); tmZoneOffsetFracDay = sign(1, ih_tz) * fracDay(ih_tz,   & ! time zone hour
+ select case(NC_TIME_ZONE)
+  case(ncTime); tmZoneOffsetFracDay = sign(1, ih_tz) * fracDay(ih_tz,   & ! time zone hour
                                                                imin_tz, & ! time zone minute
                                                                dsec_tz)                        ! time zone second
-  case('utcTime');   tmZoneOffsetFracDay = 0._rkind
-  case('localTime'); tmZoneOffsetFracDay = 0._rkind
+  case(utcTime);   tmZoneOffsetFracDay = 0._rkind
+  case(localTime); tmZoneOffsetFracDay = 0._rkind
   case default; err=20; message=trim(message)//'unable to identify time zone info option'; return
  end select ! (option time zone option)
 
@@ -468,7 +462,7 @@ contains
 
  ! check that the computed julian day matches the time information in the NetCDF file
  dataJulDay = varTime(1)/forcFileInfo(iFile)%convTime2Days + refJulDay_data
- if(abs(currentJulDay - dataJulDay) > verySmall)then
+ if(abs(currentJulDay - dataJulDay) > timeDiffTol)then
   write(message,'(a,f18.8,a,f18.8)') trim(message)//'date for time step: ',dataJulDay,' differs from the expected date: ',currentJulDay
   err=40; return
  end if
@@ -522,7 +516,6 @@ contains
     ! define global HRU
     iHRU_global = gru_struc(iGRU)%hruInfo(iHRU)%hru_nc
     iHRU_local  = (iHRU_global - ixHRUfile_min)+1
-    !print*, 'iGRU, iHRU, iHRU_global, iHRU_local = ', iGRU, iHRU, iHRU_global, iHRU_local
 
     ! read forcing data for a single HRU
     if(.not.simultaneousRead)then
@@ -538,24 +531,24 @@ contains
 
     ! get individual data value
     if(simultaneousRead) dataVal(1) = dataVec(iHRU_local)
-    !print*, trim(varname)//': ', dataVal(1)
-
+    
     ! check individual data value
     if(dataVal(1)<dataMin)then
      write(message,'(a,f13.5)') trim(message)//'forcing data for variable '//trim(varname)//' is less than minimum allowable value ', dataMin
      err=20; return
     endif
+
     ! put the data into structures
-  select case (iVar)
-  case(iLookFORCE%airtemp); forcStruct%airtemp_d(iGRU) = dataVal(1)
-  case(iLookFORCE%windspd); forcStruct%windspd_d(iGRU) = dataVal(1)
-  case(iLookFORCE%airpres); forcStruct%airpres_d(iGRU) = dataVal(1)
-  case(iLookFORCE%LWRadAtm); forcStruct%LWRadAtm_d(iGRU) = dataVal(1)
-  case(iLookFORCE%time); forcStruct%time(iGRU) = dataVal(1)
-  case(iLookFORCE%pptrate); forcStruct%pptrate(iGRU) = dataVal(1)
-  case(iLookFORCE%SWRadAtm); forcStruct%SWRadAtm(iGRU) = dataVal(1)
-  case(iLookFORCE%spechum); forcStruct%spechum(iGRU) = dataVal(1)
-  end select
+    select case(iVar)
+    case(iLookFORCE%time); forcStruct%time(iGRU) = dataVal(1)
+    case(iLookFORCE%pptrate); forcStruct%pptrate(iGRU) = dataVal(1)
+    case(iLookFORCE%airtemp); forcStruct%airtemp_d(iGRU) = dataVal(1)
+    case(iLookFORCE%spechum); forcStruct%spechum(iGRU) = dataVal(1)
+    case(iLookFORCE%windspd); forcStruct%windspd_d(iGRU) = dataVal(1)
+    case(iLookFORCE%SWRadAtm); forcStruct%SWRadAtm(iGRU) = dataVal(1)
+    case(iLookFORCE%LWRadAtm); forcStruct%LWRadAtm_d(iGRU) = dataVal(1)
+    case(iLookFORCE%airpres); forcStruct%airpres_d(iGRU) = dataVal(1)
+    end select
 
    end do  ! looping through HRUs within a given GRU
   end do  ! looping through GRUs

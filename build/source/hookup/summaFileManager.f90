@@ -24,6 +24,7 @@
 !******************************************************************
 MODULE summaFileManager
 use nrtype
+use globalData,only:localTime,utcTime,ncTime
 implicit none
 public
 ! summa-wide pathlength
@@ -32,7 +33,7 @@ integer(i4b),parameter       :: summaPathLen=4096
 CHARACTER(LEN=summaPathLen)  :: CONTROL_VRS      = 'SUMMA_FILE_MANAGER_V3.0.0'      ! control version
 CHARACTER(LEN=summaPathLen)  :: SIM_START_TM     = '2000-01-01 00:00'               ! simulation start time
 CHARACTER(LEN=summaPathLen)  :: SIM_END_TM       = '2000-01-01 00:00'               ! simulation end time
-CHARACTER(LEN=summaPathLen)  :: NC_TIME_ZONE     = 'utcTime'                        ! time zone info
+integer(i4b)  :: NC_TIME_ZONE     = utcTime                        ! time zone info
 ! defines the path for data files (and default values)
 CHARACTER(LEN=summaPathLen)  :: SETTINGS_PATH    = 'settings/'                      ! settings dir path
 CHARACTER(LEN=summaPathLen)  :: STATE_PATH       = ''                               ! state file / init. cond. dir path (if omitted, defaults 
@@ -118,7 +119,13 @@ subroutine summa_SetTimesDirsAndFiles(summaFileManagerIn,err,message)
       end if
       case('simStartTime'       ); SIM_START_TM = trim(varEntry)                  ! start simulation time
       case('simEndTime'         ); SIM_END_TM = trim(varEntry)                    ! end simulation time
-      case('tmZoneInfo'         ); NC_TIME_ZONE = trim(varEntry)                  ! time zone info
+      case('tmZoneInfo'         );                   ! time zone info
+        select case(trim(varEntry))
+        case('utcTime'); NC_TIME_ZONE = utcTime
+        case('localTime'); NC_TIME_ZONE = localTime
+        case('ncTime'); NC_TIME_ZONE = ncTime
+        case default; message=trim(message)//'unable to identify option for tmZoneInfo'; err=20; return
+        end select
       case('settingsPath'       ); SETTINGS_PATH = trim(varEntry)                 ! settings directory
       case('forcingPath'        ); FORCING_PATH = trim(varEntry)                  ! input forcing directory
       case('outputPath'         ); OUTPUT_PATH = trim(varEntry)                   ! output directory

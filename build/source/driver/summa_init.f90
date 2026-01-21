@@ -23,7 +23,7 @@ module summa_init
 
 ! access missing values
 USE globalData,only:integerMissing   ! missing integer
-USE globalData,only:realMissing      ! missing double precision number
+USE globalData,only:realMissing      ! missing real number
 
 ! named variables for run time options
 USE globalData,only:iRunModeFull,iRunModeGRU,iRunModeHRU
@@ -96,6 +96,7 @@ subroutine summa_initialize(summa1_struc, err, message)
   USE globalData,only:gru_struc                               ! gru-hru mapping structures
   USE globalData,only:structInfo                              ! information on the data structures
   USE globalData,only:output_fileSuffix                       ! suffix for the output file
+
   ! ---------------------------------------------------------------------------------------
   ! * variables
   ! ---------------------------------------------------------------------------------------
@@ -112,8 +113,52 @@ subroutine summa_initialize(summa1_struc, err, message)
   integer(i4b)                          :: iStruct,iGRU       ! looping variables
   integer(i4b)                          :: fileGRU            ! [used for filenames] number of GRUs in the input file
   integer(i4b)                          :: fileHRU            ! [used for filenames] number of HRUs in the input file
+  integer(i4b)                          :: hruCount           ! number of local hydrologic response units
   ! ---------------------------------------------------------------------------------------
   ! associate to elements in the data structure
+  summaVars: associate(&
+  ! lookup table data structure
+    ! lookupStruct         => summa1_struc%lookupStruct        , & ! x%gru(:)%hru(:)%z(:)%var(:)%lookup(:) -- lookup tables
+    ! statistics structures
+    ! forcStat             => summa1_struc%forcStat            , & ! x%gru(:)%hru(:)%var(:)%dat -- model forcing data
+    ! progStat             => summa1_struc%progStat            , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
+    ! diagStat             => summa1_struc%diagStat            , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
+    ! fluxStat             => summa1_struc%fluxStat            , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
+    ! indxStat             => summa1_struc%indxStat            , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
+    ! bvarStat             => summa1_struc%bvarStat            , & ! x%gru(:)%var(:)%dat        -- basin-average variables
+
+    ! primary data structures (scalars)
+    ! timeStruct           => summa1_struc%timeStruct          , & ! x%var(:)                   -- model time data
+    ! forcStruct           => summa1_struc%forcStruct          , & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
+    ! attrStruct           => summa1_struc%attrStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
+    ! typeStruct           => summa1_struc%typeStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
+    ! idStruct             => summa1_struc%idStruct            , & ! x%gru(:)%hru(:)%var(:)     --
+
+    ! primary data structures (variable length vectors)
+    ! indxStruct           => summa1_struc%indxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
+    ! mparStruct           => summa1_struc%mparStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+    ! progStruct           => summa1_struc%progStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
+    ! diagStruct           => summa1_struc%diagStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
+    ! fluxStruct           => summa1_struc%fluxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
+
+    ! basin-average structures
+    ! bparStruct           => summa1_struc%bparStruct          , & ! x%gru(:)%var(:)            -- basin-average parameters
+    ! bvarStruct           => summa1_struc%bvarStruct          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
+
+    ! ancillary data structures
+    ! dparStruct           => summa1_struc%dparStruct          , & ! x%gru(:)%hru(:)%var(:)     -- default model parameters
+
+    ! run time variables
+    computeVegFlux       => summa1_struc%computeVegFlux      , & ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+    dt_init              => summa1_struc%dt_init             , & ! used to initialize the length of the sub-step for each HRU
+    upArea               => summa1_struc%upArea              , & ! area upslope of each HRU
+
+    ! miscellaneous variables
+    nGRU                 => summa1_struc%nGRU                , & ! number of grouped response units
+    nHRU                 => summa1_struc%nHRU                , & ! number of global hydrologic response units
+    summaFileManagerFile => summa1_struc%summaFileManagerFile  & ! path/name of file defining directories and files
+
+    ) ! assignment to variables in the data structures
     ! ---------------------------------------------------------------------------------------
     ! initialize error control
     err=0; message='summa_initialize/'
@@ -138,7 +183,7 @@ subroutine summa_initialize(summa1_struc, err, message)
     if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
     ! set directories and files -- summaFileManager used as command-line argument
-    call summa_SetTimesDirsAndFiles(summa1_struc%summaFileManagerFile,err,cmessage)
+    call summa_SetTimesDirsAndFiles(summaFileManagerFile,err,cmessage)
     if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
     ! define global data (parameters, metadata)
@@ -151,9 +196,9 @@ subroutine summa_initialize(summa1_struc, err, message)
     ! obtain the HRU and GRU dimensions in the LocalAttribute file
     attrFile = trim(SETTINGS_PATH)//trim(LOCAL_ATTRIBUTES)
     select case (iRunMode)
-      case(iRunModeFull); call read_dimension(trim(attrFile),fileGRU,fileHRU,summa1_struc%nGRU,summa1_struc%nHRU,err,cmessage)
-      case(iRunModeGRU ); call read_dimension(trim(attrFile),fileGRU,fileHRU,summa1_struc%nGRU,summa1_struc%nHRU,err,cmessage,startGRU=startGRU)
-      case(iRunModeHRU ); call read_dimension(trim(attrFile),fileGRU,fileHRU,summa1_struc%nGRU,summa1_struc%nHRU,err,cmessage,checkHRU=checkHRU)
+      case(iRunModeFull); call read_dimension(trim(attrFile),fileGRU,fileHRU,nGRU,nHRU,err,cmessage)
+      case(iRunModeGRU ); call read_dimension(trim(attrFile),fileGRU,fileHRU,nGRU,nHRU,err,cmessage,startGRU=startGRU)
+      case(iRunModeHRU ); call read_dimension(trim(attrFile),fileGRU,fileHRU,nGRU,nHRU,err,cmessage,checkHRU=checkHRU)
     end select
     if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
@@ -166,7 +211,7 @@ subroutine summa_initialize(summa1_struc, err, message)
     else
         restartFile = trim(STATE_PATH)//trim(MODEL_INITCOND)
     endif
-    call read_icond_nlayers(trim(restartFile),summa1_struc%nGRU,indx_meta,err,cmessage)
+    call read_icond_nlayers(trim(restartFile),nGRU,indx_meta,err,cmessage)
     if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
     ! *****************************************************************************
@@ -187,13 +232,14 @@ subroutine summa_initialize(summa1_struc, err, message)
     ! allocate other data structures
     do iStruct=1,size(structInfo)
       ! allocate space
+      print*, trim(structInfo(iStruct)%structName)
       select case(trim(structInfo(iStruct)%structName))
         case('time'  ); call allocGlobal(time_meta,    summa1_struc%timeStruct,    err, cmessage)   ! model forcing data
         case('forc'  ); call allocGlobal(forc_meta,    summa1_struc%forcStruct,    err, cmessage)   ! model forcing data
         case('attr'  ); call allocGlobal(attr_meta,    summa1_struc%attrStruct,    err, cmessage)   ! local attributes for each HRU
         case('type'  ); call allocGlobal(type_meta,    summa1_struc%typeStruct,    err, cmessage)   ! local classification of soil veg etc. for each HRU
         case('id'    ); call allocGlobal(id_meta,      summa1_struc%idStruct,      err, message)    ! local values of hru and gru IDs
-        case('mpar'  ); call allocGlobal(mpar_meta,    summa1_struc%mparStruct,    err, cmessage)   ! model parameters
+        case('mpar'  ); call allocGlobal(mpar_meta,    summa1_struc%mparStruct_d,    err, cmessage)   ! model parameters
         case('indx'  ); call allocGlobal(indx_meta,    summa1_struc%indxStruct,    err, cmessage)   ! model variables
         case('prog'  ); call allocGlobal(prog_meta,    summa1_struc%progStruct,    err, cmessage)   ! model prognostic (state) variables
         case('diag'  ); call allocGlobal(diag_meta,    summa1_struc%diagStruct,    err, cmessage)   ! model diagnostic variables
@@ -218,18 +264,18 @@ subroutine summa_initialize(summa1_struc, err, message)
       message=trim(message)//trim(cmessage)//' [problem allocating dparStruct]'
       return
     endif
-print*, 270
+
     ! allocate space for the time step and computeVegFlux flags (recycled for each GRU for subsequent model calls)
-    allocate(summa1_struc%dt_init%gru(summa1_struc%nGRU),summa1_struc%upArea%gru(summa1_struc%nGRU),summa1_struc%computeVegFlux%gru(summa1_struc%nGRU),stat=err)
+    allocate(dt_init%gru(nGRU),upArea%gru(nGRU),computeVegFlux%gru(nGRU),stat=err)
     if(err/=0)then
       message=trim(message)//'problem allocating space for dt_init, upArea, or computeVegFlux [GRU]'
       return
     endif
-print*, 277
+
     ! allocate space for the HRUs
-    do iGRU=1,summa1_struc%nGRU
-      summa1_struc%hruCount = gru_struc(iGRU)%hruCount  ! gru_struc populated in "read_dimension"
-      allocate(summa1_struc%dt_init%gru(iGRU)%hru(summa1_struc%hruCount),summa1_struc%upArea%gru(iGRU)%hru(summa1_struc%hruCount),summa1_struc%computeVegFlux%gru(iGRU)%hru(summa1_struc%hruCount),stat=err)
+    do iGRU=1,nGRU
+      hruCount = gru_struc(iGRU)%hruCount  ! gru_struc populated in "read_dimension"
+      allocate(dt_init%gru(iGRU)%hru(hruCount),upArea%gru(iGRU)%hru(hruCount),computeVegFlux%gru(iGRU)%hru(hruCount),stat=err)
       if(err/=0)then
         message='problem allocating space for dt_init, upArea, or computeVegFlux [HRU]'
       return
@@ -274,7 +320,7 @@ print*, 277
         write(fmtGruOutput,"(i0)") ceiling(log10(real(fileGRU)+0.1))                      ! maximum width of startGRU and endGRU
         fmtGruOutput = "i"//trim(fmtGruOutput)//"."//trim(fmtGruOutput)                   ! construct the format string for startGRU and endGRU
         fmtGruOutput = "('_G',"//trim(fmtGruOutput)//",'-',"//trim(fmtGruOutput)//")"
-        write(output_fileSuffix((len_trim(output_fileSuffix)+1):len(output_fileSuffix)),fmtGruOutput) startGRU,startGRU+summa1_struc%nGRU-1
+        write(output_fileSuffix((len_trim(output_fileSuffix)+1):len(output_fileSuffix)),fmtGruOutput) startGRU,startGRU+nGRU-1
       case(iRunModeHRU)
         write(output_fileSuffix((len_trim(output_fileSuffix)+1):len(output_fileSuffix)),"('_H',i0)") checkHRU
     end select
@@ -286,6 +332,7 @@ print*, 277
     elapsedInit = elapsedSec(startInit, endInit)
 
   ! end associate statements
+  end associate summaVars
 
 end subroutine summa_initialize
 

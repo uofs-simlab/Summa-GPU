@@ -55,6 +55,8 @@ contains
  USE get_ixname_module,only:get_ixParam,get_ixBpar   ! access function to find index of elements in structure
  USE globalData,only:index_map,gru_struc             ! mapping from global HRUs to the elements in the data structures
  USE var_lookup,only:iLookPARAM,iLookTYPE,iLookID    ! named variables to index elements of the data vectors
+ use device_data_types
+ use initialize_device
  implicit none
  ! define input
  integer(i4b),        intent(in)       :: iRunMode         ! run mode
@@ -64,7 +66,7 @@ contains
  integer(i4b),        intent(in)       :: nGRU             ! number of global GRUs
  type(gru_hru_int8),  intent(in)       :: idStruct         ! local labels for hru and gru IDs
  ! define output
- type(gru_hru_doubleVec),intent(inout) :: mparStruct       ! model parameters
+ type(mpar_data_device),intent(inout) :: mparStruct       ! model parameters
  type(gru_double)    ,intent(inout)    :: bparStruct       ! basin parameters
  integer(i4b),        intent(out)      :: err              ! error code
  character(*),        intent(out)      :: message          ! error message
@@ -256,10 +258,10 @@ contains
     endif
 
     ! check that the dimension length is correct
-    if(size(mparStruct%gru(iGRU)%hru(localHRU_ix)%var(ixParam)%dat) /= nSoil_file)then
-     message=trim(message)//'unexpected number of soil layers in parameter file'
-     err=20; return
-    endif
+    ! if(size(mparStruct%gru(iGRU)%hru(localHRU_ix)%var(ixParam)%dat) /= nSoil_file)then
+    !  message=trim(message)//'unexpected number of soil layers in parameter file'
+    !  err=20; return
+    ! endif
 
     ! define parameter length
     parLength = nSoil_file
@@ -295,8 +297,12 @@ contains
 
     ! populate parameter structures
     select case(nDims)
-     case(1); mparStruct%gru(iGRU)%hru(localHRU_ix)%var(ixParam)%dat(:) = parVector(1)  ! also distributes scalar across depth dimension
-     case(2); mparStruct%gru(iGRU)%hru(localHRU_ix)%var(ixParam)%dat(:) = parVector(:)
+     case(1); 
+        call set_device_param_data_scalar(mparStruct, iGRU, ixParam, parVector(1))
+        ! mparStruct%gru(iGRU)%hru(localHRU_ix)%var(ixParam)%dat(:) = parVector(1)  ! also distributes scalar across depth dimension
+     case(2); 
+        call set_device_param_data(mparStruct, iGRU, ixParam, parVector)
+        ! mparStruct%gru(iGRU)%hru(localHRU_ix)%var(ixParam)%dat(:) = parVector(:)
      case default; err=20; message=trim(message)//'unexpected number of dimensions for parameter '//trim(parName)
     end select
 
@@ -356,6 +362,13 @@ contains
   endif  ! reading the basin parameters
 
  end do ! (looping through the parameters in the NetCDF file)
+
+  ! close the NetCDF file
+ call nc_file_close(ncid,err,cmessage)
+ if(err/=0)then
+  message=trim(message)//'problem closing parameter file '//trim(infile)//': '//trim(cmessage)
+  err=20; return
+ endif
 
  end subroutine read_param
 

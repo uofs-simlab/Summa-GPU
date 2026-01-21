@@ -244,14 +244,17 @@ contains
   end do  ! (looping through HRUs)
 
   ! calc basin stats
-  !print*, loc(bvarStruct%gru(iGRU)%var), size(bvarStruct%gru(iGRU)%var)
   call calcStats(bvarStat%gru(iGRU)%var,bvarStruct%gru(iGRU)%var,statBvar_meta,resetStats,finalizeStats,statCounter,err,cmessage)
   if(err/=0)then; message=trim(message)//trim(cmessage)//'[bvar stats]'; return; endif
+
+ end do  ! (looping through GRUs)
+
+ do iGRU=1,summa1_struc%nGRU
+
   ! write basin-average variables
   call writeBasin(iGRU,finalizeStats,outputTimeStep,bvar_meta,bvarStat%gru(iGRU)%var,bvarStruct%gru(iGRU)%var,bvarChild_map,err,cmessage)
   if(err/=0)then; message=trim(message)//trim(cmessage)//'[bvar]'; return; endif
- end do  ! (looping through GRUs)
-
+ end do
  ! ****************************************************************************
  ! *** write data
  ! ****************************************************************************
@@ -261,6 +264,7 @@ contains
 
  ! write time information
  call writeTime(finalizeStats,outputTimeStep,time_meta,timeStruct%var,err,message)
+
  ! write the model output to the NetCDF file
  ! Passes the full metadata structure rather than the stats metadata structure because
  !  we have the option to write out data of types other than statistics.
@@ -293,7 +297,6 @@ contains
   call writeRestart(restartFile,nGRU,nHRU,prog_meta,progStruct,bvar_meta,bvarStruct,maxLayers,maxSnowLayers,indx_meta,indxStruct,err,cmessage)  
   if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
  end if
- !print*, 300
 
  ! *****************************************************************************
  ! *** update counters
@@ -304,11 +307,13 @@ contains
   statCounter(iFreq) = statCounter(iFreq)+1
   if(finalizeStats(iFreq)) outputTimeStep(iFreq) = outputTimeStep(iFreq) + 1
  end do
+
  ! increment forcingStep
  forcingStep=forcingStep+1
 
  ! if finalized stats, then reset stats on the next time step
  resetStats(:) = finalizeStats(:)
+
  ! save time vector
  oldTime%var(:) = summa1_struc%timeStruct%var(:)
 
@@ -318,11 +323,13 @@ contains
 
  ! identify the end of the writing
  call date_and_time(values=endWrite)
+
  ! aggregate the elapsed time for model writing
  elapsedWrite = elapsedWrite + elapsedSec(startWrite, endWrite)
 
  ! end associate statements
  end associate summaVars
+
  end subroutine summa_writeOutputFiles
 end module summa_writeOutput
 

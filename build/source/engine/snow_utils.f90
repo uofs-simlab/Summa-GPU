@@ -35,10 +35,10 @@ USE mDecisions_module,only:Yen1965,Mellor1977,Jordan1991 ! named variables defin
 ! privacy
 implicit none
 private
-public::fracliquid,fracliquid_d
-public::templiquid,templiquid_d
-public::dFracLiq_dTk,dFracLiq_dTk_d
-public::tcond_snow,tcond_snow_d
+public::fracliquid
+public::templiquid
+public::dFracLiq_dTk
+public::tcond_snow
 contains
 
 
@@ -53,19 +53,11 @@ attributes(host,device) function fracliquid(Tk,fc_param)
   ! compute fraction of liquid water (-)
   fracliquid = 1._rkind / ( 1._rkind + (fc_param*( Tfreeze - min(Tk,Tfreeze) ))**2_i4b )
 end function fracliquid
-attributes(device) function fracliquid_d(Tk,fc_param)
-  implicit none
-  real(rkind),intent(in) :: Tk         ! temperature (K)
-  real(rkind),intent(in) :: fc_param   ! freezing curve parameter (K-1)
-  real(rkind)            :: fracliquid_d ! fraction of liquid water (-)
-  ! compute fraction of liquid water (-)
-  fracliquid_d = 1._rkind / ( 1._rkind + (fc_param*( Tfreeze - min(Tk,Tfreeze) ))**2_i4b )
-end function fracliquid_d
 
 ! ***********************************************************************************************************
 ! public function templiquid: invert the fraction of liquid water function
 ! ***********************************************************************************************************
-attributes(device) function templiquid(fracliquid,fc_param)
+attributes(host,device) function templiquid(fracliquid,fc_param)
   implicit none
   real(rkind),intent(in) :: fracliquid ! fraction of liquid water (-)
   real(rkind),intent(in) :: fc_param   ! freezing curve parameter (K-1)
@@ -73,14 +65,6 @@ attributes(device) function templiquid(fracliquid,fc_param)
   ! compute temperature based on the fraction of liquid water (K)
   templiquid = Tfreeze - ((1._rkind/fracliquid - 1._rkind)/fc_param**2_i4b)**(0.5_rkind)
 end function templiquid
-attributes(device) function templiquid_d(fracliquid,fc_param)
-  implicit none
-  real(rkind),intent(in) :: fracliquid ! fraction of liquid water (-)
-  real(rkind),intent(in) :: fc_param   ! freezing curve parameter (K-1)
-  real(rkind)            :: templiquid_d ! temperature (K)
-  ! compute temperature based on the fraction of liquid water (K)
-  templiquid_d = Tfreeze - ((1._rkind/fracliquid - 1._rkind)/fc_param**2_i4b)**(0.5_rkind)
-end function templiquid_d
 
 ! ***********************************************************************************************************
 ! public function dFracLiq_dTk: differentiate the freezing curve
@@ -100,56 +84,29 @@ attributes(host,device) function dFracLiq_dTk(Tk,fc_param)
   ! differentiate the freezing curve w.r.t temperature
   dFracLiq_dTk = (fc_param*2._rkind*Tdim) / ( ( 1._rkind + Tdim**2_i4b)**2_i4b )
 end function dFracLiq_dTk
-attributes(device) function dFracLiq_dTk_d(Tk,fc_param)
-  implicit none
-  ! dummies
-  real(rkind),intent(in) :: Tk           ! temperature (K)
-  real(rkind),intent(in) :: fc_param     ! freezing curve parameter (K-1)
-  real(rkind)            :: dFracLiq_dTk_d ! differentiate the freezing curve (K-1)
-  ! locals
-  real(rkind)            :: Tdep         ! temperature depression (K)
-  real(rkind)            :: Tdim         ! dimensionless temperature (-)
-  ! compute local variables (just to make things more efficient)
-  Tdep = Tfreeze - min(Tk,Tfreeze)
-  Tdim = fc_param*Tdep
-  ! differentiate the freezing curve w.r.t temperature
-  dFracLiq_dTk_d = (fc_param*2._rkind*Tdim) / ( ( 1._rkind + Tdim**2_i4b)**2_i4b )
-end function dFracLiq_dTk_d
 
 ! ***********************************************************************************************************
 ! public subroutine tcond_snow: compute thermal conductivity of snow
 ! ***********************************************************************************************************
-subroutine tcond_snow(BulkDenIce,thermlcond,err,message)
+attributes(host,device) subroutine tcond_snow(thCondSnow,BulkDenIce,thermlcond,err)
   implicit none
+  integer(i4b) :: thCondSnow
   real(rkind),intent(in)      :: BulkDenIce     ! bulk density of ice (kg m-3)
   real(rkind),intent(out)     :: thermlcond     ! thermal conductivity of snow (W m-1 K-1)
   integer(i4b),intent(out) :: err            ! error code
-  character(*),intent(out) :: message        ! error message
+  ! character(*),intent(out) :: message        ! error message
   ! initialize error control
-  err=0; message="tcond_snow/"
-  ! compute thermal conductivity of snow
-  select case(model_decisions(iLookDECISIONS%thCondSnow)%iDecision)
-  case(Yen1965);      thermlcond = 3.217d-6 * BulkDenIce**2_i4b               ! Yen (1965)
-  case(Mellor1977);   thermlcond = 2.576d-6 * BulkDenIce**2_i4b + 7.4d-2      ! Mellor (1977)
-  case(Jordan1991);   thermlcond = lambda_air + (7.75d-5*BulkDenIce + 1.105d-6*(BulkDenIce**2_i4b)) &
-                                    * (lambda_ice-lambda_air)                ! Jordan (1991)
-  case default
-    err=10; message=trim(message)//"unknownOption"; return
-  end select
-end subroutine tcond_snow
-attributes(device) subroutine tcond_snow_d(BulkDenIce,thermlcond,thCondSnow)
-  implicit none
-  real(rkind),intent(in)      :: BulkDenIce     ! bulk density of ice (kg m-3)
-  real(rkind),intent(out)     :: thermlcond     ! thermal conductivity of snow (W m-1 K-1)
-  integer(i4b) :: thCondSnow
+  err=0!; message="tcond_snow/"
   ! compute thermal conductivity of snow
   select case(thCondSnow)
   case(Yen1965);      thermlcond = 3.217d-6 * BulkDenIce**2_i4b               ! Yen (1965)
   case(Mellor1977);   thermlcond = 2.576d-6 * BulkDenIce**2_i4b + 7.4d-2      ! Mellor (1977)
   case(Jordan1991);   thermlcond = lambda_air + (7.75d-5*BulkDenIce + 1.105d-6*(BulkDenIce**2_i4b)) &
                                     * (lambda_ice-lambda_air)                ! Jordan (1991)
+  case default
+    ! err=10; message=trim(message)//"unknownOption"; return
   end select
-end subroutine tcond_snow_d
+end subroutine tcond_snow
 
 
 end module snow_utils_module

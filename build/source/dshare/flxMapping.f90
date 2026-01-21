@@ -4,7 +4,7 @@ private
 public::flxMapping
 contains
 
- subroutine flxMapping(err,message)
+ subroutine flxMapping(err,message,nSoil)
  USE nrtype
  ! data types
  USE data_types, only: var_info         ! data type for metadata structure
@@ -13,7 +13,8 @@ contains
  USE var_lookup, only: iLookFLUX        ! named variables for local flux variables
  ! metadata structures
  USE globalData, only: flux_meta        ! data structure for model fluxes
- USE globalData, only: flux2state_orig  ! data structure for flux-to-state mapping (original state variables)
+ USE globalData, only: flux2state_orig,flux2state_orig_d  ! data structure for flux-to-state mapping (original state variables)
+ use initialize_device,only: allocate_device_flux2state
  USE globalData, only: flux2state_liq   ! data structure for flux-to-state mapping (liquid water state variables)
  ! named variables to describe the state variable type
  USE globalData, only: iname_nrgCanair  ! named variable defining the energy of the canopy air space
@@ -32,6 +33,7 @@ contains
  ! dummy variables
  integer(i4b),intent(out)       :: err                 ! error code
  character(*),intent(out)       :: message             ! error message
+ integer(i4b),intent(in) :: nSoil
  ! local variables
  integer(i4b)                   :: iVar                ! variable index
  integer(i4b)                   :: nFlux               ! number of fluxes
@@ -123,7 +125,7 @@ contains
  flux2state_orig(iLookFLUX%scalarCanopyTranspiration)       = flux2state(state1=iname_nrgCanopy, state2=iname_nrgLayer)
  flux2state_orig(iLookFLUX%scalarCanopyEvaporation)         = flux2state(state1=iname_nrgCanopy, state2=integerMissing)
  flux2state_orig(iLookFLUX%scalarGroundEvaporation)         = flux2state(state1=iname_nrgCanopy, state2=iname_nrgLayer)
- flux2state_orig(iLookFLUX%scalarAquiferTranspire)          = flux2state(state1=iname_watCanopy, state2=integerMissing)
+ flux2state_orig(iLookFLUX%scalarAquiferTranspire)          = flux2state(state1=iname_watAquifer,state2=iname_watCanopy)
  flux2state_orig(iLookFLUX%mLayerTranspire)                 = flux2state(state1=iname_matLayer,  state2=integerMissing)
 
  ! liquid and solid water fluxes through the canopy
@@ -150,6 +152,8 @@ contains
  flux2state_orig(iLookFLUX%scalarInfiltration)              = flux2state(state1=iname_matLayer,  state2=integerMissing)
  flux2state_orig(iLookFLUX%scalarExfiltration)              = flux2state(state1=iname_matLayer,  state2=integerMissing)
  flux2state_orig(iLookFLUX%scalarSurfaceRunoff)             = flux2state(state1=iname_matLayer,  state2=integerMissing)
+ flux2state_orig(iLookFLUX%scalarSurfaceRunoff_IE)          = flux2state(state1=iname_matLayer,  state2=integerMissing)
+ flux2state_orig(iLookFLUX%scalarSurfaceRunoff_SE)          = flux2state(state1=iname_matLayer,  state2=integerMissing)
  flux2state_orig(iLookFLUX%mLayerSatHydCondMP)              = flux2state(state1=integerMissing,  state2=integerMissing)
  flux2state_orig(iLookFLUX%mLayerSatHydCond)                = flux2state(state1=integerMissing,  state2=integerMissing)
  flux2state_orig(iLookFLUX%iLayerSatHydCond)                = flux2state(state1=integerMissing,  state2=integerMissing)
@@ -161,10 +165,10 @@ contains
  flux2state_orig(iLookFLUX%mLayerColumnOutflow)             = flux2state(state1=iname_matLayer,  state2=integerMissing)
  flux2state_orig(iLookFLUX%scalarSoilBaseflow)              = flux2state(state1=iname_matLayer,  state2=integerMissing)
  flux2state_orig(iLookFLUX%scalarSoilDrainage)              = flux2state(state1=iname_matLayer,  state2=integerMissing)
- flux2state_orig(iLookFLUX%scalarAquiferRecharge)           = flux2state(state1=iname_matLayer,  state2=integerMissing)
 
  ! liquid water fluxes for the aquifer domain
- flux2state_orig(iLookFLUX%scalarAquiferBaseflow)           = flux2state(state1=iname_watAquifer,  state2=integerMissing)
+ flux2state_orig(iLookFLUX%scalarAquiferRecharge)           = flux2state(state1=iname_watAquifer,state2=iname_matLayer)
+ flux2state_orig(iLookFLUX%scalarAquiferBaseflow)           = flux2state(state1=iname_watAquifer,state2=integerMissing)
 
  ! derived variables
  flux2state_orig(iLookFLUX%scalarTotalET)                   = flux2state(state1=iname_nrgCanopy, state2=iname_nrgLayer)
@@ -183,6 +187,7 @@ contains
    err=20; return
   endif
  end do
+   call allocate_device_flux2state(flux2state_orig_d,flux2state_orig,nSoil)
 
  ! -----
  ! - liquid water state variables...

@@ -57,7 +57,7 @@ private
 ! *****************************************************************************
 type, public :: summa1_type_dec    
     ! define the lookup tables
-    type(gru_hru_z_vLookup)          :: lookupStruct               ! x%gru(:)%hru(:)%z(:)%var(:)%lookup(:) -- lookup tables
+    type(zLookup_device)          :: lookupStruct               ! x%gru(:)%hru(:)%z(:)%var(:)%lookup(:) -- lookup tables
     
     ! define the statistics structures
     type(gru_hru_doubleVec)          :: forcStat                   ! x%gru(:)%hru(:)%var(:)%dat -- model forcing data
@@ -70,56 +70,49 @@ type, public :: summa1_type_dec
     ! define the primary data structures (scalars)
     type(var_i)                      :: timeStruct                 ! x%var(:)                   -- model time data
     type(gru_hru_double)             :: forcStruct                 ! x%gru(:)%hru(:)%var(:)     -- model forcing data
+    type(forc_data_device) :: forcStruct_d
     type(gru_hru_double)             :: attrStruct                 ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
-    type(gru_hru_int)                :: typeStruct                 ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
+    type(attr_data_device) :: attrStruct_d
+    type(type_data_device)                :: typeStruct                 ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
     type(gru_hru_int8)               :: idStruct                   ! x%gru(:)%hru(:)%var(:)     --
 
     ! define the primary data structures (variable length vectors)
     type(gru_hru_intVec)             :: indxStruct                 ! x%gru(:)%hru(:)%var(:)%dat -- model indices
-    type(gru_hru_doubleVec)          :: mparStruct                 ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+    type(indx_data_device) :: indxStruct_d
+    ! type(gru_hru_doubleVec)          :: mparStruct                 ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+    type(mpar_data_device) :: mparStruct_d
     type(gru_hru_doubleVec)          :: progStruct                 ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
+    type(prog_data_device) :: progStruct_d
     type(gru_hru_doubleVec)          :: diagStruct                 ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
+    type(diag_data_device) :: diagStruct_d
     type(gru_hru_doubleVec)          :: fluxStruct                 ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
+    type(flux_data_device) :: fluxStruct_d
 
     ! define the basin-average structures
     type(gru_double)                 :: bparStruct                 ! x%gru(:)%var(:)            -- basin-average parameters
     type(gru_doubleVec)              :: bvarStruct                 ! x%gru(:)%var(:)%dat        -- basin-average variables
+    type(bvar_data_device) :: bvarStruct_d
+
+    type(decisions_device) :: decisions
+ type(veg_parameters) :: veg_param
+ type(veg_param_tables) :: veg_tables
+!   type(flux2state_device) :: flux2state_d
+!  real(rkind),device,allocatable :: greenVegFrac_monthly_d(:)
+!  real(rkind),device,allocatable :: tmZoneOffsetFracDay_d(:)
 
     ! define the ancillary data structures
     type(gru_hru_double)             :: dparStruct                 ! x%gru(:)%hru(:)%var(:)     -- default model parameters
 
     ! define the run-time variables
     type(gru_i)                      :: computeVegFlux             ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+    integer(i4b),device,allocatable :: computeVegFlux_d(:)
     type(gru_d)                      :: dt_init                    ! used to initialize the length of the sub-step for each HRU
     type(gru_d)                      :: upArea                     ! area upslope of each HRU
 
     ! define miscellaneous variables
-    integer(i4b)                     :: summa1open                 ! flag to define if the summa file is open??
-    integer(i4b)                     :: numout                     ! number of output variables??
-    real(rkind)                         :: ts                         ! model time step ??
     integer(i4b)                     :: nGRU                       ! number of grouped response units
     integer(i4b)                     :: nHRU                       ! number of global hydrologic response units
-    integer(i4b)                     :: hruCount                   ! number of local hydrologic response units
-    real(rkind),dimension(12)           :: greenVegFrac_monthly       ! fraction of green vegetation in each month (0-1)
-    real(rkind),device,allocatable :: greenVegFrac_monthly_d(:)
     character(len=256)               :: summaFileManagerFile       ! path/name of file defining directories and files
-
-    type(forc_data_device) :: forcStruct_d
-    type(attr_data_device) :: attrStruct_d
-    type(type_data_device) :: typeStruct_d
-
-    type(indx_data_device) :: indxStruct_d
-    type(mpar_data_device) :: mparStruct_d
-    type(prog_data_device) :: progStruct_d
-    type(diag_data_device) :: diagStruct_d
-    type(flux_data_device) :: fluxStruct_d
-
-    type(bvar_data_device) :: bvarStruct_d
-    
-      type(decisions_device) :: decisions
- type(veg_param_tables) :: tables
- type(veg_parameters) :: veg_param
-
 
 end type summa1_type_dec
 

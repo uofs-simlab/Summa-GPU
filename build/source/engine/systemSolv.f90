@@ -23,12 +23,9 @@ module systemSolv_module
 ! data types
 USE nrtype
 
-! access the global print flag
-USE globalData,only:globalPrintFlag
-
 ! access missing values
 USE globalData,only:integerMissing  ! missing integer
-USE globalData,only:realMissing     ! missing double precision number
+USE globalData,only:realMissing     ! missing real number
 USE globalData,only:quadMissing     ! missing quadruple precision number
 
 ! access matrix information
@@ -108,12 +105,12 @@ contains
 ! public subroutine systemSolv: run the coupled energy-mass model for one timestep
 ! **********************************************************************************************************
 subroutine systemSolv(&
+  nGRU, &
                       ! input: model control
                       dt_cur,            & ! intent(in):    current stepsize
                       dt,                & ! intent(in):    entire time step (s)
                       nState,            & ! intent(in):    total number of state variables
                       nLayers,           & ! intent(in):    total number of layers
-                      nGRU,nSnow, &
                       firstSubStep,      & ! intent(in):    flag to denote first sub-step
                       firstFluxCall,     & ! intent(inout): flag to indicate if we are processing the first flux call
                       firstSplitOper,    & ! intent(in):    flag to indicate if we are processing the first flux call in a splitting operation
@@ -158,27 +155,23 @@ subroutine systemSolv(&
   ! state vector and solver
   USE getVectorz_module,only:getScaling                     ! get the scaling vectors
   USE enthalpyTemp_module,only:T2enthalpy_snwWat            ! convert temperature to liq+ice enthalpy for a snow layer
-#ifdef SUNDIALS_ACTIVE
   USE tol4ida_module,only:popTol4ida                        ! populate tolerances
   USE eval8summaWithPrime_module,only:eval8summaWithPrime   ! get the fluxes and residuals
   USE summaSolve4ida_module,only:summaSolve4ida             ! solve DAE by IDA
-  !USE summaSolve4kinsol_module,only:summaSolve4kinsol       ! solve DAE by KINSOL
-  ! USE summaSolve4kinsol_module,only:summaSolve4kinsol       ! solve DAE by KINSOL
-#endif
-  ! USE eval8summa_module,only:eval8summa                     ! get the fluxes and residuals
-  ! ! USE summaSolve4homegrown_module,only:summaSolve4homegrown ! solve DAE using homegrown solver
-use device_data_types
-use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
+  use globalData,only:maxSnowLayers
+  use device_data_types
+  use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
+
   implicit none
   ! ---------------------------------------------------------------------------------------
   ! * dummy variables
   ! ---------------------------------------------------------------------------------------
+  integer(i4b),intent(in) :: nGRU
   ! input: model control
   real(rkind),intent(in)          :: dt_cur                        ! current stepsize
   real(rkind),intent(in)          :: dt                            ! entire time step for drainage pond rate
   integer(i4b),intent(in)         :: nState                        ! total number of state variables
-  integer(i4b),intent(in),device         :: nLayers(:),nSnow(:)                       ! total number of layers
-  integer(i4b),intent(in) :: nGRU
+  integer(i4b),intent(in),device         :: nLayers(:)                       ! total number of layers
   logical(lgt),intent(in)         :: firstSubStep                  ! flag to indicate if we are processing the first sub-step
   logical(lgt),intent(inout)      :: firstFluxCall                 ! flag to define the first flux call
   logical(lgt),intent(in)         :: firstSplitOper                ! flag to indicate if we are processing the first flux call in a splitting operation
@@ -187,7 +180,7 @@ use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
   logical(lgt),intent(in)         :: computMassBalance             ! flag to compute mass balance
   logical(lgt),intent(in)         :: computNrgBalance              ! flag to compute energy balance
   ! input/output: data structures
-  type(zLookup),intent(in)        :: lookup_data                   ! lookup tables
+  type(zLookup_device),intent(in)        :: lookup_data                   ! lookup tables
   type(type_data_device),intent(in)          :: type_data                     ! type of vegetation and soil
   type(attr_data_device),intent(in)          :: attr_data                     ! spatial attributes
   type(forc_data_device),intent(in)          :: forc_data                     ! model forcing data
@@ -198,10 +191,12 @@ use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
   type(flux_data_device),intent(inout) :: flux_temp                     ! model fluxes for a local HRU
   type(bvar_data_device),intent(in)    :: bvar_data                     ! model variables for the local basin
   type(model_options),intent(in)  :: model_decisions(:)            ! model decisions
+  type(decisions_device) :: decisions
+  type(veg_parameters) :: veg_param
   real(rkind),intent(in),device          :: stateVecInit(:,:)               ! initial state vector (mixed units)
   ! output
   type(deriv_data_device),intent(inout) :: deriv_data                    ! derivatives in model fluxes w.r.t. relevant state variables
-  integer(i4b),intent(inout)      :: ixSaturation                  ! index of the lowest saturated layer (NOTE: only computed on the first iteration)
+  integer(i4b),intent(inout),device      :: ixSaturation(:)                  ! index of the lowest saturated layer (NOTE: only computed on the first iteration)
   real(rkind),intent(out),device         :: stateVecTrial(:,:)              ! trial state vector (mixed units)
   real(rkind),intent(out),device         :: stateVecPrime(:,:)              ! trial state vector (mixed units)
   real(rkind),intent(out),device         :: fluxVec(nState,nGRU)               ! flux vector (mixed units)
@@ -228,13 +223,12 @@ use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
   integer(i4b)                    :: nLeadDim                      ! length of the leading dimension of the Jacobian matrix (nBands or nState)
   integer(i4b)                    :: local_ixGroundwater           ! local index for groundwater representation
   real(rkind)                     :: bulkDensity                   ! bulk density of a given layer (kg m-3)
-  real(rkind)                     :: volEnth                   ! volumetric enthalpy of a given layer (J m-3)
+  real(rkind)                     :: volEnthalpy                   ! volumetric enthalpy of a given layer (J m-3)
   real(rkind),parameter           :: tinyStep=0.000001_rkind       ! stupidly small time step (s)
-  integer(i4b) :: iGRU
   ! ------------------------------------------------------------------------------------------------------
   ! * model solver
   ! ------------------------------------------------------------------------------------------------------
-  logical(lgt),parameter          :: forceFullMatrix=.false.       ! flag to force the use of the full Jacobian matrix
+  logical(lgt),parameter          :: forceFullMatrix=.true.       ! flag to force the use of the full Jacobian matrix
   integer(i4b)                    :: ixMatrix                      ! form of matrix (band diagonal or full matrix)
   type(flux_data_device)               :: flux_init                     ! model fluxes at the start of the time step
   real(rkind),allocatable,device         :: dBaseflow_dMatric(:,:,:)        ! derivative in baseflow w.r.t. matric head (s-1)  ! NOTE: allocatable, since not always needed
@@ -249,17 +243,18 @@ use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
   real(rkind),device                     :: atol(nState,nGRU)                  ! absolute tolerance ida
   real(rkind),device                     :: rtol(nState,nGRU)                  ! relative tolerance ida
   type(flux_data_device)               :: flux_sum                      ! sum of fluxes model fluxes for a local HRU over a dt_cur
-  real(rkind),device,allocatable        :: mLayerCmpress_sum(:,:)          ! sum of compression of the soil matrix
+  real(rkind), allocatable,device        :: mLayerCmpress_sum(:,:)          ! sum of compression of the soil matrix
   ! ida solver variables outputted if use eval8summaWithPrime (not used here, just inside ida solver)
   logical(lgt)                    :: firstSplitOper0               ! flag to indicate if we are processing the first flux call in a splitting operation, changed inside eval8summaWithPrime
   real(rkind),device                     :: scalarCanopyTempPrime(nGRU)         ! prime value for temperature of the vegetation canopy (K s-1)
   real(rkind),device                     :: scalarCanopyWatPrime(nGRU)          ! prime value for total water content of the vegetation canopy (kg m-2 s-1)
-  real(rkind),device                     :: mLayerTempPrime(size(flux_temp%mLayerNrgFlux_m,1),nGRU)      ! prime vector of temperature of each snow and soil layer (K s-1)
+  real(rkind),device                     :: mLayerTempPrime(indx_data%nSoil+maxSnowLayers,nGRU)      ! prime vector of temperature of each snow and soil layer (K s-1)
   real(rkind),device, allocatable        :: mLayerMatricHeadPrime(:,:)      ! prime vector of matric head of each snow and soil layer (m s-1)
-  real(rkind),device                     :: mLayerVolFracWatPrime(size(flux_temp%mLayerNrgFlux_m,1),nGRU)! prime vector of volumetric total water content of each snow and soil layer (s-1)
+  real(rkind),device                     :: mLayerVolFracWatPrime(indx_data%nSoil+maxSnowLayers,nGRU)! prime vector of volumetric total water content of each snow and soil layer (s-1)
   ! kinsol and homegrown solver variables
   real(rkind),device                     :: fScale(nState,nGRU)                ! characteristic scale of the function evaluations (mixed units)
   real(rkind),device                     :: xScale(nState,nGRU)                ! characteristic scale of the state vector (mixed units)
+  real(qp)                        :: resVecNew(nState)  ! NOTE: qp ! new residual vector homegrown solver
   ! homegrown solver variables
   real(rkind)                     :: fOld,fNew                     ! function values (-); NOTE: dimensionless because scaled homegrown solver
   real(rkind)                     :: xMin,xMax                     ! state minimum and maximum (mixed units) homegrown solver
@@ -269,27 +264,32 @@ use initialize_device,only:allocate_device_flux_prev,deallocate_device_flux_data
   logical(lgt)                    :: converged                     ! convergence flag homegrown solver
   logical(lgt), parameter         :: post_massCons=.false.         ! “perfectly” conserve mass by pushing the errors into the states, turn off for now to agree with SUNDIALS
   ! class objects for call to summaSolve4homegrown
-  ! type(in_type_summaSolve4homegrown)  :: in_SS4HG  ! object for intent(in)  summaSolve4homegrown arguments
-  ! type(io_type_summaSolve4homegrown)  :: io_SS4HG  ! object for intent(io)  summaSolve4homegrown arguments
-  ! type(out_type_summaSolve4homegrown) :: out_SS4HG ! object for intent(out) summaSolve4homegrown arguments
+  type(in_type_summaSolve4homegrown)  :: in_SS4HG  ! object for intent(in)  summaSolve4homegrown arguments
+  type(io_type_summaSolve4homegrown)  :: io_SS4HG  ! object for intent(io)  summaSolve4homegrown arguments
+  type(out_type_summaSolve4homegrown) :: out_SS4HG ! object for intent(out) summaSolve4homegrown arguments
   ! flags
   logical(lgt) :: return_flag ! flag for handling systemSolv returns trigerred from internal subroutines 
   logical(lgt) :: exit_flag   ! flag for handling loop exit statements trigerred from internal subroutines 
-  type(decisions_device) :: decisions
-  type(veg_parameters) :: veg_param
+
+integer(i4b) :: iGRU
+      type(dim3) :: blocks,threads
+    threads = dim3(128,1,1)
+  blocks = dim3(nGRU/128+1,1,1)
+
   ! -----------------------------------------------------------------------------------------------------------
+
 
   call initialize_systemSolv; if (return_flag) return ! initialize variables and allocate arrays -- return if error
 
   call initial_function_evaluations; if (return_flag) return ! initial function evaluations -- return if error
 
-
   ! **************************
   ! * Solving the System
   ! **************************
-        call solve_with_IDA; if (return_flag) return              ! solve using IDA -- return if error
- 
+  call solve_with_IDA; if (return_flag) return              ! solve using IDA -- return if error
+
   call finalize_systemSolv ! set untapped melt to zero and deallocate arrays
+
 
 contains
 
@@ -330,41 +330,37 @@ contains
 
    ! identify the matrix solution method, using the full matrix can be slow in many-layered systems
    ! (the type of matrix used to solve the linear system A.X=B)
-  !  if (local_ixGroundwater==qbaseTopmodel .or. scalarSolution .or. forceFullMatrix .or. computeVegFlux) then
      nLeadDim=nState         ! length of the leading dimension
      ixMatrix=ixFullMatrix   ! named variable to denote the full Jacobian matrix
-  !  else
-  !    nLeadDim=nBands         ! length of the leading dimension
-  !    ixMatrix=ixBandMatrix   ! named variable to denote the band-diagonal matrix
-  !  end if
   end associate
 
   ! initialize the model fluxes (some model fluxes are not computed in the iterations)
-  call allocate_device_flux_prev(flux_init,indx_data%nSoil,nGRU)
   flux_init = flux_temp
 
   ! initialize state vectors -- get scaling vectors
-  call getScaling(diag_data,indx_data,nGRU,fScale,xScale,sMul,dMat,err,cmessage)     
+  call getScaling(nGRU,diag_data,indx_data,fScale,xScale,sMul,dMat,err,cmessage)     
   if (err/=0) then; message=trim(message)//trim(cmessage); return_flag=.true.; return; end if  ! check for errors
-
  end subroutine initialize_systemSolv
 
  subroutine allocate_memory
   ! ** Allocate arrays used in systemSolv subroutine **
   associate(&
-  !  nSnow             => indx_data%maxSnow              ,& ! intent(in): [i4b] number of snow layers
+  !  nSnow             => indx_data%var(iLookINDEX%nSnow)%dat(1)              ,& ! intent(in): [i4b] number of snow layers
    nSoil             => indx_data%nSoil              ,& ! intent(in): [i4b] number of soil layers
    ixNumericalMethod => model_decisions(iLookDECISIONS%num_method)%iDecision,& ! intent(in): [i4b] choice of numerical solver
    ixGroundwater     => model_decisions(iLookDECISIONS%groundwatr)%iDecision & ! intent(in): [i4b] groundwater parameterization
    &)
+   ! allocate space for the model fluxes at the start of the time step
+   call allocate_device_flux_prev(flux_init,nSoil,nGRU)
+   if (err/=0) then; err=20; message=trim(message)//trim(cmessage); return_flag=.true.; return; end if
 
    ! allocate space for mLayerCmpress_sum at the start of the time step
    if (ixNumericalMethod==ida) then
      allocate( mLayerCmpress_sum(nSoil,nGRU) )
      allocate( mLayerMatricHeadPrime(nSoil,nGRU) )
    else
-     allocate( mLayerCmpress_sum(1,1) )     ! allocate zero-length dimensions to avoid passing around an unallocated matrix
-     allocate( mLayerMatricHeadPrime(1,1) ) ! allocate zero-length dimensions to avoid passing around an unallocated matrix
+     allocate( mLayerCmpress_sum(1,nGRU) )     ! allocate zero-length dimensions to avoid passing around an unallocated matrix
+     allocate( mLayerMatricHeadPrime(1,nGRU) ) ! allocate zero-length dimensions to avoid passing around an unallocated matrix
    end if
 
    ! allocate space for the baseflow derivatives
@@ -372,7 +368,7 @@ contains
    if (ixGroundwater==qbaseTopmodel) then
     allocate(dBaseflow_dMatric(nSoil,nSoil,nGRU),stat=err) ! baseflow depends on total storage in the soil column, hence on matric head in every soil layer
    else
-    allocate(dBaseflow_dMatric(1,1,1),stat=err)         ! allocate zero-length dimensions to avoid passing around an unallocated matrix
+    allocate(dBaseflow_dMatric(1,1,nGRU),stat=err)         ! allocate zero-length dimensions to avoid passing around an unallocated matrix
    end if
    if (err/=0) then; err=20; message=trim(message)//'unable to allocate space for the baseflow derivatives'; return_flag=.true.; return; end if
   end associate
@@ -380,86 +376,68 @@ contains
  end subroutine allocate_memory
 
  subroutine initial_function_evaluations
-  logical(lgt) :: tooMuchMelt2
-  real(rkind) :: dt_cur2
-
   ! ** Compute initial function evaluations **
+logical(lgt),device :: tooMuchMelt_d
 
   ! initialize the trial state vectors
   stateVecTrial = stateVecInit
 
-  
+   stateVecPrime = 0._rkind ! prime initial values are 0
+   firstSplitOper0 = firstSplitOper ! set the flag for the first split operation, do not want to reset it here
+
   ! compute the initial flux and the residual vector, also gets values needed for the Jacobian matrix 
+  associate(ixNumericalMethod => model_decisions(iLookDECISIONS%num_method)%iDecision) ! intent(in): [i4b] choice of numerical solver
      call initial_flux_and_residual_vectors_prime; if (return_flag) return
+  end associate
+
 
   if (.not.feasible) then; message=trim(message)//'state vector not feasible'; err=20; return_flag=.true.; return; end if
 
   ! copy over the initial flux structure since some model fluxes are not computed in the iterations
   flux_temp = flux_init
+  
 
   ! check the need to merge snow layers
   associate(&
-    nSnow            => indx_data%nSnow        ,& ! intent(in): [i4b]   number of snow layers
-    mLayerVolFracIce => prog_data%mLayerVolFracIce ,& ! intent(in): [dp(:)] volumetric fraction of ice (-)
-    mLayerVolFracLiq => prog_data%mLayerVolFracLiq ,& ! intent(in): [dp(:)] volumetric fraction of liquid water (-)
-    mLayerTemp       => prog_data%mLayerTemp       ,& ! intent(in): [dp(:)] temperature of each snow/soil layer (K)
-    snowfrz_scale    => mpar_data%snowfrz_scale, & ! intent(in): [dp]    scaling parameter for the snow freezing curve (K-1)
-    mLayerNrgFlux => flux_init%mLayerNrgFlux_m &
-    &)
-    ! check the need to merge snow layers
-    tooMuchMelt2 = .false.
-    dt_cur2 = dt_cur
-   !  if (nSnow>0) then
-     !$cuf kernel do(1) <<<*,*>>> reduce(.or.:tooMuchMelt2)
-     do iGRU=1,nGRU
-       if (nSnow(iGRU) > 0) then
-      ! compute the energy required to melt the top snow layer (J m-2)
-      volEnth = volEnthalpy(mLayerVolFracIce(1,iGRU),mLayerVolFracLiq(1,iGRU),mLayerTemp(1,iGRU),snowfrz_scale)
-     !  print*, -volEnth
-     !  print*, mLayerNrgFlux(1,iGRU)
-     !  print*, dt_cur2
-      ! set flag and error codes for too much melt
-      if (-volEnth < mLayerNrgFlux(1,iGRU)*dt_cur2) then
-        tooMuchMelt2 = .true.
-        !message=trim(message)//'net flux in the top snow layer can melt all the snow in the top layer'
-       !  err=-20; return ! negative error code to denote a warning
-      end if
-     endif
-     end do
-   !  end if
-    err = cudaDeviceSynchronize()
-   !  print*, 552, err
-   end associate
-   tooMuchMelt = tooMuchMelt2
-  
- end subroutine initial_function_evaluations
+   nSnow            => indx_data%nSnow        ,& ! intent(in): [i4b]   number of snow layers
+   mLayerVolFracIce => prog_data%mLayerVolFracIce ,& ! intent(in): [dp(:)] volumetric fraction of ice (-)
+   mLayerVolFracLiq => prog_data%mLayerVolFracLiq ,& ! intent(in): [dp(:)] volumetric fraction of liquid water (-)
+   mLayerTemp       => prog_data%mLayerTemp       ,& ! intent(in): [dp(:)] temperature of each snow/soil layer (K)
+   snowfrz_scale    => mpar_data%snowfrz_scale_ & ! intent(in): [dp]    scaling parameter for the snow freezing curve (K-1)
+   &)
+   tooMuchMelt_d = tooMuchMelt
+   call checkMerge_kernel<<<blocks,threads>>>(nGRU,nSnow,mLayerVolFracIce,mLayerVolFracLiq,&
+   mLayerTemp,flux_init%data,flux_init%ixMLayerNrgFlux_start,flux_init%ixMLayerNrgFlux_end,&
+   snowfrz_scale,dt_cur,tooMuchMelt_d)
+   tooMuchMelt = tooMuchMelt_d
+   if (tooMuchMelt) then
+    err = -20; return
+   end if
+  end associate
 
+ end subroutine initial_function_evaluations
 
  subroutine initial_flux_and_residual_vectors_prime
 #ifdef SUNDIALS_ACTIVE
   ! ** Compute initial flux and residual vectors ** 
   ! Note: Need this extra subroutine to handle the case of enthalpy as a state variable, currently only implemented in the prime version
   !       If we implement it in the regular version, we can remove this subroutine
-
   associate(&
-  !  nSnow            => indx_data%maxSnow                  , & ! intent(in):    [i4b]   number of snow layers
+   nSnow            => indx_data%nSnow                  , & ! intent(in):    [i4b]   number of snow layers
    nSoil            => indx_data%nSoil                  , & ! intent(in):    [i4b]   number of soil layers
    scalarCanopyEnthalpy => prog_data%scalarCanopyEnthalpy, & ! intent(inout): [dp]    enthalpy of the vegetation canopy (J m-2)
    scalarCanopyTemp => prog_data%scalarCanopyTemp        , & ! intent(inout): [dp]    temperature of the vegetation canopy (K)
    scalarCanopyWat  => prog_data%scalarCanopyWat         , & ! intent(inout): [dp]    total water content of the vegetation canopy (kg m-2)
-   mLayerTemp       => prog_data%mLayerTemp              , & ! intent(inout): [dp(:)] temperature of each snow/soil layer (K)
-   mLayerMatricHead => prog_data%mLayerMatricHead          & ! intent(out):   [dp(:)] matric head (m) 
+   mLayerTemp       => prog_data%mLayerTemp                 , & ! intent(inout): [dp(:)] temperature of each snow/soil layer (K)
+   mLayerMatricHead => prog_data%mLayerMatricHead             & ! intent(out):   [dp(:)] matric head (m) 
    &)
-   stateVecPrime = 0._rkind ! prime initial values are 0
-   firstSplitOper0 = firstSplitOper ! set the flag for the first split operation, do not want to reset it here
- 
    call eval8summaWithPrime(&
+   nGRU, &
                     ! input: model control
                     dt,                      & ! intent(in):    length of the entire time step (seconds) for drainage pond rate
-                    nSnow,                   & ! intent(in):    number of snow layers
+                    indx_data%nSnow,                   & ! intent(in):    number of snow layers
                     nSoil,                   & ! intent(in):    number of soil layers
-                    nLayers,                 & ! intent(in):    total number of layers
-                    nGRU, &
+                    indx_data%nLayers_d,                 & ! intent(in):    total number of layers
                     .false.,                 & ! intent(in):    not inside Sundials solver                    
                     firstSubStep,            & ! intent(in):    flag to indicate if we are processing the first sub-step
                     firstFluxCall,           & ! intent(inout): flag to indicate if we are processing the first flux call
@@ -472,11 +450,12 @@ contains
                     sMul,                    & ! intent(inout): state vector multiplier (used in the residual calculations)
                     ! input: data structures
                     model_decisions,         & ! intent(in):    model decisions
-                    decisions, veg_param, &
+                    decisions, &
                     lookup_data,             & ! intent(in):    lookup table data structure
                     type_data,               & ! intent(in):    type of vegetation and soil
                     attr_data,               & ! intent(in):    spatial attributes
                     mpar_data,               & ! intent(in):    model parameters
+                    veg_param, &
                     forc_data,               & ! intent(in):    model forcing data
                     bvar_data,               & ! intent(in):    average model variables for the entire basin
                     prog_data,               & ! intent(in):    model prognostic variables for a local HRU
@@ -507,21 +486,19 @@ contains
                     rAdd,                    & ! intent(out):   sink terms on the RHS of the flux equation
                     resVec,                  & ! intent(out):   residual vector
                     err,cmessage)              ! intent(out):   error control
-  end associate
 
+  end associate
   if (err/=0) then; message=trim(message)//trim(cmessage); return_flag=.true.; return; end if  ! check for errors
 #endif
  end subroutine initial_flux_and_residual_vectors_prime
 
-
  subroutine solve_with_IDA
-  integer(i4b) :: nSoil2
 #ifdef SUNDIALS_ACTIVE
   ! get tolerance vectors
   call popTol4ida(&
+  nGRU, &
                   ! input
                   nState,        & ! intent(in):  number of desired state variables
-                  nGRU, &
                   prog_data,     & ! intent(in):  model prognostic variables for a local HRU
                   diag_data,     & ! intent(in):  model diagnostic variables for a local HRU
                   indx_data,     & ! intent(in):  indices defining model states and layers
@@ -532,16 +509,17 @@ contains
                   err,cmessage)    ! intent(out): error control
   if (err/=0) then; message=trim(message)//trim(cmessage); return; end if  ! check for errors
 
-
   layerGeometry: associate(&
-  !  nSnow => indx_data%maxSnow,& ! intent(in): [i4b] number of snow layers
+   nSnow => indx_data%nSnow,& ! intent(in): [i4b] number of snow layers
    nSoil => indx_data%nSoil & ! intent(in): [i4b] number of soil layers
    )
 
    ! allocate space for the temporary flux_sum structure
    call allocate_device_flux_prev(flux_sum,nSoil,nGRU)
+   if (err/=0) then; err=20; message=trim(message)//trim(cmessage); return; end if
 
    ! initialize flux_sum
+
    ! initialize sum of compression of the soil matrix
    mLayerCmpress_sum = 0._rkind
    stateVecNew = 0._rkind 
@@ -552,15 +530,15 @@ contains
    !---------------------------
    ! iterations and updates to trial state vector, fluxes, and derivatives are done inside IDA solver
    call summaSolve4ida(&
+   nGRU, &
                        dt_cur,                  & ! intent(in):    current stepsize
                        dt,                      & ! intent(in):    entire time step for drainage pond rate
                        atol,                    & ! intent(in):    absolute tolerance
                        rtol,                    & ! intent(in):    relative tolerance
-                       indx_data%nSnow,                   & ! intent(in):    number of snow layers
+                       nSnow,                   & ! intent(in):    number of snow layers
                        nSoil,                   & ! intent(in):    number of soil layers
                        nLayers,                 & ! intent(in):    number of snow+soil layers
                        nState,                  & ! intent(in):    number of state variables in the current subset
-                       nGRU, &
                        ixMatrix,                & ! intent(in):    type of matrix (dense or banded)
                        firstSubStep,            & ! intent(in):    flag to indicate if we are processing the first sub-step
                        computeVegFlux,          & ! intent(in):    flag to indicate if we need to compute fluxes over vegetation
@@ -573,7 +551,6 @@ contains
                        dMat,                    & ! intent(inout): diagonal of the Jacobian matrix (excludes fluxes)
                        ! input: data structures
                        model_decisions,         & ! intent(in):    model decisions
-                       decisions, veg_param, &
                        lookup_data,             & ! intent(in):    lookup data
                        type_data,               & ! intent(in):    type of vegetation and soil
                        attr_data,               & ! intent(in):    spatial attributes
@@ -581,6 +558,7 @@ contains
                        forc_data,               & ! intent(in):    model forcing data
                        bvar_data,               & ! intent(in):    average model variables for the entire basin
                        prog_data,               & ! intent(in):    model prognostic variables for a local HRU
+                       decisions,veg_param, &
                        ! input-output: data structures
                        indx_data,               & ! intent(inout): index data
                        diag_data,               & ! intent(inout): model diagnostic variables for a local HRU
@@ -614,35 +592,21 @@ contains
    ! compute average flux
    flux_temp = flux_sum
 
+
    ! compute the total change in storage associated with compression of the soil matrix (kg m-2)
    soilVars: associate(&
-    nSnow => indx_data%nSnow, &
-    ! nSoil_d => indx_data%nSoil_d, &
     ! layer geometry
     mLayerDepth        => prog_data%mLayerDepth          ,& ! depth of each layer in the snow-soil sub-domain (m)
-    mLayerCompress     => diag_data%mLayerCompress_m       ,& ! change in storage associated with compression of the soil matrix (-)
+    mLayerCompress     => diag_data%mLayerCompress       ,& ! change in storage associated with compression of the soil matrix (-)
     scalarSoilCompress => diag_data%scalarSoilCompress & ! total change in storage associated with compression of the soil matrix (kg m-2 s-1)
     )
-    err = cudaDeviceSynchronize()
-    ! print*, 727, err
-    mLayerCompress = mLayerCmpress_sum
-    nSoil2 = indx_data%nSoil
-      !$cuf kernel do(1) <<<*,*>>>
-    do iGRU=1,nGRU
-      scalarSoilCompress(iGRU) = 0
-      do iLayer=1,nSoil2
-        scalarSoilCompress(iGRU) = scalarSoilCompress(iGRU) + mLayerCompress(iLayer,iGRU) * mLayerDepth(iLayer+nSnow(iGRU),iGRU)
-      end do
-      scalarSoilCompress(iGRU) =  scalarSoilCompress(iGRU) *iden_water
-    end do
-    ! scalarSoilCompress = sum(mLayerCompress*mLayerDepth(nSnow+1:nLayers)) * iden_water
-    end associate soilVars
-
-err = cudaDeviceSynchronize()
+    call update_soilCompres_kernel<<<blocks,threads>>>(nGRU,indx_data%nSnow,indx_data%nLayers_d,&
+        mLayerCompress,mLayerCmpress_sum,dt_cur,&
+        scalarSoilCompress,mLayerDepth)
+   end associate soilVars
   end associate layerGeometry
 #endif
  end subroutine solve_with_IDA
-
 
  subroutine finalize_systemSolv
   ! set untapped melt energy to zero
@@ -654,19 +618,95 @@ err = cudaDeviceSynchronize()
   deallocate(dBaseflow_dMatric)
   call deallocate_device_flux_data(flux_sum)
   call deallocate_device_flux_data(flux_init)
+
  end subroutine finalize_systemSolv
 
 end subroutine systemSolv
 
-attributes(device) function volEnthalpy(mLayerVolFracIce,mLayerVolFracLiq,mLayerTemp,snowfrz_scale)
-USE enthalpyTemp_module,only:T2enthalpy_snwWat            ! convert temperature to liq+ice enthalpy for a snow layer
+attributes(global) subroutine update_soilCompres_kernel(nGRU,nSnow,nLayers,&
+mLayerCompress,mLayerCmpress_sum,dt_cur,&
+scalarSoilCompress,mLayerDepth)
+integer(i4b),intent(in),value :: nGRU
+integer(i4b),intent(in) :: nSnow(:), nLayers(:)
+real(rkind),intent(inout) :: mLayerCompress(:,:), mLayerCmpress_sum(:,:)
+real(rkind),intent(in),value :: dt_cur
+real(rkind),intent(inout) :: scalarSoilCompress(:)
+real(rkind),intent(in) :: mLayerDepth(:,:)
 
-  real(rkind) :: volEnthalpy
+    integer(i4b) :: iGRU
+  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+
+  if (iGRU .gt. nGRU) return
+  call update_soilCompres(mLayerCompress(:,iGRU),mLayerCmpress_sum(:,iGRU),dt_cur,&
+  scalarSoilCompress(iGRU),mLayerDepth(nSnow(iGRU)+1:nLayers(iGRU),iGRU))
+end subroutine
+
+
+attributes(device) subroutine update_soilCompres(mLayerCompress, mLayerCmpress_sum, dt_cur, &
+scalarSoilCompress, mLayerDepth)
+  real(rkind),intent(inout) :: mLayerCompress(:)
+  real(rkind),intent(inout) :: mLayerCmpress_sum(:)
+  real(rkind),intent(inout) :: dt_cur
+  real(rkind),intent(inout) :: scalarSoilCompress
+  real(rkind),intent(inout) :: mLayerDepth(:)
+    mLayerCompress = mLayerCmpress_sum /  dt_cur
+    scalarSoilCompress = sum(mLayerCompress*mLayerDepth)*iden_water
+end subroutine
+
+attributes(global) subroutine checkMerge_kernel(nGRU,nSnow,mLayerVolFracIce,mLayerVolFracLiq,&
+  mLayerTemp,flux_data, &
+  mLayerNrgFlux_start,mLayerNrgFlux_end,&
+  snowfrz_scale, dt_cur, &
+  tooMuchMelt)
+  integer(i4b),intent(in),value :: nGRU
+  integer(i4b),intent(in) :: nSnow(:)
+  real(rkind),intent(in) :: mLayerVolFracIce(:,:),mLayerVolFracLiq(:,:)
+  real(rkind),intent(in) :: mLayerTemp(:,:),flux_data(:,:)
+  integer(i4b),intent(in),value :: mLayerNrgFlux_start,mLayerNrgFlux_end
+  real(rkind),intent(in) :: snowfrz_scale(:)
+  real(rkind),intent(in),value :: dt_cur
+  logical(lgt),intent(inout) :: tooMuchMelt
+
+      integer(i4b) :: iGRU
+  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+
+  if (iGRU .gt. nGRU) return
+
+  call checkMerge(nSnow(iGRU),mLayerVolFracIce(:,iGRU),mLayerVolFracLiq(:,iGRU),&
+  mLayerTemp(:,iGRU),flux_data(mLayerNrgFlux_start:mLayerNrgFlux_end,iGRU), &
+  snowfrz_scale(iGRU), dt_cur, &
+  tooMuchMelt)
+end subroutine
+
+
+attributes(device) subroutine checkMerge(nSnow,mLayerVolFracIce,mLayerVolFracLiq,&
+  mLayerTemp,mLayerNrgFlux, &
+  snowfrz_scale, dt_cur, &
+  tooMuchMelt)
+  USE enthalpyTemp_module,only:T2enthalpy_snwWat            ! convert temperature to liq+ice enthalpy for a snow layer
+  implicit none
+  integer(i4b),intent(in) :: nSnow
+  real(rkind),intent(in) :: mLayerVolFracIce(:),mLayerVolFracLiq(:)
+  real(rkind),intent(in) :: mLayerTemp(:),mLayerNrgFlux(:)
+  real(rkind),intent(in) :: snowfrz_scale, dt_cur
+  logical(lgt),intent(inout) :: tooMuchMelt
+
   real(rkind) :: bulkDensity
-  real(rkind) :: mLayerVolFracIce,mLayerVolFracLiq,mLayerTemp,snowfrz_scale
-  ! compute the energy required to melt the top snow layer (J m-2)
-  bulkDensity = mLayerVolFracIce*iden_ice + mLayerVolFracLiq*iden_water
-  volEnthalpy = T2enthalpy_snwWat(mLayerTemp,bulkDensity,snowfrz_scale)
-end function
+  real(rkind) :: volEnthalpy
+   ! check the need to merge snow layers
+   if (nSnow>0) then
+     ! compute the energy required to melt the top snow layer (J m-2)
+     bulkDensity = mLayerVolFracIce(1)*iden_ice + mLayerVolFracLiq(1)*iden_water
+     volEnthalpy = T2enthalpy_snwWat(mLayerTemp(1),bulkDensity,snowfrz_scale)
+     ! set flag and error codes for too much melt
+     if (-volEnthalpy < mLayerNrgFlux(1)*dt_cur) then
+       tooMuchMelt = .true.
+       !message=trim(message)//'net flux in the top snow layer can melt all the snow in the top layer'
+       return ! negative error code to denote a warning
+     end if
+   end if
+
+end subroutine
+
 
 end module systemSolv_module

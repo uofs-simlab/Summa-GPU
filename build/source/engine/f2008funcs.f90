@@ -27,7 +27,7 @@ public::findIndex
 
 ! define generic interface
 interface cloneStruc
- module procedure cloneStruc_rv, cloneStruc_iv,cloneStruc_drv,cloneStruc_div
+ module procedure cloneStruc_rv, cloneStruc_iv
 end interface cloneStruc
 
 contains
@@ -116,52 +116,6 @@ contains
 
  end subroutine cloneStruc_rv
 
- subroutine cloneStruc_drv(dataVec,lowerBound,nGRU,source,mold,err,message)
- implicit none
- ! input-output: data vector for allocation/population
- real(rkind),intent(inout),allocatable,device     :: dataVec(:,:)            ! data vector
- ! input
- integer(i4b),intent(in)                :: lowerBound            ! lower bound
- integer(i4b) :: nGRU
- real(rkind),intent(in),optional,device           :: source(lowerBound:,:)   ! dataVec = shape of source + elements of source
- real(rkind),intent(in),optional           :: mold(lowerBound:,:)     ! dataVec = shape of mold
- ! error control
- integer(i4b),intent(out)               :: err                   ! error code
- character(*),intent(out)               :: message               ! error message
- ! ----------------------------------------------------------------------------------------------------------------------------------
- ! local variables
- integer(i4b),dimension(2)              :: upperBound            ! upper bound of the data vector (array)
- ! -----------------------------------------------------------------------------------------------------------------------------------
- ! initialize errors
- err=0; message="cloneStruc_rv/"
-
- ! check that source and mold are present
- if(.not.present(source) .and. .not.present(mold))then
-  message=trim(message)//'expect to receive either optional argument "source" or "mold" (neither given)'
-  err=20; return
- end if
-
- ! check that source and mold are not both present
- if(present(source) .and. present(mold))then
-  message=trim(message)//'expect to receive either optional argument "source" or "mold" (both given)'
-  err=20; return
- end if
-
- ! get the upper bounds of the source or the mold vector
- if(present(source))then; upperBound=ubound(source); end if
- if(present(mold))  then; upperBound=ubound(mold);   end if
-
- ! reallocate spcae
- if(allocated(dataVec)) deallocate(dataVec)
- allocate(dataVec(lowerBound:upperBound(1),nGRU),stat=err)
- if(err/=0)then; err=20; message=trim(message)//'unable to allocate space for the data vector'; return; end if
-
- ! copy data
- if(present(source)) dataVec(lowerBound:upperBound(1),:) = source(lowerBound:upperBound(1),:)
-
- end subroutine cloneStruc_drv
-
-
  ! ************************************************************************************************
  ! public subroutine cloneStruc_iv: clone a data structure (integer vector)
  ! ************************************************************************************************
@@ -208,50 +162,5 @@ contains
  if(present(source)) dataVec(lowerBound:upperBound(1)) = source(lowerBound:upperBound(1))
 
  end subroutine cloneStruc_iv
-
-  subroutine cloneStruc_div(dataVec,lowerBound,nGRU,source,mold,err,message)
- implicit none
- ! input-output: data vector for allocation/population
- integer(i4b),intent(inout),allocatable,device     :: dataVec(:,:)            ! data vector
- ! input
- integer(i4b),intent(in)                :: lowerBound            ! lower bound
- integer(i4b) :: nGRU
- integer(i4b),intent(in),optional,device           :: source(lowerBound:,:)   ! dataVec = shape of source + elements of source
- integer(i4b),intent(in),optional           :: mold(lowerBound:,:)     ! dataVec = shape of mold
- ! error control
- integer(i4b),intent(out)               :: err                   ! error code
- character(*),intent(out)               :: message               ! error message
- ! ----------------------------------------------------------------------------------------------------------------------------------
- ! local variables
- integer(i4b),dimension(2)              :: upperBound            ! upper bound of the data vector (array)
- ! -----------------------------------------------------------------------------------------------------------------------------------
- ! initialize errors
- err=0; message="cloneStruc_rv/"
-
- ! check that source and mold are present
- if(.not.present(source) .and. .not.present(mold))then
-  message=trim(message)//'expect to receive either optional argument "source" or "mold" (neither given)'
-  err=20; return
- end if
-
- ! check that source and mold are not both present
- if(present(source) .and. present(mold))then
-  message=trim(message)//'expect to receive either optional argument "source" or "mold" (both given)'
-  err=20; return
- end if
-
- ! get the upper bounds of the source or the mold vector
- if(present(source))then; upperBound=ubound(source); end if
- if(present(mold))  then; upperBound=ubound(mold);   end if
-
- ! reallocate spcae
- if(allocated(dataVec)) deallocate(dataVec)
- allocate(dataVec(lowerBound:upperBound(1),nGRU),stat=err)
- if(err/=0)then; err=20; message=trim(message)//'unable to allocate space for the data vector'; return; end if
-
- ! copy data
- if(present(source)) dataVec(lowerBound:upperBound(1),:) = source(lowerBound:upperBound(1),:)
-
- end subroutine cloneStruc_div
 
 end module f2008funcs_module

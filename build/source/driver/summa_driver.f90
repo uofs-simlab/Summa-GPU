@@ -39,19 +39,21 @@ program summa_driver
   ! global data
   USE globalData, only: numtim                                ! number of model time steps
   USE globalData, only: print_step_freq
+ USE globalData,only:gru_struc                               ! gru-hru mapping structures
 
-  use device_data_types
-  use initialize_device
   ! OpenWQ coupling
-
+#ifdef OPENWQ_ACTIVE
+  USE summa_openwq,only:openwq_init
+  USE summa_openwq,only:openwq_run_time_start
+  USE summa_openwq,only:openwq_run_space_step
+  USE summa_openwq,only:openwq_run_time_end
+#endif
+use initialize_device,only:finalize_device_indx_data,finalize_device_prog_data,allocate_device_decisions,finalize_device_indx_data
+use initialize_device,only:deallocate_device_flux_data,deallocate_device_indx_data,deallocate_device_prog_data
+use cudafor
   implicit none
 
   ! * driver variables *
-
-
-  ! *****************************************************************************
-  ! * variable definitions
-  ! *****************************************************************************
   ! define the master summa data structure
   type(summa1_type_dec), allocatable :: summa1_struc(:)
   ! define parameters for the model simulation
@@ -74,7 +76,7 @@ program summa_driver
 contains
 
   subroutine initialize_summa_driver
-    integer(i4b) :: nSnow,nSoil,nLayers
+    use initialize_device
    ! *** Initial operations for SUMMA driver program ***
 
    ! allocate space for the master summa structure
@@ -88,30 +90,46 @@ contains
    ! initialize parameter data structures (e.g. vegetation and soil parameters)
    call summa_paramSetup(summa1_struc(n), err, message)
    call handle_err(err, message)
+   call allocate_device_decisions(summa1_struc(n)%decisions)
+  call allocate_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
+         call allocate_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,summa1_struc(n)%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
+        call allocate_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,summa1_struc(n)%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
+    ! call allocate_device_param_data(summa1_struc(n)%mparStruct_d,summa1_struc(n)%mparStruct,summa1_struc(n)%nGRU)
+        call allocate_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc(n)%nGRU)
+           call allocate_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct,summa1_struc(n)%nGRU)
+        allocate(summa1_struc(n)%computeVegFlux_d(summa1_struc(n)%nGRU))
+        do iGRU=1,summa1_struc(n)%nGRU
+            summa1_struc(n)%computeVegFlux_d(iGRU) = summa1_struc(n)%computeVegFlux%gru(iGRU)%hru(1)
+        end do
+         print*, 259
+  print*, 263
+    print*, 265
+                    err = cudaDeviceSynchronize()
+                    print*, 267, err
+  call allocate_device_attr_data(summa1_struc(n)%attrStruct_d,summa1_struc(n)%attrStruct,summa1_struc(n)%nGRU)
+                    err = cudaDeviceSynchronize()
+                    print*, 267, err
+                    err = cudaDeviceSynchronize()
+                    print*, 267, err
+                    err = cudaDeviceSynchronize()
+                    print*, 267, err
+   call allocate_veg_table(summa1_struc(n)%veg_tables)
+        call allocate_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc(n)%nGRU)
 
    ! read restart data and reset the model state
    call summa_readRestart(summa1_struc(n), err, message)
    call handle_err(err, message)
- call finalize_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct,summa1_struc(n)%nGRU)
 
-         nSnow = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSnow)%dat(1)
-        nSoil = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSoil)%dat(1)
-            nLayers = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nLayers)%dat(1)
-
-!  call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct,summa1_struc(n)%nGRU)
-! call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,nSnow,nSoil,nLayers,summa1_struc(n)%nGRU)
-! call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,nLayers,nSoil,summa1_struc(n)%nGRU)
-  !  call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,nSnow,nSoil,summa1_struc(n)%nGRU)
-!  call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
-
+#ifdef OPENWQ_ACTIVE
+   call openwq_init(err)
+   if (err /= 0) call stop_program(1, 'Problem Initializing OpenWQ')
+#endif
   end subroutine initialize_summa_driver
 
   subroutine update_summa_driver
-    integer(i4b) :: nSnow,nSoil,nLayers
+    use initialize_device
+    integer(i4b) :: iGRU
    ! *** Update operations for SUMMA driver program ***
-    nSnow = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSnow)%dat(1)
-        nSoil = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSoil)%dat(1)
-            nLayers = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nLayers)%dat(1)
 
    ! loop through time
    do modelTimeStep=1,numtim
@@ -119,38 +137,50 @@ contains
      ! read model forcing data
      call summa_readForcing(modelTimeStep, summa1_struc(n), err, message)
      call handle_err(err, message)
-  
-    !  if (mod(modelTimeStep, print_step_freq) == 0) then
-       print *, 'step ---> ', modelTimeStep, numtim
-    !  end if
+ 
+#ifdef OPENWQ_ACTIVE
+     call openwq_run_time_start(summa1_struc(n)) ! Passing state volumes to openWQ
+#endif
+ 
+     if (mod(modelTimeStep, print_step_freq) == 0) then
+       print *, 'step ---> ', modelTimeStep
+     end if
  
      ! run the summa physics for one time step
      call summa_runPhysics(modelTimeStep, summa1_struc(n), err, message)
      call handle_err(err, message)
-    !  if (modelTimeStep .eq. numtim) then
- call finalize_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct,summa1_struc(n)%nGRU)
+ 
+#ifdef OPENWQ_ACTIVE
+     call openwq_run_space_step(summa1_struc(n)) ! Passing fluxes to openWQ
+#endif
+call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct)
+    call finalize_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct)
+                      call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,summa1_struc(n)%indxStruct)
+      call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct)
+             call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,summa1_struc(n)%indxStruct)
+      call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,summa1_struc(n)%indxStruct)
+          do iGRU=1,summa1_struc(n)%nGRU
+            summa1_struc(n)%computeVegFlux%gru(iGRU)%hru(1) = summa1_struc(n)%computeVegFlux_d(iGRU)
+        end do
 
-         nSnow = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSnow)%dat(1)
-        nSoil = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nSoil)%dat(1)
-            nLayers = summa1_struc(n)%indxStruct%gru(1)%hru(1)%var(iLookINDEX%nLayers)%dat(1)
-
- call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct,summa1_struc(n)%nGRU)
-call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,nSnow,nSoil,nLayers,summa1_struc(n)%nGRU)
-call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,nLayers,nSoil,summa1_struc(n)%nGRU)
-   call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,nSnow,nSoil,summa1_struc(n)%nGRU)
- call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
-    !  end if
      ! write the model output
      call summa_writeOutputFiles(modelTimeStep, summa1_struc(n), err, message)
      call handle_err(err, message)
-  
+ 
+#ifdef OPENWQ_ACTIVE
+     call openwq_run_time_end(summa1_struc(n))
+#endif
+ 
    end do  ! end looping through time
-   call deallocate_device_diag_data(summa1_struc(n)%diagStruct_d)
-call deallocate_device_forc_data(summa1_struc(n)%forcStruct_d)
-call deallocate_device_prog_data(summa1_struc(n)%progStruct_d)
-call deallocate_device_flux_data(summa1_struc(n)%fluxStruct_d)
- call deallocate_device_bvar_data(summa1_struc(n)%bvarStruct_d)
- call deallocate_device_indx_data(summa1_struc(n)%indxStruct_d)
+  !  call deallocate_device_forc_data(summa1_struc(n)%forcStruct_d)
+  ! call deallocate_device_indx_data(summa1_struc(n)%indxStruct_d)
+  ! call deallocate_device_prog_data(summa1_struc(n)%progStruct_d)
+  ! call deallocate_device_bvar_data(summa1_struc(n)%bvarStruct_d)
+  ! call deallocate_device_diag_data(summa1_struc(n)%diagStruct_d)
+  ! call deallocate_device_flux_data(summa1_struc(n)%fluxStruct_d)
+  ! call deallocate_device_param_data(summa1_struc(n)%mparStruct_d)
+  ! call deallocate_device_attr_data(summa1_struc(n)%attrStruct_d)
+  ! call deallocate_device_decisions(summa1_struc(n)%decisions)
 
   end subroutine update_summa_driver
 

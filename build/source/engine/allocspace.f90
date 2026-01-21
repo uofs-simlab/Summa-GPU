@@ -55,10 +55,10 @@ USE data_types,only:var_info               ! data type for metadata
 
 ! access missing values
 USE globalData,only:integerMissing         ! missing integer
-USE globalData,only:realMissing            ! missing double precision number
+USE globalData,only:realMissing            ! missing real number
 
 USE globalData,only: nTimeDelay            ! number of timesteps in the time delay histogram
-USE globalData,only: nBand                 ! number of spectral bands
+USE globalData,only: nSpecBand             ! number of spectral bands
 
 ! access variable types
 USE var_lookup,only:iLookVarType           ! look up structure for variable typed
@@ -80,6 +80,7 @@ contains
  subroutine allocGlobal(metaStruct,dataStruct,err,message)
  ! NOTE: safety -- ensure only used in allocGlobal
  USE globalData,only: gru_struc     ! gru-hru mapping structures
+ use device_data_types
  implicit none
  ! input
  type(var_info),intent(in)       :: metaStruct(:)  ! metadata structure
@@ -112,13 +113,16 @@ contains
   class is (gru_double);        if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_doubleVec);     if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   ! gru+hru dimensions
+  class is (type_data_device); call allocGlobal_type(dataStruct,nGRU); return;
   class is (gru_hru_int);       if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_int8);      if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_intVec);    if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_double);    if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_doubleVec); if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
+  class is (mpar_data_device); call allocGlobal_param(dataStruct,nGRU,gru_struc(1)%hruInfo(1)%nSoil); return
  ! gru+hru+z dimensions
   class is (gru_hru_z_vLookup); if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
+  class is (zLookup_device); call allocGlobal_lookup(dataStruct,gru_struc(1)%hruInfo(1)%nSoil,nGRU); return;
  end select
 
  ! check errors
@@ -134,7 +138,7 @@ contains
    class is (gru_hru_intVec);    if(allocated(dataStruct%gru(iGRU)%hru))then; check=.true.; else; allocate(dataStruct%gru(iGRU)%hru(gru_struc(iGRU)%hruCount),stat=err); end if
    class is (gru_hru_double);    if(allocated(dataStruct%gru(iGRU)%hru))then; check=.true.; else; allocate(dataStruct%gru(iGRU)%hru(gru_struc(iGRU)%hruCount),stat=err); end if
    class is (gru_hru_doubleVec); if(allocated(dataStruct%gru(iGRU)%hru))then; check=.true.; else; allocate(dataStruct%gru(iGRU)%hru(gru_struc(iGRU)%hruCount),stat=err); end if
-!  class is (gru_hru_z_vLookup); if(allocated(dataStruct%gru(iGRU)%hru))then; check=.true.; else; allocate(dataStruct%gru(iGRU)%hru(gru_struc(iGRU)%hruCount),stat=err); end if
+ class is (gru_hru_z_vLookup); if(allocated(dataStruct%gru(iGRU)%hru))then; check=.true.; else; allocate(dataStruct%gru(iGRU)%hru(gru_struc(iGRU)%hruCount),stat=err); end if
    class default  ! do nothing: It is acceptable to not be any of these specified cases
   end select
   ! check errors
@@ -204,6 +208,204 @@ contains
  if(err/=0)then; err=20; message=trim(message)//trim(cmessage); return; end if
 
  end subroutine allocGlobal
+
+ subroutine allocGlobal_lookup(dataStruct, nSoil, nGRU)
+  use device_data_types
+    implicit none
+    type(zLookup_device) :: dataStruct
+    integer(i4b),intent(in) :: nGRU,nSoil
+
+    integer(i4b),parameter               :: nlook_global=10001       ! number of elements in the lookup table
+    allocate(dataStruct%h_lookup(nlook_global))
+    allocate(dataStruct%t_lookup(nlook_global))
+    if (nLook .eq. 0 .or. nSoil .eq. 0) return
+    allocate(dataStruct%temperature(nLook,nSoil,nGRU))
+    allocate(dataStruct%psiLiq_int(nLook,nSoil,nGRU))
+    allocate(dataStruct%deriv2(nLook,nSoil,nGRU))
+  end subroutine
+
+  subroutine allocGlobal_type(dataStruct, nGRU)
+    use device_data_types,only: type_data_device
+    type(type_data_device) :: dataStruct
+    integer(i4b) :: nGRU
+    allocate(dataStruct%vegTypeIndex(nGRU))
+    allocate(dataStruct%soilTypeIndex(nGRU))
+    allocate(dataStruct%slopeTypeIndex(nGRU))
+    allocate(dataStruct%downHRUindex(nGRU))
+  end subroutine
+
+  subroutine allocGlobal_param(dataStruct, nGRU, nSoil)
+    use device_data_types,only: mpar_data_device
+    implicit none
+    type(mpar_data_device) :: dataStruct
+    integer(i4b) :: nGRU, nSoil
+
+        allocate(dataStruct%k_soil_(nSoil,nGRU))
+    allocate(dataStruct%k_macropore_(nSoil,nGRU))
+    allocate(dataStruct%compactedDepth_(nGRU))
+  allocate(dataStruct%soil_dens_intr_(nSoil,nGRU))
+  allocate(dataStruct%thCond_soil_(nSoil,nGRU))
+  allocate(dataStruct%frac_sand_(nSoil,nGRU))
+  allocate(dataStruct%frac_clay_(nSoil,nGRU))
+  allocate(dataStruct%frac_silt_(nSoil,nGRU))
+  allocate(dataStruct%snowfrz_scale_(nGRU))
+  allocate(dataStruct%specificHeatVeg_(nGRU))
+  allocate(dataStruct%maxMassVegetation_(nGRU))
+  allocate(dataStruct%Fcapil_(nGRU))
+  allocate(dataStruct%k_snow_(nGRU))
+  allocate(dataStruct%mw_exp_(nGRU))
+  allocate(dataStruct%fixedThermalCond_snow_(nGRU))
+  allocate(dataStruct%rootScaleFactor1_(nGRU))
+allocate(dataStruct%rootScaleFactor2_(nGRU))
+allocate(dataStruct%rootDistExp_(nGRU))
+    allocate(dataStruct%Louis79_bparam_(nGRU))
+allocate(dataStruct%Louis79_cStar_(nGRU))
+allocate(dataStruct%Mahrt87_eScale_(nGRU))
+    allocate(dataStruct%aquiferBaseflowExp_(nGRU))
+    allocate(dataStruct%aquiferBaseflowRate_(nGRU))
+    allocate(dataStruct%aquiferScaleFactor_(nGRU))
+    allocate(dataStruct%canopyDrainageCoeff_(nGRU))
+    allocate(dataStruct%canopyWettingExp_(nGRU))
+    allocate(dataStruct%canopyWettingFactor_(nGRU))
+    allocate(dataStruct%critAquiferTranspire_(nGRU))
+allocate(dataStruct%critRichNumber_(nGRU))
+allocate(dataStruct%critSoilTranspire_(nGRU))
+allocate(dataStruct%critSoilWilting_(nGRU))
+allocate(dataStruct%f_impede_(nGRU))
+    allocate(dataStruct%heightCanopyBottom_(nGRU))
+    allocate(dataStruct%heightCanopyTop_(nGRU))
+    allocate(dataStruct%kAnisotropic_(nGRU))
+    allocate(dataStruct%leafDimension_(nGRU))
+    allocate(dataStruct%leafExchangeCoeff_(nGRU))
+    allocate(dataStruct%lowerBoundHead_(nGRU))
+allocate(dataStruct%lowerBoundTemp_(nGRU))
+allocate(dataStruct%lowerBoundTheta_(nGRU))
+    allocate(dataStruct%minStomatalResistance_(nGRU))
+    allocate(dataStruct%mpExp_(nGRU))
+    allocate(dataStruct%plantWiltPsi_(nGRU))
+    allocate(dataStruct%qSurfScale_(nGRU))
+allocate(dataStruct%rootingDepth_(nGRU))
+allocate(dataStruct%soilIceCV_(nGRU))
+allocate(dataStruct%soilIceScale_(nGRU))
+    allocate(dataStruct%soilStressParam_(nGRU))
+    allocate(dataStruct%specificStorage_(nGRU))
+    allocate(dataStruct%theta_mp_(nGRU))
+    allocate(dataStruct%theta_res_(nSoil,nGRU))
+    allocate(dataStruct%theta_sat_(nSoil,nGRU))
+    allocate(dataStruct%throughfallScaleRain_(nGRU))
+    allocate(dataStruct%upperBoundHead_(nGRU))
+    allocate(dataStruct%upperBoundTemp_(nGRU))
+    allocate(dataStruct%upperBoundTheta_(nGRU))
+    allocate(dataStruct%vGn_alpha_(nSoil,nGRU))
+    allocate(dataStruct%vGn_n_(nSoil,nGRU))
+    allocate(dataStruct%wettingFrontSuction_(nGRU))
+    allocate(dataStruct%windReductionParam_(nGRU))
+    allocate(dataStruct%z0Canopy_(nGRU))
+    allocate(dataStruct%z0Snow_(nGRU))
+    allocate(dataStruct%z0Soil_(nGRU))
+    allocate(dataStruct%zScale_TOPMODEL_(nGRU))
+    allocate(dataStruct%zpdFraction_(nGRU))
+    allocate(dataStruct%Kc25_(nGRU))
+allocate(dataStruct%Ko25_(nGRU))
+allocate(dataStruct%Kc_qFac_(nGRU))
+allocate(dataStruct%Ko_qFac_(nGRU))
+allocate(dataStruct%kc_Ha_(nGRU))
+allocate(dataStruct%ko_Ha_(nGRU))
+allocate(dataStruct%vcmax25_canopyTop_(nGRU))
+allocate(dataStruct%vcmax_qFac_(nGRU))
+allocate(dataStruct%vcmax_Ha_(nGRU))
+allocate(dataStruct%vcmax_Hd_(nGRU))
+allocate(dataStruct%vcmax_Sv_(nGRU))
+allocate(dataStruct%vcmax_Kn_(nGRU))
+allocate(dataStruct%jmax25_scale_(nGRU))
+allocate(dataStruct%jmax_Ha_(nGRU))
+allocate(dataStruct%jmax_Hd_(nGRU))
+allocate(dataStruct%jmax_Sv_(nGRU))
+allocate(dataStruct%fractionJ_(nGRU))
+allocate(dataStruct%quantamYield_(nGRU))
+allocate(dataStruct%vpScaleFactor_(nGRU))
+allocate(dataStruct%cond2photo_slope_(nGRU))
+allocate(dataStruct%minStomatalConductance_(nGRU))
+    allocate(dataStruct%fieldCapacity_(nGRU))
+    allocate(dataStruct%absTolTempCas)
+    allocate(dataStruct%relTolTempCas)
+    allocate(dataStruct%absTolTempVeg)
+    allocate(dataStruct%relTolTempVeg)
+    allocate(dataStruct%absTolWatVeg)
+    allocate(dataStruct%relTolWatVeg)
+    allocate(dataStruct%absTolTempSoilSnow)
+    allocate(dataStruct%relTolTempSoilSnow)
+    allocate(dataStruct%absTolWatSnow)
+    allocate(dataStruct%relTolWatSnow)
+    allocate(dataStruct%absTolMatric)
+    allocate(dataStruct%relTolMatric)
+    allocate(dataStruct%absTolAquifr)
+    allocate(dataStruct%relTolAquifr)
+    allocate(dataStruct%refInterceptCapRain_(nGRU))
+allocate(dataStruct%refInterceptCapSnow_(nGRU))
+allocate(dataStruct%Frad_vis_(nGRU))
+allocate(dataStruct%Frad_direct_(nGRU))
+allocate(dataStruct%directScale_(nGRU))
+    allocate(dataStruct%albedoMax_(nGRU))
+    allocate(dataStruct%albedoMinWinter_(nGRU))
+    allocate(dataStruct%albedoMinSpring_(nGRU))
+    allocate(dataStruct%albedoMaxVisible_(nGRU))
+    allocate(dataStruct%albedoMinVisible_(nGRU))
+    allocate(dataStruct%albedoMaxNearIR_(nGRU))
+    allocate(dataStruct%albedoMinNearIR_(nGRU))
+    allocate(dataStruct%albedoDecayRate_(nGRU))
+allocate(dataStruct%tempScalGrowth_(nGRU))
+allocate(dataStruct%albedoSootLoad_(nGRU))
+allocate(dataStruct%albedoRefresh_(nGRU))
+allocate(dataStruct%snowUnloadingCoeff_(nGRU))
+allocate(dataStruct%ratioDrip2Unloading_(nGRU))
+allocate(dataStruct%minTempUnloading_(nGRU))
+allocate(dataStruct%rateTempUnloading_(nGRU))
+allocate(dataStruct%minWindUnloading_(nGRU))
+allocate(dataStruct%rateWindUnloading_(nGRU))
+allocate(dataStruct%densScalGrowth_(nGRU))
+allocate(dataStruct%grainGrowthRate_(nGRU))
+allocate(dataStruct%densScalOvrbdn_(nGRU))
+allocate(dataStruct%tempScalOvrbdn_(nGRU))
+allocate(dataStruct%baseViscosity_(nGRU))
+allocate(dataStruct%zmax_(nGRU))
+allocate(dataStruct%zmin_(nGRU))
+allocate(dataStruct%zminLayer1_(nGRU))
+allocate(dataStruct%zminLayer2_(nGRU))
+allocate(dataStruct%zminLayer3_(nGRU))
+allocate(dataStruct%zminLayer4_(nGRU))
+allocate(dataStruct%zminLayer5_(nGRU))
+allocate(dataStruct%zmaxLayer1_lower_(nGRU))
+allocate(dataStruct%zmaxLayer2_lower_(nGRU))
+allocate(dataStruct%zmaxLayer3_lower_(nGRU))
+allocate(dataStruct%zmaxLayer4_lower_(nGRU))
+allocate(dataStruct%zmaxLayer1_upper_(nGRU))
+allocate(dataStruct%zmaxLayer2_upper_(nGRU))
+allocate(dataStruct%zmaxLayer3_upper_(nGRU))
+allocate(dataStruct%zmaxLayer4_upper_(nGRU))
+    allocate(dataStruct%newSnowDenMin_(nGRU))
+allocate(dataStruct%newSnowDenMult_(nGRU))
+allocate(dataStruct%newSnowDenScal_(nGRU))
+allocate(dataStruct%constSnowDen_(nGRU))
+allocate(dataStruct%newSnowDenAdd_(nGRU))
+allocate(dataStruct%newSnowDenMultTemp_(nGRU))
+allocate(dataStruct%newSnowDenMultWind_(nGRU))
+allocate(dataStruct%newSnowDenMultAnd_(nGRU))
+allocate(dataStruct%newSnowDenBase_(nGRU))
+allocate(dataStruct%tempRangeTimestep_(nGRU))
+allocate(dataStruct%tempCritRain_(nGRU))
+allocate(dataStruct%frozenPrecipMultip_(nGRU))
+allocate(dataStruct%minwind_(nGRU))
+allocate(dataStruct%winterSAI_(nGRU))
+allocate(dataStruct%summerLAI_(nGRU))
+allocate(dataStruct%FUSE_Ac_max_(nGRU))
+allocate(dataStruct%FUSE_phi_tens_(nGRU))
+allocate(dataStruct%FUSE_b_(nGRU))
+allocate(dataStruct%FUSE_lambda_(nGRU))
+allocate(dataStruct%FUSE_chi_(nGRU))
+allocate(dataStruct%FUSE_mu_(nGRU))
+allocate(dataStruct%FUSE_n_(nGRU))
+end subroutine
 
  ! ************************************************************************************************
  ! public subroutine allocLocal: allocate space for local data structures
@@ -572,7 +774,7 @@ contains
   else
    select case(metadata(iVar)%vartype)
     case(iLookVarType%scalarv); allocate(varData%var(iVar)%dat(1),stat=err)
-    case(iLookVarType%wLength); allocate(varData%var(iVar)%dat(nBand),stat=err)
+    case(iLookVarType%wLength); allocate(varData%var(iVar)%dat(nSpecBand),stat=err)
     case(iLookVarType%midSnow); allocate(varData%var(iVar)%dat(nSnow),stat=err)
     case(iLookVarType%midSoil); allocate(varData%var(iVar)%dat(nSoil),stat=err)
     case(iLookVarType%midToto); allocate(varData%var(iVar)%dat(nLayers),stat=err)
@@ -638,7 +840,7 @@ contains
   else
    select case(metadata(iVar)%vartype)
     case(iLookVarType%scalarv); allocate(varData%var(iVar)%dat(1),stat=err)
-    case(iLookVarType%wLength); allocate(varData%var(iVar)%dat(nBand),stat=err)
+    case(iLookVarType%wLength); allocate(varData%var(iVar)%dat(nSpecBand),stat=err)
     case(iLookVarType%midSnow); allocate(varData%var(iVar)%dat(nSnow),stat=err)
     case(iLookVarType%midSoil); allocate(varData%var(iVar)%dat(nSoil),stat=err)
     case(iLookVarType%midToto); allocate(varData%var(iVar)%dat(nLayers),stat=err)
@@ -701,7 +903,7 @@ contains
   else
    select case(metadata(iVar)%vartype)
     case(iLookVarType%scalarv); allocate(varData%var(iVar)%dat(1),stat=err)
-    case(iLookVarType%wLength); allocate(varData%var(iVar)%dat(nBand),stat=err)
+    case(iLookVarType%wLength); allocate(varData%var(iVar)%dat(nSpecBand),stat=err)
     case(iLookVarType%midSnow); allocate(varData%var(iVar)%dat(nSnow),stat=err)
     case(iLookVarType%midSoil); allocate(varData%var(iVar)%dat(nSoil),stat=err)
     case(iLookVarType%midToto); allocate(varData%var(iVar)%dat(nLayers),stat=err)

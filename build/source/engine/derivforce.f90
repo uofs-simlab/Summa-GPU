@@ -33,6 +33,8 @@ USE multiconst,only:minprhour                               ! number of minutes 
 ! global time information
 USE globalData,only:refJulDay                               ! reference time (fractional julian days)
 USE globalData,only:data_step                               ! length of the data step (s)
+USE globalData,only:realMissing                             ! missing real number
+USE globalData,only:nSpecBand                               ! number of spectral bands
 
 ! model decisions
 USE globalData,only:model_decisions                         ! model decision structure
@@ -56,233 +58,168 @@ USE mDecisions_module,only:  &
 ! privacy
 implicit none
 private
-public::derivforce
+public::derivforce,derivforce_d
 contains
 
  ! ************************************************************************************************
  ! public subroutine derivforce: compute derived forcing data
  ! ************************************************************************************************
- subroutine derivforce(time_data,decisions,nGRU,forc_data,attr_data,mpar_data,prog_data,diag_data,flux_data,tmZoneOffsetFracDay,err,message)
+ subroutine derivforce(time_data,forc_data,attr_data,mpar_data,prog_data,diag_data,flux_data,tmZoneOffsetFracDay,err,message)
  USE sunGeomtry_module,only:clrsky_rad                         ! compute cosine of the solar zenith angle
  USE conv_funcs_module,only:vapPress                           ! compute vapor pressure of air (Pa)
  USE conv_funcs_module,only:SPHM2RELHM,RELHM2SPHM,WETBULBTMP   ! conversion functions
  USE snow_utils_module,only:fracliquid,templiquid              ! functions to compute temperature/liquid water
  USE time_utils_module,only:compcalday                         ! convert julian day to calendar date
  USE summaFileManager,only: NC_TIME_ZONE                       ! time zone option from control file
- use device_data_types
  ! compute derived forcing data variables
  implicit none
  ! input variables
  integer(i4b),intent(in)         :: time_data(:)               ! vector of time data for a given time step
- type(forc_data_device),intent(inout)       :: forc_data               ! vector of forcing data for a given time step
- type(attr_data_device),intent(in)          :: attr_data               ! vector of model attributes
- type(mpar_data_device),intent(in)    :: mpar_data                  ! vector of model parameters
- type(prog_data_device),intent(in)    :: prog_data                  ! data structure of model prognostic variables for a local HRU
- type(decisions_device) :: decisions
- integer(i4b) :: nGRU
+ real(rkind),intent(inout)       :: forc_data(:)               ! vector of forcing data for a given time step
+ real(rkind),intent(in)          :: attr_data(:)               ! vector of model attributes
+ type(var_dlength),intent(in)    :: mpar_data                  ! vector of model parameters
+ type(var_dlength),intent(in)    :: prog_data                  ! data structure of model prognostic variables for a local HRU
  ! output variables
- type(diag_data_device),intent(inout) :: diag_data                  ! data structure of model diagnostic variables for a local HRU
- type(flux_data_device),intent(inout) :: flux_data                  ! data structure of model fluxes for a local HRU
- real(rkind),intent(inout),device       :: tmZoneOffsetFracDay(:)
+ type(var_dlength),intent(inout) :: diag_data                  ! data structure of model diagnostic variables for a local HRU
+ type(var_dlength),intent(inout) :: flux_data                  ! data structure of model fluxes for a local HRU
+ real(rkind),intent(inout)       :: tmZoneOffsetFracDay
  integer(i4b),intent(out)        :: err                        ! error code
  character(*),intent(out)        :: message                    ! error message
- ! local time
- integer(i4b)                    :: jyyy,jm,jd                 ! year, month, day
- integer(i4b)                    :: jh,jmin                    ! hour, minute
- real(rkind)                     :: dsec                       ! double precision seconds (not used)
- real(rkind)                     :: timeOffset                 ! time offset from Grenwich (days)
- real(rkind)                     :: julianTime                 ! local julian time
- ! cosine of the solar zenith angle
- real(rkind)                     :: ahour                      ! hour at start of time step
- real(rkind)                     :: dataStep                   ! data step (hours)
- real(rkind)                     :: slope                      ! terrain slope (assume flat)
- real(rkind)                     :: azimuth                    ! terrain azimuth (assume zero)
- real(rkind)                     :: hri                        ! average radiation index over time step DT
  ! general local variables
  character(len=256)              :: cmessage                   ! error message for downwind routine
- integer(i4b),parameter          :: nBands=2                   ! number of spectral bands
- real(rkind),parameter           :: valueMissing=-9999._rkind  ! missing value
  real(rkind),parameter           :: co2Factor=355.e-6_rkind    ! empirical factor to obtain partial pressure of co2
  real(rkind),parameter           :: o2Factor=0.209_rkind       ! empirical factor to obtain partial pressure of o2
  real(rkind),parameter           :: minMeasHeight=1._rkind     ! minimum measurement height (m)
- real(rkind)                     :: relhum                     ! relative humidity (-)
- real(rkind)                     :: fracrain                   ! fraction of precipitation that falls as rain
- real(rkind)                     :: maxFrozenSnowTemp          ! maximum temperature of snow when the snow is predominantely frozen (K)
+!  real(rkind)                     :: relhum                     ! relative humidity (-)
+!  real(rkind)                     :: fracrain                   ! fraction of precipitation that falls as rain
+!  real(rkind)                     :: maxFrozenSnowTemp          ! maximum temperature of snow when the snow is predominantely frozen (K)
  real(rkind),parameter           :: unfrozenLiq=0.01_rkind     ! unfrozen liquid water used to compute maxFrozenSnowTemp (-)
  real(rkind),parameter           :: eps=epsilon(fracrain)      ! a number that is almost negligible
- real(rkind)                     :: Tmin,Tmax                  ! minimum and maximum wet bulb temperature in the time step (K)
+!  real(rkind)                     :: Tmin,Tmax                  ! minimum and maximum wet bulb temperature in the time step (K)
  real(rkind),parameter           :: pomNewSnowDenMax=150._rkind   ! Upper limit for new snow density limit in Hedstrom and Pomeroy 1998. 150 was used because at was the highest observed density at air temperatures used in this study. See Figure 4 of Hedstrom and Pomeroy (1998).
  real(rkind),parameter           :: andersonWarmDenLimit=2._rkind ! Upper air temperature limit in Anderson (1976) new snow density (C)
  real(rkind),parameter           :: andersonColdDenLimit=15._rkind! Lower air temperature limit in Anderson (1976) new snow density (C)
  real(rkind),parameter           :: andersonDenScal=1.5_rkind     ! Scalar parameter in Anderson (1976) new snow density function (-)
  real(rkind),parameter           :: pahautDenWindScal=0.5_rkind   ! Scalar parameter for wind impacts on density using Pahaut (1976) function (-)
-
- integer(i4b),parameter :: ncTime = 1
-integer(i4b),parameter :: utcTime = 2
-integer(i4b),parameter :: localTime = 3
-integer(i4b) :: iGRU
-
- integer(i4b),device :: time_zone
  ! ************************************************************************************************
  ! associate local variables with the information in the data structures
  associate(&
-  snowDenNew => decisions%snowDenNew, &
-  data_step => decisions%data_step, &
-  refJulDay => decisions%refJulDay, &
  ! model parameters
- Frad_vis                => mpar_data%Frad_vis             , & ! fraction radiation absorbed in visible part of spectrum (-)
- directScale             => mpar_data%directScale          , & ! scaling factor for fractional driect radiaion parameterization (-)
- Frad_direct             => mpar_data%Frad_direct          , & ! maximum fraction direct radiation (-)
- minwind                 => mpar_data%minwind              , & ! minimum windspeed (m s-1)
- fc_param                => mpar_data%snowfrz_scale        , & ! freezing curve parameter for snow (K-1)
- tempCritRain            => mpar_data%tempCritRain         , & ! critical temperature where precipitation is rain (K)
- tempRangeTimestep       => mpar_data%tempRangeTimestep    , & ! temperature range over the time step (K)
- frozenPrecipMultip      => mpar_data%frozenPrecipMultip   , & ! frozen precipitation multiplier (-)
- newSnowDenMin           => mpar_data%newSnowDenMin        , & ! minimum new snow density (kg m-3)
- newSnowDenMult          => mpar_data%newSnowDenMult       , & ! multiplier for new snow density (kg m-3)
- newSnowDenScal          => mpar_data%newSnowDenScal       , & ! scaling factor for new snow density (K)
- constSnowDen            => mpar_data%constSnowDen         , & ! Constant new snow density (kg m-3)
- newSnowDenAdd           => mpar_data%newSnowDenAdd        , & ! Pahaut 1976, additive factor for new snow density (kg m-3)
- newSnowDenMultTemp      => mpar_data%newSnowDenMultTemp   , & ! Pahaut 1976, multiplier for new snow density applied to air temperature (kg m-3 K-1)
- newSnowDenMultWind      => mpar_data%newSnowDenMultWind   , & ! Pahaut 1976, multiplier for new snow density applied to wind speed (kg m-7/2 s-1/2)
- newSnowDenMultAnd       => mpar_data%newSnowDenMultAnd    , & ! Anderson 1976, multiplier for new snow density for Anderson function (K-1)
- newSnowDenBase          => mpar_data%newSnowDenBase       , & ! Anderson 1976, base value that is rasied to the (3/2) power (K)
+ Frad_vis                => mpar_data%var(iLookPARAM%Frad_vis)%dat(1)             , & ! fraction radiation absorbed in visible part of spectrum (-)
+ directScale             => mpar_data%var(iLookPARAM%directScale)%dat(1)          , & ! scaling factor for fractional driect radiaion parameterization (-)
+ Frad_direct             => mpar_data%var(iLookPARAM%Frad_direct)%dat(1)          , & ! maximum fraction direct radiation (-)
+ minwind                 => mpar_data%var(iLookPARAM%minwind)%dat(1)              , & ! minimum windspeed (m s-1)
+ fc_param                => mpar_data%var(iLookPARAM%snowfrz_scale)%dat(1)        , & ! freezing curve parameter for snow (K-1)
+ tempCritRain            => mpar_data%var(iLookPARAM%tempCritRain)%dat(1)         , & ! critical temperature where precipitation is rain (K)
+ tempRangeTimestep       => mpar_data%var(iLookPARAM%tempRangeTimestep)%dat(1)    , & ! temperature range over the time step (K)
+ frozenPrecipMultip      => mpar_data%var(iLookPARAM%frozenPrecipMultip)%dat(1)   , & ! frozen precipitation multiplier (-)
+ newSnowDenMin           => mpar_data%var(iLookPARAM%newSnowDenMin)%dat(1)        , & ! minimum new snow density (kg m-3)
+ newSnowDenMult          => mpar_data%var(iLookPARAM%newSnowDenMult)%dat(1)       , & ! multiplier for new snow density (kg m-3)
+ newSnowDenScal          => mpar_data%var(iLookPARAM%newSnowDenScal)%dat(1)       , & ! scaling factor for new snow density (K)
+ constSnowDen            => mpar_data%var(iLookPARAM%constSnowDen)%dat(1)         , & ! Constant new snow density (kg m-3)
+ newSnowDenAdd           => mpar_data%var(iLookPARAM%newSnowDenAdd)%dat(1)        , & ! Pahaut 1976, additive factor for new snow density (kg m-3)
+ newSnowDenMultTemp      => mpar_data%var(iLookPARAM%newSnowDenMultTemp)%dat(1)   , & ! Pahaut 1976, multiplier for new snow density applied to air temperature (kg m-3 K-1)
+ newSnowDenMultWind      => mpar_data%var(iLookPARAM%newSnowDenMultWind)%dat(1)   , & ! Pahaut 1976, multiplier for new snow density applied to wind speed (kg m-7/2 s-1/2)
+ newSnowDenMultAnd       => mpar_data%var(iLookPARAM%newSnowDenMultAnd)%dat(1)    , & ! Anderson 1976, multiplier for new snow density for Anderson function (K-1)
+ newSnowDenBase          => mpar_data%var(iLookPARAM%newSnowDenBase)%dat(1)       , & ! Anderson 1976, base value that is rasied to the (3/2) power (K)
  ! radiation geometry variables
  iyyy                    => time_data(iLookTIME%iyyy)                             , & ! year
  im                      => time_data(iLookTIME%im)                               , & ! month
  id                      => time_data(iLookTIME%id)                               , & ! day
  ih                      => time_data(iLookTIME%ih)                               , & ! hour
  imin                    => time_data(iLookTIME%imin)                             , & ! minute
- latitude                => attr_data%latitude                         , & ! latitude (degrees north)
- longitude               => attr_data%longitude                        , & ! longitude (degrees east)
- tan_slope               => attr_data%tan_slope                        , & ! tan HRU ground surface slope (-)
- aspect                  => attr_data%aspect                           , & ! mean azimuth of HRU in degrees E of N (degrees)
- cosZenith               => diag_data%scalarCosZenith       , & ! average cosine of the zenith angle over time step DT
+ latitude                => attr_data(iLookATTR%latitude)                         , & ! latitude (degrees north)
+ longitude               => attr_data(iLookATTR%longitude)                        , & ! longitude (degrees east)
+ tan_slope               => attr_data(iLookATTR%tan_slope)                        , & ! tan HRU ground surface slope (-)
+ aspect                  => attr_data(iLookATTR%aspect)                           , & ! mean azimuth of HRU in degrees E of N (degrees)
+ cosZenith               => diag_data%var(iLookDIAG%scalarCosZenith)%dat(1)       , & ! average cosine of the zenith angle over time step DT
  ! measurement height
- mHeight                 => attr_data%mHeight                          , & ! latitude (degrees north)
- adjMeasHeight           => diag_data%scalarAdjMeasHeight   , & ! adjusted measurement height (m)
- scalarSnowDepth         => prog_data%scalarSnowDepth       , & ! snow depth on the ground surface (m)
- heightCanopyTop         => mpar_data%heightCanopyTop      , & ! height of the top of the canopy layer (m)
+ mHeight                 => attr_data(iLookATTR%mHeight)                          , & ! measurement height (m)
+ adjMeasHeight           => diag_data%var(iLookDIAG%scalarAdjMeasHeight)%dat(1)   , & ! adjusted measurement height for cases snowDepth>mHeight (m)
+ scalarSnowDepth         => prog_data%var(iLookPROG%scalarSnowDepth)%dat(1)       , & ! snow depth on the ground surface (m)
+ heightCanopyTop         => mpar_data%var(iLookPARAM%heightCanopyTop)%dat(1)      , & ! height of the top of the canopy layer (m)
  ! model time
- secondsSinceRefTime     => forc_data%time                            , & ! time = seconds since reference time
+ secondsSinceRefTime     => forc_data(iLookFORCE%time)                            , & ! time = seconds since reference time
  ! model forcing data
- SWRadAtm                => forc_data%SWRadAtm                        , & ! downward shortwave radiation (W m-2)
- airtemp                 => forc_data%airtemp_d                         , & ! air temperature at 2 meter height (K)
- windspd                 => forc_data%windspd_d                         , & ! wind speed at 10 meter height (m s-1)
- airpres                 => forc_data%airpres_d                         , & ! air pressure at 2 meter height (Pa)
- spechum                 => forc_data%spechum                         , & ! specific humidity at 2 meter height (g g-1)
- pptrate                 => forc_data%pptrate                         , & ! precipitation rate (kg m-2 s-1)
+ SWRadAtm                => forc_data(iLookFORCE%SWRadAtm)                        , & ! downward shortwave radiation (W m-2)
+ airtemp                 => forc_data(iLookFORCE%airtemp)                         , & ! air temperature at 2 meter height (K)
+ windspd                 => forc_data(iLookFORCE%windspd)                         , & ! wind speed at 10 meter height (m s-1)
+ airpres                 => forc_data(iLookFORCE%airpres)                         , & ! air pressure at 2 meter height (Pa)
+ spechum                 => forc_data(iLookFORCE%spechum)                         , & ! specific humidity at 2 meter height (g g-1)
+ pptrate                 => forc_data(iLookFORCE%pptrate)                         , & ! precipitation rate (kg m-2 s-1)
  ! derived model forcing data
- scalarO2air             => diag_data%scalarO2air           , & ! atmospheric o2 concentration (Pa)
- scalarCO2air            => diag_data%scalarCO2air          , & ! atmospheric co2 concentration (Pa)
- windspd_x               => diag_data%windspd_x             , & ! wind speed at 10 meter height in x-direction (m s-1)
- windspd_y               => diag_data%windspd_y             , & ! wind speed at 10 meter height in y-direction (m s-1)
+ scalarO2air             => diag_data%var(iLookDIAG%scalarO2air)%dat(1)           , & ! atmospheric o2 concentration (Pa)
+ scalarCO2air            => diag_data%var(iLookDIAG%scalarCO2air)%dat(1)          , & ! atmospheric co2 concentration (Pa)
+ windspd_x               => diag_data%var(iLookDIAG%windspd_x)%dat(1)             , & ! wind speed at 10 meter height in x-direction (m s-1)
+ windspd_y               => diag_data%var(iLookDIAG%windspd_y)%dat(1)             , & ! wind speed at 10 meter height in y-direction (m s-1)
  ! radiation variables
- scalarFractionDirect    => diag_data%scalarFractionDirect  , & ! fraction of direct radiation (0-1)
- spectralIncomingDirect  => flux_data%spectralIncomingDirect   , & ! downwelling direct shortwave radiation for each waveband (W m-2)
- spectralIncomingDiffuse => flux_data%spectralIncomingDiffuse  , & ! downwelling diffuse shortwave radiation for each waveband (W m-2)
+ scalarFractionDirect    => diag_data%var(iLookDIAG%scalarFractionDirect)%dat(1)  , & ! fraction of direct radiation (0-1)
+ spectralIncomingDirect  => flux_data%var(iLookFLUX%spectralIncomingDirect)%dat   , & ! downwelling direct shortwave radiation for each waveband (W m-2)
+ spectralIncomingDiffuse => flux_data%var(iLookFLUX%spectralIncomingDiffuse)%dat  , & ! downwelling diffuse shortwave radiation for each waveband (W m-2)
  ! snow accumulation variables
- rainfall                => flux_data%scalarRainfall        , & ! computed rainfall rate (kg m-2 s-1)
- snowfall                => flux_data%scalarSnowfall        , & ! computed snowfall rate (kg m-2 s-1)
- VPair                   => diag_data%scalarVPair           , & ! vapor pressure of the air above the vegetation canopy (Pa)
- twetbulb                => diag_data%scalarTwetbulb        , & ! wet bulb temperature (K)
- snowfallTemp            => diag_data%scalarSnowfallTemp    , & ! computed temperature of fresh snow (K)
- newSnowDensity          => diag_data%scalarNewSnowDensity    & ! computed density of new snow (kg m-3)
+ rainfall                => flux_data%var(iLookFLUX%scalarRainfall)%dat(1)        , & ! computed rainfall rate (kg m-2 s-1)
+ snowfall                => flux_data%var(iLookFLUX%scalarSnowfall)%dat(1)        , & ! computed snowfall rate (kg m-2 s-1)
+ VPair                   => diag_data%var(iLookDIAG%scalarVPair)%dat(1)           , & ! vapor pressure of the air above the vegetation canopy (Pa)
+ twetbulb                => diag_data%var(iLookDIAG%scalarTwetbulb)%dat(1)        , & ! wet bulb temperature (K)
+ snowfallTemp            => diag_data%var(iLookDIAG%scalarSnowfallTemp)%dat(1)    , & ! computed temperature of fresh snow (K)
+ newSnowDensity          => diag_data%var(iLookDIAG%scalarNewSnowDensity)%dat(1)    & ! computed density of new snow (kg m-3)
  ) ! (associating local variables with the information in the data structures)
 
- ! initialize error control
- err=0; message="derivforce/"
- ! determine timeOffset based on tmZoneInfo option number`
- select case(trim(NC_TIME_ZONE))
-  ! Time zone information from NetCDF file
-  case('ncTime')
-    time_zone = ncTime
-  ! All times in UTC
-  case('utcTime')
-    time_zone = utcTime
-  ! All times local
-  case('localTime')
-    time_zone = localTime
-  case default; err=20; return
- end select ! identifying option tmZoneInfo
 
- !$cuf kernel do(1) <<<*,*>>>
- do iGRU=1,nGRU
-  call derivforce_inner(windspd_x(iGRU), windspd_y(iGRU), windspd(iGRU), &
-  mHeight(iGRU), heightCanopyTop, adjMeasHeight(iGRU), &
-  scalarSnowDepth(iGRU), &
-  scalarCO2air(iGRU), scalarO2air(iGRU), airpres(iGRU), &
-  longitude(iGRU), tmZoneOffsetFracDay(iGRU), secondsSinceRefTime(iGRU), &
-  aspect(iGRU), tan_slope(iGRU), latitude(iGRU), &
-  cosZenith(iGRU), SWRadAtm(iGRU), &
-  scalarFractionDirect(iGRU), Frad_direct, directScale, Frad_vis, &
-  spectralIncomingDirect(1,iGRU), spectralIncomingDirect(2,iGRU), &
-  spectralIncomingDiffuse(1,iGRU), spectralIncomingDiffuse(2,iGRU), &
-  minwind, spechum(iGRU), airtemp(iGRU), &
-  VPair(iGRU), twetbulb(iGRU), fc_param, &
-  tempRangeTimestep, tempCritRain, snowfallTemp(iGRU), &
-  pptrate(iGRU), rainfall(iGRU), snowfall(iGRU), frozenPrecipMultip, &
-  time_zone, snowDenNew, &
-  newSnowDensity(iGRU), newSnowDenMin, &
-  newSnowDenMult, newSnowDenScal, newSnowDenAdd, &
-  newSnowDenMultTemp, newSnowDenMultAnd, newSnowDenMultWind, newSnowDenBase, constSnowDen, &
-  refJulDay, data_step &
-)
- end do
+
 
  ! end association of local variables with the information in the data structures
  end associate
 
  end subroutine derivforce
 
- attributes(device) subroutine derivforce_inner(windspd_x, windspd_y, windspd, &
-  mHeight, heightCanopyTop, adjMeasHeight, &
-  scalarSnowDepth, &
-  scalarCO2air, scalarO2air, airpres, &
-  longitude, tmZoneOffsetFracDay, secondsSinceRefTime, &
-  aspect, tan_slope, latitude, &
-  cosZenith, SWRadAtm, &
-  scalarFractionDirect, Frad_direct, directScale, Frad_vis, &
-  spectralIncomingDirect1, spectralIncomingDirect2, &
-  spectralIncomingDiffuse1, spectralIncomingDiffuse2, &
-  minwind, spechum, airtemp, &
-  VPair, twetbulb, fc_param, &
-  tempRangeTimestep, tempCritRain, snowfallTemp, &
-  pptrate, rainfall, snowfall, frozenPrecipMultip, &
-  time_zone, snowDenNew, &
-  newSnowDensity, newSnowDenMin, &
-  newSnowDenMult, newSnowDenScal, newSnowDenAdd, &
-  newSnowDenMultTemp, newSnowDenMultAnd, newSnowDenMultWind, newSnowDenBase, constSnowDen, &
-  refJulDay, data_step &
-)
-  USE sunGeomtry_module,only:clrsky_rad                         ! compute cosine of the solar zenith angle
+attributes(device) subroutine derivforce_d(snowDenNew,&
+snowfall,rainfall,spectralIncomingDirect,spectralIncomingDiffuse,&
+newSnowDensity,snowfallTemp,twetbulb,VPair,scalarFractionDirect,cosZenith,&
+windspd_x,windspd_y,adjMeasHeight_,scalarSnowDepth,scalarCO2air,scalarO2air, &
+newSnowDenMin,newSnowDenMult,newSnowDenScal,newSnowDenAdd,newSnowDenMultTemp, &
+newSnowDenMultWind,newSnowDenMultAnd,newSnowDenBase,constSnowDen,fc_param,&
+tempRangeTimestep,tempCritRain,frozenPrecipMultip,minwind,Frad_vis,Frad_direct,directScale,&
+heightCanopyTop, &
+airtemp,windspd,pptrate,spechum,airpres,SWRadAtm,secondsSinceRefTime,&
+longitude,latitude,tan_slope,aspect,mHeight,&
+tmZoneOffsetFracDay,NC_TIME_ZONE,data_step,refJulDay)
+ USE snow_utils_module,only:fracliquid,templiquid              ! functions to compute temperature/liquid water
+ USE sunGeomtry_module,only:clrsky_rad                         ! compute cosine of the solar zenith angle
  USE conv_funcs_module,only:vapPress                           ! compute vapor pressure of air (Pa)
  USE conv_funcs_module,only:SPHM2RELHM,RELHM2SPHM,WETBULBTMP   ! conversion functions
  USE snow_utils_module,only:fracliquid,templiquid              ! functions to compute temperature/liquid water
  USE time_utils_module,only:compcalday                         ! convert julian day to calendar date
- USE summaFileManager,only: NC_TIME_ZONE                       ! time zone option from control file
+ use initialize_device,only:get_iGRU
 
-  real(rkind) :: windspd_x, windspd_y, windspd
-  real(rkind) :: mHeight, heightCanopyTop, adjMeasHeight
-  real(rkind) :: scalarSnowDepth
-  real(rkind) :: scalarCO2air, scalarO2air, airpres
-  real(rkind) :: longitude, tmZoneOffsetFracDay, secondsSinceRefTime
-  real(rkind) :: aspect, tan_slope, latitude
-  real(rkind) :: cosZenith, SWRadAtm
-  real(rkind) :: scalarFractionDirect, Frad_direct, directScale, Frad_vis
-  real(rkind) :: spectralIncomingDirect1, spectralIncomingDirect2
-  real(rkind) :: spectralIncomingDiffuse1, spectralIncomingDiffuse2
-  real(rkind) :: minwind, spechum, airtemp
-  real(rkind) :: VPair, twetbulb, fc_param
-  real(rkind) :: tempRangeTimestep, tempCritRain, snowfallTemp
-  real(rkind) :: pptrate, rainfall, snowfall, frozenPrecipMultip
-  integer(i4b) :: time_zone, snowDenNew
-  real(rkind) :: newSnowDensity, newSnowDenMin
-  real(rkind) :: newSnowDenMult, newSnowDenScal, newSnowDenAdd
-  real(rkind) :: newSnowDenMultTemp, newSnowDenMultAnd, newSnowDenMultWind, newSnowDenBase, constSnowDen
-  real(rkind) :: refJulDay, data_step
+implicit none
+real(rkind),intent(inout) :: snowfall,rainfall,spectralIncomingDirect(:),spectralIncomingDiffuse(:)
+integer(i4b),intent(in) :: snowDenNew
+real(rkind),intent(inout) :: newSnowDensity,snowfallTemp,twetbulb,VPair,scalarFractionDirect,cosZenith
+real(rkind),intent(inout) :: windspd_x,windspd_y,adjMeasHeight_(:),scalarSnowDepth,scalarCO2air,scalarO2air
+real(rkind),intent(inout) :: newSnowDenMin, newSnowDenMult,newSnowDenScal,newSnowDenAdd,newSnowDenMultTemp
+real(rkind),intent(inout) :: newSnowDenMultWind,newSnowDenMultAnd,newSnowDenBase,constSnowDen,fc_param,tempRangeTimestep,tempCritRain,frozenPrecipMultip
+real(rkind),intent(in) :: minwind,Frad_vis,Frad_direct,directScale
+real(rkind),intent(in) :: heightCanopyTop
+real(rkind),intent(inout) :: airtemp,windspd,pptrate,spechum,airpres,SWRadAtm,secondsSinceRefTime
+real(rkind),intent(in) :: longitude,latitude,tan_slope,aspect,mHeight
+ real(rkind),intent(inout)       :: tmZoneOffsetFracDay
+ integer(i4b),intent(in) :: NC_TIME_ZONE
+ real(rkind),intent(in) :: data_step,refJulDay
 
+integer(i4b) :: err
 
+ real(rkind)                     :: fracrain                   ! fraction of precipitation that falls as rain
+ real(rkind)                     :: maxFrozenSnowTemp          ! maximum temperature of snow when the snow is predominantely frozen (K)
+ real(rkind),parameter           :: pomNewSnowDenMax=150._rkind   ! Upper limit for new snow density limit in Hedstrom and Pomeroy 1998. 150 was used because at was the highest observed density at air temperatures used in this study. See Figure 4 of Hedstrom and Pomeroy (1998).
+ real(rkind),parameter           :: andersonWarmDenLimit=2._rkind ! Upper air temperature limit in Anderson (1976) new snow density (C)
+ real(rkind),parameter           :: andersonColdDenLimit=15._rkind! Lower air temperature limit in Anderson (1976) new snow density (C)
+ real(rkind),parameter           :: andersonDenScal=1.5_rkind     ! Scalar parameter in Anderson (1976) new snow density function (-)
+ real(rkind),parameter           :: pahautDenWindScal=0.5_rkind   ! Scalar parameter for wind impacts on density using Pahaut (1976) function (-)
+ real(rkind),parameter           :: unfrozenLiq=0.01_rkind     ! unfrozen liquid water used to compute maxFrozenSnowTemp (-)
+ real(rkind),parameter           :: eps=epsilon(fracrain)      ! a number that is almost negligible
+ real(rkind)                     :: Tmin,Tmax                  ! minimum and maximum wet bulb temperature in the time step (K)
+ real(rkind)                     :: relhum                     ! relative humidity (-)
  ! local time
  integer(i4b)                    :: jyyy,jm,jd                 ! year, month, day
  integer(i4b)                    :: jh,jmin                    ! hour, minute
@@ -295,31 +232,14 @@ integer(i4b) :: iGRU
  real(rkind)                     :: slope                      ! terrain slope (assume flat)
  real(rkind)                     :: azimuth                    ! terrain azimuth (assume zero)
  real(rkind)                     :: hri                        ! average radiation index over time step DT
- ! general local variables
- character(len=256)              :: cmessage                   ! error message for downwind routine
- integer(i4b),parameter          :: nBands=2                   ! number of spectral bands
- real(rkind),parameter           :: valueMissing=-9999._rkind  ! missing value
  real(rkind),parameter           :: co2Factor=355.e-6_rkind    ! empirical factor to obtain partial pressure of co2
  real(rkind),parameter           :: o2Factor=0.209_rkind       ! empirical factor to obtain partial pressure of o2
  real(rkind),parameter           :: minMeasHeight=1._rkind     ! minimum measurement height (m)
- real(rkind)                     :: relhum                     ! relative humidity (-)
- real(rkind)                     :: fracrain                   ! fraction of precipitation that falls as rain
- real(rkind)                     :: maxFrozenSnowTemp          ! maximum temperature of snow when the snow is predominantely frozen (K)
- real(rkind),parameter           :: unfrozenLiq=0.01_rkind     ! unfrozen liquid water used to compute maxFrozenSnowTemp (-)
- real(rkind),parameter           :: eps=epsilon(fracrain)      ! a number that is almost negligible
- real(rkind)                     :: Tmin,Tmax                  ! minimum and maximum wet bulb temperature in the time step (K)
- real(rkind),parameter           :: pomNewSnowDenMax=150._rkind   ! Upper limit for new snow density limit in Hedstrom and Pomeroy 1998. 150 was used because at was the highest observed density at air temperatures used in this study. See Figure 4 of Hedstrom and Pomeroy (1998).
- real(rkind),parameter           :: andersonWarmDenLimit=2._rkind ! Upper air temperature limit in Anderson (1976) new snow density (C)
- real(rkind),parameter           :: andersonColdDenLimit=15._rkind! Lower air temperature limit in Anderson (1976) new snow density (C)
- real(rkind),parameter           :: andersonDenScal=1.5_rkind     ! Scalar parameter in Anderson (1976) new snow density function (-)
- real(rkind),parameter           :: pahautDenWindScal=0.5_rkind   ! Scalar parameter for wind impacts on density using Pahaut (1976) function (-)
-integer(i4b) :: err
+ integer(i4b) :: iGRU
+ iGRU = get_iGRU()
 
-integer(i4b),parameter :: ncTime = 1
-integer(i4b),parameter :: utcTime = 2
-integer(i4b),parameter :: localTime = 3
-   ! initialize error control
- err=0
+ ! initialize error control
+ err=0; !message="derivforce/"
 
  ! NGEN wants the wind inputted as two components, if not inputting NGEN forcing let the y direction be 0
 #ifdef NGEN_FORCING_ACTIVE
@@ -329,19 +249,25 @@ integer(i4b),parameter :: localTime = 3
  windspd_y = 0._rkind
 #endif
 
+ ! check spectral dimension
+ if(size(spectralIncomingDirect) /= nSpecBand .or. size(spectralIncomingDiffuse) /= nSpecBand)then
+  ! write(message,'(a,i0,a)') trim(message)//'expect ', nSpecBand, 'spectral classes for radiation'
+  print*, 'error in nSpecBands'
+  err=20; return
+ end if
 
  ! adjust the measurement height for the vegetation canopy
  ! NOTE: could return an error or a warning
  ! NOTE: this does not need to be done every time step -- doing here for consistency with the snow adjustment
  if(mHeight < heightCanopyTop)then
-  adjMeasHeight = heightCanopyTop+minMeasHeight  ! measurement height at least minMeasHeight above the canopy
+  adjMeasHeight_(iGRU) = heightCanopyTop+minMeasHeight  ! measurement height at least minMeasHeight above the canopy
  else
-  adjMeasHeight = mHeight
+  adjMeasHeight_(iGRU) = mHeight
  endif
 
  ! adjust the measurement height for snow depth
- if(adjMeasHeight < scalarSnowDepth+minMeasHeight)then
-  adjMeasHeight = scalarSnowDepth+minMeasHeight  ! measurement height at least minMeasHeight above the snow surface
+ if(adjMeasHeight_(iGRU) < scalarSnowDepth+minMeasHeight)then
+  adjMeasHeight_(iGRU) = scalarSnowDepth+minMeasHeight  ! measurement height at least minMeasHeight above the snow surface
  endif
 
  ! compute the partial pressure of o2 and co2
@@ -349,7 +275,7 @@ integer(i4b),parameter :: localTime = 3
  scalarO2air  = o2Factor * airpres   ! atmospheric o2 concentration (Pa)
 
  ! determine timeOffset based on tmZoneInfo option number`
- select case(time_zone)
+ select case(NC_TIME_ZONE)
   ! Time zone information from NetCDF file
   case(ncTime)
    timeOffset = longitude/360._rkind - tmZoneOffsetFracDay ! time offset in days
@@ -359,7 +285,7 @@ integer(i4b),parameter :: localTime = 3
   ! All times local
   case(localTime)
    timeOffset = 0._rkind  ! time offset in days
-  case default; err=20; return
+  ! case default; message=trim(message)//'unable to identify option for tmZoneInfo'; err=20; return
  end select ! identifying option tmZoneInfo
 
  ! constrain timeOffset so that it is in the [-0.5, 0.5] range
@@ -376,15 +302,15 @@ integer(i4b),parameter :: localTime = 3
  call compcalday(julianTime+timeOffset,          & ! input  = julian day
                  jyyy,jm,jd,jh,jmin,dsec,        & ! output = year, month, day, hour, minute, second
                  err)                     ! output = error control
- if(err/=0)then; return; end if
+!  if(err/=0)then; message=trim(message)//trim(cmessage); return; end if
 
- ! compute the decimal hour at the start of the time step
+  ! compute the decimal hour at the start of the time step
  dataStep = data_step/secprhour  ! time step (hours)
  ahour    = real(jh,kind(rkind)) + real(jmin,kind(rkind))/minprhour - data_step/secprhour  ! decimal hour (start of the step)
 
 #ifdef ACTORS_ACTIVE
   azimuth = 0._rkind              ! if aspect is not an input attribute, slope & azimuth = zero (flat Earth)
-  slope   = 0._rkind              ! Actors doesn't look for this attribute for some reason, should probably FIX
+  slope   = 0._rkind              ! Actors doesn't look for this attribute for some reason FIX
 #else
  ! check slope/aspect intent for radiation calculation
  if(aspect == nr_realMissing)then
@@ -411,10 +337,10 @@ integer(i4b),parameter :: localTime = 3
  end if
 
  ! compute direct shortwave and diffuse radiation, in the visible and near-infra-red part of the spectrum
- spectralIncomingDirect1  = SWRadAtm*scalarFractionDirect*Frad_vis                         ! (direct vis)
- spectralIncomingDirect2  = SWRadAtm*scalarFractionDirect*(1._rkind - Frad_vis)               ! (direct nir)
- spectralIncomingDiffuse1 = SWRadAtm*(1._rkind - scalarFractionDirect)*Frad_vis              ! (diffuse vis)
- spectralIncomingDiffuse2 = SWRadAtm*(1._rkind - scalarFractionDirect)*(1._rkind - Frad_vis)    ! (diffuse nir)
+ spectralIncomingDirect(1)  = SWRadAtm*scalarFractionDirect*Frad_vis                         ! (direct vis)
+ spectralIncomingDirect(2)  = SWRadAtm*scalarFractionDirect*(1._rkind - Frad_vis)               ! (direct nir)
+ spectralIncomingDiffuse(1) = SWRadAtm*(1._rkind - scalarFractionDirect)*Frad_vis              ! (diffuse vis)
+ spectralIncomingDiffuse(2) = SWRadAtm*(1._rkind - scalarFractionDirect)*(1._rkind - Frad_vis)    ! (diffuse nir)
 
  ! ensure wind speed is above a prescribed minimum value
  if(windspd < minwind) windspd=minwind
@@ -463,6 +389,7 @@ integer(i4b),parameter :: localTime = 3
   snowfall = (1._rkind - fracrain)*pptrate*frozenPrecipMultip
  end if
 
+
  ! compute density of new snow
  if(snowfall > tiny(fracrain))then
   ! Determine which method to use
@@ -485,13 +412,12 @@ integer(i4b),parameter :: localTime = 3
    ! Constant new snow density
    case(constDens)
     newSnowDensity = constSnowDen ! new snow density (kg m-3)
-   case default; err=20; return
+  !  case default; message=trim(message)//'unable to identify option for new snow density'; err=20; return
   end select ! identifying option for new snow density
  else
-  newSnowDensity = valueMissing
+  newSnowDensity = realMissing
   rainfall = rainfall + snowfall ! in most cases snowfall will be zero here
   snowfall = 0._rkind
  end if
 end subroutine
-
 end module derivforce_module

@@ -40,20 +40,20 @@ public::hydCond_liq
 public::hydCondMP_liq
 public::dHydCond_dPsi
 public::dHydCond_dLiq
-public::volFracLiq,volFracLiq_d
+public::volFracLiq
 public::matricHead
-public::dTheta_dPsi,dTheta_dPsi_d
-public::dPsi_dTheta,dPsi_dTheta_d
+public::dTheta_dPsi
+public::dPsi_dTheta
 public::dPsi_dTheta2
 public::RH_soilair
 public::dTheta_dTk
-public::crit_soilT,crit_soilT_d
+public::crit_soilT
 public::liquidHead
-public::gammp
+public::gammp,gammp_complex
+public::LogSumExp
+public::SoftArgMax
 
 ! constant parameters
-real(rkind),parameter     :: valueMissing=-9999._rkind    ! missing value parameter
-real(rkind),parameter     :: verySmall=epsilon(1.0_rkind) ! a very small number (used to avoid divide by zero)
 real(rkind),parameter     :: dx=-1.e-12_rkind             ! finite difference increment
 contains
 
@@ -98,7 +98,7 @@ end subroutine dIceImpede_dTemp
 ! ******************************************************************************************************************************
 ! public subroutine: compute the liquid water matric potential (and the derivatives w.r.t. total matric potential and temperature)
 ! ******************************************************************************************************************************
-attributes(device) subroutine liquidHead(&
+attributes(device,host) subroutine liquidHead(&
                      ! input
                      matricHeadTotal                          ,& ! intent(in)    : total water matric potential (m)
                      volFracLiq                               ,& ! intent(in)    : volumetric fraction of liquid water (-)
@@ -109,8 +109,8 @@ attributes(device) subroutine liquidHead(&
                      ! output
                      matricHeadLiq                            ,& ! intent(out)   : liquid water matric potential (m)
                      dPsiLiq_dPsi0                            ,& ! intent(out)   : derivative in the liquid water matric potential w.r.t. the total water matric potential (-)
-                     dPsiLiq_dTemp                            & ! intent(out)   : derivative in the liquid water matric potential w.r.t. temperature (m K-1)
-                     )                                ! intent(out)   : error control
+                     dPsiLiq_dTemp                            ,& ! intent(out)   : derivative in the liquid water matric potential w.r.t. temperature (m K-1)
+                     err)                                ! intent(out)   : error control
   ! computes the liquid water matric potential (and the derivatives w.r.t. total matric potential and temperature)
   implicit none
   ! input
@@ -125,7 +125,8 @@ attributes(device) subroutine liquidHead(&
   real(rkind),intent(out) ,optional :: dPsiLiq_dPsi0                             ! derivative in the liquid water matric potential w.r.t. the total water matric potential (-)
   real(rkind),intent(out) ,optional :: dPsiLiq_dTemp                             ! derivative in the liquid water matric potential w.r.t. temperature (m K-1)
   ! output: error control
-  integer(i4b)       :: err                                       ! error code
+  integer(i4b),intent(out)       :: err                                       ! error code
+  ! character(*),intent(out)       :: message                                   ! error message
   ! local
   real(rkind)                       :: xNum,xDen                                 ! temporary variables (numeratir, denominator)
   real(rkind)                       :: effSat                                    ! effective saturation (-)
@@ -133,10 +134,10 @@ attributes(device) subroutine liquidHead(&
   real(rkind)                       :: dEffSat_dTemp                             ! derivative in effective saturation w.r.t. temperature (K-1)
   ! ------------------------------------------------------------------------------------------------------------------------------
   ! initialize error control
-  err=0
+  err=0!; message='liquidHead/'
 
   ! ** partially frozen soil
-  if(volFracIce > verySmall .and. matricHeadTotal < 0._rkind)then  ! check that ice exists and that the soil is unsaturated
+  if(volFracIce > epsilon(1._rkind) .and. matricHeadTotal < 0._rkind)then  ! check that ice exists and that the soil is unsaturated
 
     ! -----
     ! - compute liquid water matric potential...
@@ -166,6 +167,7 @@ attributes(device) subroutine liquidHead(&
 
     ! (check required input derivative is present)
     if(.not.present(dVolTot_dPsi0))then
+      ! message=trim(message)//'dVolTot_dPsi0 argument is missing'
       err=20; return
     endif
 
@@ -183,6 +185,7 @@ attributes(device) subroutine liquidHead(&
 
     ! (check required input derivative is present)
     if(.not.present(dTheta_dT))then
+      ! message=trim(message)//'dTheta_dT argument is missing'
       err=20; return
     endif
 
@@ -294,23 +297,6 @@ attributes(host,device) function volFracLiq(psi,alpha,theta_res,theta_sat,n,m)
   end if
 end function volFracLiq
 
-attributes(host,device) function volFracLiq_d(psi,alpha,theta_res,theta_sat,n,m)
-  ! computes the volumetric liquid water content given psi and soil hydraulic parameters theta_res, theta_sat, alpha, n, and m
-  implicit none
-  real(rkind),intent(in) :: psi         ! soil water suction (m)
-  real(rkind),intent(in) :: alpha       ! scaling parameter (m-1)
-  real(rkind),intent(in) :: theta_res   ! residual volumetric water content (-)
-  real(rkind),intent(in) :: theta_sat   ! porosity (-)
-  real(rkind),intent(in) :: n           ! vGn "n" parameter (-)
-  real(rkind),intent(in) :: m           ! vGn "m" parameter (-)
-  real(rkind)            :: volFracLiq_d  ! volumetric liquid water content (-)
-  if(psi<0._rkind)then
-  volFracLiq_d = theta_res + (theta_sat - theta_res)*(1._rkind + (alpha*psi)**n)**(-m)
-  else
-  volFracLiq_d = theta_sat
-  end if
-end function volFracLiq_d
-
 
 ! ******************************************************************************************************************************
 ! public function matricHead: compute the matric head (m) based on the volumetric liquid water content
@@ -328,9 +314,9 @@ attributes(host,device) function matricHead(theta,alpha,theta_res,theta_sat,n,m)
   real(rkind)            :: matricHead  ! matric head (m)
   ! local variables
   real(rkind)            :: effSat      ! effective saturation (-)
-  real(rkind),parameter  :: verySmall=epsilon(1._rkind)  ! a very small number (avoid effective saturation of zero)
+  real(rkind),parameter  :: eps=epsilon(1._rkind) ! a very small number (avoid effective saturation of zero)
   ! compute effective saturation
-  effSat = max(verySmall, (theta - theta_res) / (theta_sat - theta_res))
+  effSat = max(eps, (theta - theta_res) / (theta_sat - theta_res))
   ! compute matric head
   if (effSat < 1._rkind .and. effSat > 0._rkind)then
   matricHead = (1._rkind/alpha)*( effSat**(-1._rkind/m) - 1._rkind)**(1._rkind/n)
@@ -361,23 +347,6 @@ attributes(host,device) function dTheta_dPsi(psi,alpha,theta_res,theta_sat,n,m)
   end if
 end function dTheta_dPsi
 
-attributes(device) function dTheta_dPsi_d(psi,alpha,theta_res,theta_sat,n,m)
-  implicit none
-  real(rkind),intent(in) :: psi         ! soil water suction (m)
-  real(rkind),intent(in) :: alpha       ! scaling parameter (m-1)
-  real(rkind),intent(in) :: theta_res   ! residual volumetric water content (-)
-  real(rkind),intent(in) :: theta_sat   ! porosity (-)
-  real(rkind),intent(in) :: n           ! vGn "n" parameter (-)
-  real(rkind),intent(in) :: m           ! vGn "m" parameter (-)
-  real(rkind)            :: dTheta_dPsi_d ! derivative of the soil water characteristic (m-1)
-  if(psi<=0._rkind)then
-    dTheta_dPsi_d = (theta_sat-theta_res) * &
-                 (-m*(1._rkind + (psi*alpha)**n)**(-m-1._rkind)) * n*(psi*alpha)**(n-1._rkind) * alpha
-    if(abs(dTheta_dPsi_d) < epsilon(psi)) dTheta_dPsi_d = epsilon(psi)
-  else
-    dTheta_dPsi_d = epsilon(psi)
-  end if
-end function dTheta_dPsi_d
 
 ! ******************************************************************************************************************************
 ! public function dPsi_dTheta: compute the derivative of the soil water characteristic (m)
@@ -419,42 +388,6 @@ attributes(host,device) function dPsi_dTheta(volFracLiq,alpha,theta_res,theta_sa
   end if
 end function dPsi_dTheta
 
-attributes(device) function dPsi_dTheta_d(volFracLiq,alpha,theta_res,theta_sat,n,m)
-  implicit none
-  ! dummies
-  real(rkind),intent(in) :: volFracLiq  ! volumetric liquid water content (-)
-  real(rkind),intent(in) :: alpha       ! scaling parameter (m-1)
-  real(rkind),intent(in) :: theta_res   ! residual volumetric water content (-)
-  real(rkind),intent(in) :: theta_sat   ! porosity (-)
-  real(rkind),intent(in) :: n           ! vGn "n" parameter (-)
-  real(rkind),intent(in) :: m           ! vGn "m" parameter (-)
-  real(rkind)            :: dPsi_dTheta_d ! derivative of the soil water characteristic (m)
-  ! locals
-  real(rkind)            :: y1,d1       ! 1st function and derivative
-  real(rkind)            :: y2,d2       ! 2nd function and derivative
-  real(rkind)            :: theta_e     ! effective soil moisture
-  real(rkind),parameter  :: theta_e_min=0.001_rkind            ! minimum effective soil moisture
-  real(rkind),parameter  :: y1_min=10._rkind*epsilon(1._rkind) ! minimum y1 value (to avoid division by zero and complex values)
-
-  ! check if less than saturation
-  if(volFracLiq < theta_sat)then
-   ! compute effective water content
-   theta_e = max(theta_e_min,(volFracLiq - theta_res) / (theta_sat - theta_res))
-   ! compute the 1st function and derivative
-   y1 = theta_e**(-1._rkind/m) - 1._rkind
-   d1 = (-1._rkind/m)*theta_e**(-1._rkind/m - 1._rkind) / (theta_sat - theta_res)
-   ! compute the 2nd function and derivative
-   ! note: impose a minimum value for y1 to avoid divison by zero and complex values
-   !y2 = y1**(1._rkind/n)                         ! original expression
-   !d2 = (1._rkind/n)*y1**(1._rkind/n - 1._rkind) ! original expression
-   y2 = max(y1_min,y1)**(1._rkind/n)
-   d2 = (1._rkind/n)*max(y1_min,y1)**(1._rkind/n - 1._rkind) ! impose a minimum value for y1 to avoid divison by zero and complex values
-   ! compute the final function value
-   dPsi_dTheta_d = d1*d2/alpha
-  else
-   dPsi_dTheta_d = 0._rkind
-  end if
-end function dPsi_dTheta_d
 
 ! ******************************************************************************************************************************
 ! public function dPsi_dTheta2: compute the derivative of dPsi_dTheta (m-1)
@@ -625,7 +558,7 @@ end function dHydCond_dLiq
 ! ******************************************************************************************************************************
 ! public function RH_soilair: compute relative humidity of air in soil pore space
 ! ******************************************************************************************************************************
-function RH_soilair(matpot,Tk)
+attributes(host,device) function RH_soilair(matpot,Tk)
   implicit none
   real(rkind),intent(in) :: matpot        ! soil water suction -- matric potential (m)
   real(rkind),intent(in) :: Tk            ! temperature (K)
@@ -644,12 +577,6 @@ attributes(host,device) function crit_soilT(psi)
   real(rkind)            :: crit_soilT    ! critical soil temperature (K)
   crit_soilT = Tfreeze + min(psi,0._rkind)*gravity*Tfreeze/LH_fus
 end function crit_soilT
-attributes(device) function crit_soilT_d(psi)
-  implicit none
-  real(rkind),intent(in) :: psi           ! matric head (m)
-  real(rkind)            :: crit_soilT_d    ! critical soil temperature (K)
-  crit_soilT_d = Tfreeze + min(psi,0._rkind)*gravity*Tfreeze/LH_fus
-end function crit_soilT_d
 
 
 ! ******************************************************************************************************************************
@@ -677,118 +604,307 @@ end function dTheta_dTk
 
 
 ! ******************************************************************************************************************************
-! public function gammp: compute cumulative probability using the Gamma distribution
+! public function gammp: compute cumulative probability using the Gamma distribution (Gamma CDF)
 ! ******************************************************************************************************************************
-FUNCTION gammp(a,x)
-  IMPLICIT NONE
-  real(rkind), INTENT(IN) :: a,x
-  real(rkind) :: gammp
-  if (x<a+1.0_rkind) then
-  gammp=gser(a,x)
-  else
-  gammp=1.0_rkind-gcf(a,x)
+attributes(host,device) function gammp(a,x)
+  implicit none
+  ! input
+  real(rkind), intent(in) :: a,x
+  ! output
+  real(rkind)             :: gammp
+  ! validation
+  if (a < 0._rkind) then
+   stop "Error in gammp: a >= 0 required."
   end if
-END FUNCTION gammp
+  if (x < 0._rkind) then
+   stop "Error in gammp: x >= 0 required."
+  end if
+  ! computation
+  if (x<a+1.0_rkind) then
+   gammp=gser(a,x)
+  else
+   gammp=1.0_rkind-gcf(a,x)
+  end if
+end function gammp
 
 
 ! ******************************************************************************************************************************
 ! private function gcf: continued fraction development of the incomplete Gamma function
 ! ******************************************************************************************************************************
-FUNCTION gcf(a,x,gln)
-  IMPLICIT NONE
-  real(rkind), INTENT(IN) :: a,x
-  real(rkind), OPTIONAL, INTENT(OUT) :: gln
-  real(rkind) :: gcf
-  INTEGER(I4B), PARAMETER :: ITMAX=100
-  real(rkind), PARAMETER :: EPS=epsilon(x),FPMIN=tiny(x)/EPS
-  INTEGER(I4B) :: i
-  real(rkind) :: an,b,c,d,del,h
-  if (x == 0.0) then
-  gcf=1.0
-  RETURN
+attributes(host,device) function gcf(a,x,gln)
+  implicit none
+  ! input
+  real(rkind),           intent(in)  :: a,x
+  ! output
+  real(rkind), optional, intent(out) :: gln
+  real(rkind)                        :: gcf
+  ! local variables
+  integer(i4b), parameter :: ITMAX=100
+  real(rkind),  parameter :: EPS=epsilon(x),FPMIN=tiny(x)/EPS
+  integer(i4b)            :: i
+  real(rkind)             :: an,b,c,d,del,h
+  if (x == 0.0_rkind) then
+   gcf=1.0_rkind
+   return
   end if
   b=x+1.0_rkind-a
   c=1.0_rkind/FPMIN
   d=1.0_rkind/b
   h=d
   do i=1,ITMAX
-  an=-i*(i-a)
-  b=b+2.0_rkind
-  d=an*d+b
-  if (abs(d) < FPMIN) d=FPMIN
-  c=b+an/c
-  if (abs(c) < FPMIN) c=FPMIN
-  d=1.0_rkind/d
-  del=d*c
-  h=h*del
-  if (abs(del-1.0_rkind) <= EPS) exit
+   an=-i*(i-a)
+   b=b+2.0_rkind
+   d=an*d+b
+   if (abs(d) < FPMIN) d=FPMIN
+   c=b+an/c
+   if (abs(c) < FPMIN) c=FPMIN
+   d=1.0_rkind/d
+   del=d*c
+   h=h*del
+   if (abs(del-1.0_rkind) <= EPS) exit
   end do
   if (i > ITMAX) stop 'a too large, ITMAX too small in gcf'
   if (present(gln)) then
-  gln=gammln(a)
-  gcf=exp(-x+a*log(x)-gln)*h
+   gln=log_gamma(a)
+   gcf=exp(-x+a*log(x)-gln)*h
   else
-  gcf=exp(-x+a*log(x)-gammln(a))*h
+   gcf=exp(-x+a*log(x)-log_gamma(a))*h
   end if
-END FUNCTION gcf
-
+end function gcf
 
 ! ******************************************************************************************************************************
 ! private function gser: series development of the incomplete Gamma function
 ! ******************************************************************************************************************************
-FUNCTION gser(a,x,gln)
-  IMPLICIT NONE
-  real(rkind), INTENT(IN) :: a,x
-  real(rkind), OPTIONAL, INTENT(OUT) :: gln
-  real(rkind) :: gser
-  INTEGER(I4B), PARAMETER :: ITMAX=100
-  real(rkind), PARAMETER :: EPS=epsilon(x)
-  INTEGER(I4B) :: n
-  real(rkind) :: ap,del,summ
-  if (x == 0.0) then
-  gser=0.0
-  RETURN
+attributes(host,device) function gser(a,x,gln)
+  implicit none
+  ! input
+  real(rkind),           intent(in)  :: a,x
+  ! output
+  real(rkind), optional, intent(out) :: gln
+  real(rkind)                        :: gser
+  ! local variables
+  integer(i4b), parameter :: ITMAX=100
+  real(rkind),  parameter :: EPS=epsilon(x)
+  integer(i4b)            :: n
+  real(rkind)             :: ap,del,summ
+  if (x == 0.0_rkind) then
+   gser=0.0_rkind
+   return
   end if
   ap=a
   summ=1.0_rkind/a
   del=summ
   do n=1,ITMAX
-  ap=ap+1.0_rkind
-  del=del*x/ap
-  summ=summ+del
-  if (abs(del) < abs(summ)*EPS) exit
+   ap=ap+1.0_rkind
+   del=del*x/ap
+   summ=summ+del
+   if (abs(del) < abs(summ)*EPS) exit
   end do
   if (n > ITMAX) stop 'a too large, ITMAX too small in gser'
   if (present(gln)) then
-  gln=gammln(a)
-  gser=summ*exp(-x+a*log(x)-gln)
+   gln=log_gamma(a)
+   gser=summ*exp(-x+a*log(x)-gln) 
   else
-  gser=summ*exp(-x+a*log(x)-gammln(a))
+   gser=summ*exp(-x+a*log(x)-log_gamma(a)) 
   end if
-END FUNCTION gser
+end function gser
+
+! ******************************************************************************************************************************
+! public function gammp_complex: regularized lower incomplete gamma function (complex output)
+! ******************************************************************************************************************************
+! Note: input parameters are real but output may have non-zero imaginary parts
+attributes(host,device) function gammp_complex(a,x)
+  implicit none
+  ! input
+  real(rkind), intent(in) :: a,x
+  ! output
+  complex(rkind)          :: gammp_complex
+  ! validation
+  if (a < 0._rkind) then
+   stop "Error in gammp_complex: a >= 0 required."
+  end if
+  ! computation
+  if (x<a+1.0_rkind) then
+   gammp_complex=gser_complex(a,x)
+  else
+   gammp_complex=1.0_rkind-gcf_complex(a,x)
+  end if
+end function gammp_complex
+
+! ******************************************************************************************************************************
+! private function gcf_complex: continued fraction development of the incomplete Gamma function (complex output)
+! ******************************************************************************************************************************
+attributes(host,device) function gcf_complex(a,x,gln)
+  implicit none
+  ! input
+  real(rkind),           intent(in)  :: a,x
+  ! output
+  real(rkind), optional, intent(out) :: gln
+  complex(rkind)                     :: gcf_complex
+  ! local variables
+  integer(i4b),          parameter   :: ITMAX=100
+  real(rkind),           parameter   :: EPS=epsilon(x),FPMIN=tiny(x)/EPS
+  integer(i4b)                       :: i
+  real(rkind)                        :: an,b,c,d,del,h
+  if (x == 0.0_rkind) then
+   gcf_complex=1.0_rkind
+   return
+  end if
+  b=x+1.0_rkind-a
+  c=1.0_rkind/FPMIN
+  d=1.0_rkind/b
+  h=d
+  do i=1,ITMAX
+   an=-i*(i-a)
+   b=b+2.0_rkind
+   d=an*d+b
+   if (abs(d) < FPMIN) d=FPMIN
+   c=b+an/c
+   if (abs(c) < FPMIN) c=FPMIN
+   d=1.0_rkind/d
+   del=d*c
+   h=h*del
+   if (abs(del-1.0_rkind) <= EPS) exit
+  end do
+  if (i > ITMAX) stop 'a too large, ITMAX too small in gcf'
+  if (present(gln)) then
+   gln=log_gamma(a)
+   gcf_complex=exp(-x-gln)*cmplx(x,0._rkind,rkind)**a*h       ! allows x<0
+  else
+   gcf_complex=exp(-x-log_gamma(a))*cmplx(x,0._rkind,rkind)**a*h ! allows x<0
+  end if
+end function gcf_complex
 
 
 ! ******************************************************************************************************************************
-! private function gammln: gamma function
+! private function gser_complex: series development of the incomplete Gamma function (complex output)
 ! ******************************************************************************************************************************
-FUNCTION gammln(xx)
-  USE nr_utility_module,only:arth  ! use to build vectors with regular increments
-  IMPLICIT NONE
-  real(rkind), INTENT(IN) :: xx
-  real(rkind) :: gammln
-  real(rkind) :: tmp,x
-  real(rkind) :: stp = 2.5066282746310005_rkind
-  real(rkind), DIMENSION(6) :: coef = (/76.18009172947146_rkind,&
-                                        -86.50532032941677_rkind,24.01409824083091_rkind,&
-                                        -1.231739572450155_rkind,0.1208650973866179e-2_rkind,&
-                                        -0.5395239384953e-5_rkind/)
-  if(xx <= 0._rkind) stop 'xx > 0 in gammln'
-  x=xx
-  tmp=x+5.5_rkind
-  tmp=(x+0.5_rkind)*log(tmp)-tmp
-  gammln=tmp+log(stp*(1.000000000190015_rkind+&
-  sum(coef(:)/arth(x+1.0_rkind,1.0_rkind,size(coef))))/x)
-END FUNCTION gammln
+attributes(host,device) function gser_complex(a,x,gln)
+  implicit none
+  ! input
+  real(rkind),           intent(in)  :: a,x
+  ! output
+  real(rkind), optional, intent(out) :: gln
+  complex(rkind)                     :: gser_complex
+  ! local variables
+  integer(i4b),          parameter   :: ITMAX=100
+  real(rkind),           parameter   :: EPS=epsilon(x)
+  integer(i4b)                       :: n
+  real(rkind)                        :: ap,del,summ
+  if (x == 0.0_rkind) then
+   gser_complex=(0.0_rkind,0.0_rkind)
+   return
+  end if
+  ap=a
+  summ=1.0_rkind/a
+  del=summ
+  do n=1,ITMAX
+   ap=ap+1.0_rkind
+   del=del*x/ap
+   summ=summ+del
+   if (abs(del) < abs(summ)*EPS) exit
+  end do
+  if (n > ITMAX) stop 'a too large, ITMAX too small in gser'
+  if (present(gln)) then
+   gln=log_gamma(a)
+   gser_complex=summ*exp(-x-gln)*cmplx(x,0._rkind,rkind)**a       ! allows x<0
+  else
+   gser_complex=summ*exp(-x-log_gamma(a))*cmplx(x,0._rkind,rkind)**a ! allows x<0
+  end if
+end function gser_complex
 
+! ******************************************************************************************************************************
+! public function LogSumExp: LSE (or RealSoftMax) function used for smooth approximations of max or min functions
+! ******************************************************************************************************************************
+attributes(device) function LogSumExp(alpha,x,err) result(LSE)
+  use, intrinsic :: ieee_arithmetic,only:ieee_value,ieee_is_normal,ieee_quiet_nan
+  implicit none
+  ! input
+  real(rkind),intent(in) :: alpha ! smoothness parameter (LSE --> max as alpha --> +Inf, LSE --> min as alpha --> -Inf)
+  real(rkind),intent(in) :: x(:)  ! vector of input values
+  ! output
+  real(rkind)              :: LSE ! LogSumExp value 
+  integer(i4b),intent(out) :: err ! error code
+  ! local variables
+  real(qp),allocatable :: x_qp(:) ! quadruple precision x vector
+  real(qp) :: x_star   ! quadruple precision shift value for numerical stability
+  real(qp) :: alpha_qp ! quadruple precision alpha
+  real(qp) :: LSE_qp   ! quadruple precision LSE value 
+
+  err = 0_i4b ! initialize error code
+
+  ! validation of input parameters
+  if (alpha == 0._rkind) then
+   err = 20_i4b ! positive error code to indicate failure
+  !  LSE = ieee_value(0._rkind,ieee_quiet_nan) ! assign NaN return value
+   return
+  end if
+
+  ! use quadruple precision variables to prevent over/underflow
+  alpha_qp = real(alpha,qp)
+  x_qp     = real(x,qp)
+
+  ! shift value to improve numerical stability
+  x_star = maxval(abs(x_qp))
+
+  LSE_qp= x_star + log(sum(exp(alpha_qp*(x_qp-x_star))))/alpha_qp
+  LSE=real(LSE_qp,rkind)
+  
+  ! check if value is normal (not NaN, -Infinity, or +Infinity)
+  ! note: mainly to account for overflow/underflow that may occur in extreme cases
+  ! if (ieee_is_normal(LSE)) then ! return if value is not NaN or infinity
+    return
+  ! else                          ! revert to analytic max/min function as a failsafe (accurate but not smoothed)
+  !   if (alpha < 0._rkind) then  ! min
+  !     LSE = minval(x)
+  !   else                        ! max (alpha cannot be zero)
+  !     LSE = maxval(x)
+  !   end if
+  ! end if
+
+  end function LogSumExp
+
+! ******************************************************************************************************************************
+! public function SoftArgMax: SoftArgMax (aliases: softmax, normalized exponential) function for smooth approximations to argument max or min
+! ******************************************************************************************************************************
+! Note: Can be used to evaluate the derivatives of LogSumExp
+! dLogSumExp(alpha,x)_dx(i) = SoftArgMax(alpha,x)
+attributes(device) subroutine SoftArgMax(alpha,x,SAM)
+  use, intrinsic :: ieee_arithmetic,only:ieee_is_normal
+  implicit none
+  ! input
+  real(rkind),intent(in) :: alpha ! smoothness parameter (SAM --> arg max as alpha --> +Inf, SAM --> arg min as alpha --> -Inf)
+  real(rkind),intent(in) :: x(:) ! vector of input values
+  ! output
+  real(rkind)  :: SAM(:) ! SoftArgMax value 
+  ! local variables
+  real(qp) :: alpha_qp ! quadruple precision alpha
+  real(qp) :: x_star   ! quadruple precision shift value for numerical stability
+  real(qp),allocatable :: x_qp(:)   ! quadruple precision x vector
+  real(qp),allocatable :: SAM_qp(:) ! quadruple precision SAM value 
+
+  ! use quadruple precision variables to prevent over/underflow
+  alpha_qp = real(alpha,qp)
+  x_qp     = real(x,qp)
+
+  ! shift value to improve numerical stability
+  x_star = maxval(abs(x_qp))
+
+  SAM_qp = exp(alpha_qp*(x_qp-x_star)) / sum(exp(alpha_qp*(x_qp-x_star)))
+  SAM = real(SAM_qp,rkind)
+
+  ! check if all values are normal (not NaN, -Infinity, or +Infinity)
+  ! note: mainly to account for overflow/underflow that may occur in extreme cases
+  ! if (all(ieee_is_normal(SAM))) then ! return if value is not NaN or infinity
+    return
+  ! else                          ! revert to analytic arg max/min function in one-hot representation as a failsafe (accurate but not smoothed)
+  !   SAM(:) = 0._rkind
+  !   if (alpha < 0._rkind) then  ! arg min
+  !     SAM(minloc(x)) = 1._rkind
+  !   else                        ! arg max
+  !     SAM(maxloc(x)) = 1._rkind 
+  !   end if
+  ! end if
+end subroutine
 
 end module soil_utils_module

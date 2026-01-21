@@ -22,7 +22,7 @@ module summa_defineOutput                     ! used to define model output file
 
 ! access missing values
 USE globalData,only:integerMissing            ! missing integer
-USE globalData,only:realMissing               ! missing double precision number
+USE globalData,only:realMissing               ! missing real number
 
 ! named variables to define new output files
 USE globalData, only: noNewFiles              ! no new output files
@@ -87,7 +87,7 @@ contains
   attrStruct           => summa1_struc%attrStruct        , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
   typeStruct           => summa1_struc%typeStruct        , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
   idStruct             => summa1_struc%idStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
-  mparStruct           => summa1_struc%mparStruct        , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+  mparStruct           => summa1_struc%mparStruct_d        , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
   bparStruct           => summa1_struc%bparStruct        , & ! x%gru(:)%var(:)            -- basin-average parameters
   nGRU                 => summa1_struc%nGRU              , & ! number of grouped response units
   nHRU                 => summa1_struc%nHRU                & ! number of global hydrologic response units
@@ -133,8 +133,8 @@ contains
    do iStruct=1,size(structInfo)
     select case(trim(structInfo(iStruct)%structName))
      case('attr'); call writeParm(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,attrStruct%gru(iGRU)%hru(iHRU),attr_meta,err,cmessage)
-     case('type'); call writeParm(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,typeStruct%gru(iGRU)%hru(iHRU),type_meta,err,cmessage)
-     case('mpar'); call writeParm(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,mparStruct%gru(iGRU)%hru(iHRU),mpar_meta,err,cmessage)
+     case('type'); call writeParm(iGRU,typeStruct,type_meta,err,cmessage)
+     case('mpar'); call writeParm(iGRU,mparStruct,mpar_meta,err,cmessage)
     end select
     if(err/=0)then; message=trim(message)//trim(cmessage)//'['//trim(structInfo(iStruct)%structName)//']'; return; endif
    end do  ! (looping through structures)
