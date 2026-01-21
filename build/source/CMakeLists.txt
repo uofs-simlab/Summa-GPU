@@ -34,17 +34,13 @@ set(HOOKUP
 # Data modules
 set(DATAMS
     ${DSHARE_DIR}/data_types.f90
-    ${DSHARE_DIR}/flxMapping.f90
+    ${DSHARE_DIR}/device_data_types.f90
     ${DSHARE_DIR}/get_ixname.f90
     ${DSHARE_DIR}/globalData.f90
     ${DSHARE_DIR}/multiconst.f90
     ${DSHARE_DIR}/outpt_stat.f90
     ${DSHARE_DIR}/popMetadat.f90
     ${DSHARE_DIR}/var_lookup.f90
-    ${DSHARE_DIR}/device_data_types.f90
-    ${DSHARE_DIR}/initialize_device_types.f90
-        ${ENGINE_DIR}/enthalpyTemp.f90
-
     CACHE INTERNAL "DATAMS")
 set(DATAMS_SUNDIALS
     ${DSHARE_DIR}/type4ida.f90
@@ -93,7 +89,9 @@ set(PRELIM
 set(MODRUN
     ${ENGINE_DIR}/canopySnow.f90
     ${ENGINE_DIR}/derivforce.f90
-    #${ENGINE_DIR}/enthalpyTemp.f90
+    ${ENGINE_DIR}/enthalpyTemp.f90
+    ${DSHARE_DIR}/initialize_device_types.f90
+    ${DSHARE_DIR}/flxMapping.f90
     ${ENGINE_DIR}/getVectorz.f90
     ${ENGINE_DIR}/indexState.f90
     ${ENGINE_DIR}/layerMerge.f90
@@ -117,7 +115,7 @@ set(SOLVER
     ${ENGINE_DIR}/bigAquifer.f90
     ${ENGINE_DIR}/computFlux.f90
     ${ENGINE_DIR}/computHeatCap.f90
-    # ${ENGINE_DIR}/computJacob.f90
+    ${ENGINE_DIR}/computJacob.f90
     ${ENGINE_DIR}/computResid.f90
     ${ENGINE_DIR}/computSnowDepth.f90
     ${ENGINE_DIR}/computThermConduct.f90
@@ -132,7 +130,7 @@ set(SOLVER
     ${ENGINE_DIR}/soilLiqFlx.f90
     ${ENGINE_DIR}/ssdNrgFlux.f90
     ${ENGINE_DIR}/stomResist.f90
-    # ${ENGINE_DIR}/summaSolve4homegrown.f90
+    ${ENGINE_DIR}/summaSolve4homegrown.f90
     ${ENGINE_DIR}/systemSolv.f90
     ${ENGINE_DIR}/varSubstep.f90
     ${ENGINE_DIR}/vegLiqFlux.f90
@@ -145,7 +143,7 @@ set(SOLVER_SUNDIALS
     ${ENGINE_DIR}/computResidWithPrime.f90
     ${ENGINE_DIR}/eval8summaWithPrime.f90
     ${ENGINE_DIR}/summaSolve4ida.f90
-    # ${ENGINE_DIR}/summaSolve4kinsol.f90
+    ${ENGINE_DIR}/summaSolve4kinsol.f90
     CACHE INTERNAL "SOLVER_SUNDIALS")
 
 # Driver support modules
