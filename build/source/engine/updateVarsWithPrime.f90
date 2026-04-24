@@ -101,6 +101,8 @@ implicit none
 private
 public::updateVarsWithPrime
 
+logical(lgt),device,allocatable :: computedCoupling(:,:)
+
 contains
 
 ! **********************************************************************************************************
@@ -152,6 +154,8 @@ subroutine updateVarsWithPrime(&
   ! --------------------------------------------------------------------------------------------------------------------------------
   use cudafor
   use device_data_types
+  use globalData,only:maxSnowLayers
+  use device_data_types,only:nLook
   implicit none
   integer(i4b),intent(in) :: nGRU
   ! input
@@ -205,7 +209,7 @@ subroutine updateVarsWithPrime(&
   integer(i4b)                       :: ixOther,ixOtherLocal            ! index of the coupled state variable within the (full, local) vector
   logical(lgt)                       :: isCoupled                       ! .true. if a given variable shared another state variable in the same control volume
   logical(lgt)                       :: isNrgState                      ! .true. if a given variable is an energy state
-  logical(lgt),device,allocatable           :: computedCoupling(:,:)             ! .true. if computed the coupling for a given state variable
+  ! logical(lgt),device,allocatable           :: computedCoupling(:,:)             ! .true. if computed the coupling for a given state variable
   real(rkind)                        :: scalarVolFracLiq                ! volumetric fraction of liquid water (-)
   real(rkind)                        :: scalarVolFracIce                ! volumetric fraction of ice (-)
   real(rkind)                        :: scalarVolFracLiqPrime           ! time derivative volumetric fraction of liquid water (-)
@@ -245,11 +249,10 @@ subroutine updateVarsWithPrime(&
     ! number of model layers, and layer type
     nSnow                   => indx_data%nSnow                    ,& ! intent(in):  [i4b]    total number of snow layers
     nSoil                   => indx_data%nSoil                    ,& ! intent(in):  [i4b]    total number of soil layers
-    nLayers                 => indx_data%nLayers_d                  ,& ! intent(in):  [i4b]    total number of snow and soil layers
+    nLayers                 => indx_data%nLayers                  ,& ! intent(in):  [i4b]    total number of snow and soil layers
     mLayerDepth             => prog_data%mLayerDepth                  ,& ! intent(in):  [dp(:)]  depth of each layer in the snow-soil sub-domain (m)
     ! indices defining model states and layers
     ixVegNrg                => indx_data%ixVegNrg                 ,& ! intent(in):  [i4b]    index of canopy energy state variable
-    ixVegHyd                => indx_data%ixVegHyd                 ,& ! intent(in):  [i4b]    index of canopy hydrology state variable (mass)
     ! indices in the full vector for specific domains
     ixNrgCanair             => indx_data%ixNrgCanair                 ,& ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
     ixNrgCanopy             => indx_data%ixNrgCanopy                 ,& ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
@@ -315,18 +318,25 @@ subroutine updateVarsWithPrime(&
     err=0; message='updateVarsWithPrime/'
 
     ! allocate space and assign values to the flag vector
+    if (.not. allocated(computedCoupling)) then
     allocate(computedCoupling(size(ixDomainType_subset,1),nGRU),stat=err)        ! .true. if computed the coupling for a given state variable
     if(err/=0)then; message=trim(message)//'problem allocating computedCoupling'; return; endif
-
-    call updateVarsWithPrime_kernel<<<blocks,threads>>>(nGRU,computedCoupling,&
+    end if
+    if (allocated(computedCoupling) .and. (size(computedCoupling,1).ne.size(ixDomainType_subset,1) .or. size(computedCoupling,2).ne.nGRU)) then
+      deallocate(computedCoupling)
+    allocate(computedCoupling(size(ixDomainType_subset,1),nGRU),stat=err)        ! .true. if computed the coupling for a given state variable
+    if(err/=0)then; message=trim(message)//'problem allocating computedCoupling'; return; endif
+    end if
+    
+    if (do_adjustTemp) then
+    call updateVarsWithPrime_kernel2<<<blocks,threads>>>(nGRU,computedCoupling,&
 nSnow,nSoil,nLayers,mLayerDepth,&
-enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv2,&
+use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv2,&
   scalarCanairEnthalpyTrial,scalarCanopyEnthalpyTrial,mLayerEnthalpyTrial,&
   scalarCanairTempTrial,scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial,&
   scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime,&
   mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial,&
   mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime,&
-  ixVegNrg,ixVegHyd, &
   ixNrgCanair,ixNrgCanopy,ixHydCanopy,ixNrgLayer,ixHydLayer,&
   ixDomainType_subset,ixControlVolume,ixStateType, &
   snowfrz_scale,&
@@ -340,24 +350,321 @@ enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv
   d2VolTot_dPsi02,mLayerd2Theta_dTk2,d2Theta_dTkCanopy2,&
   dCanairTemp_dEnthalpy,dCanopyTemp_dEnthalpy,dTemp_dEnthalpy,&
   dCanopyTemp_dCanWat,dTemp_dTheta,dTemp_dPsi0)
+    else
+      call updateVarsWithPrime_kernel_cas<<<blocks,threads>>>(nGRU,computJac, scalarCanairEnthalpyTrial, &
+  scalarCanairTempTrial, ixNrgCanair, dCanairTemp_dEnthalpy)
+  call updateVarsWithPrime_kernel_veg<<<blocks,threads>>>(nGRU,computJac, &
+scalarCanopyEnthalpyTrial, &
+scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial, &
+scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime, &
+ixNrgCanopy, &
+snowfrz_scale, &
+specificHeatVeg, maxMassVegetation, canopyDepth, &
+scalarFracLiqVeg, scalarCanopyTemp, &
+dTheta_dTkCanopy, dFracLiqVeg_dTkCanopy, d2Theta_dTkCanopy2, &
+dCanopyTemp_dEnthalpy, dCanopyTemp_dCanWat)
+          call updateVarsWithPrime_kernel<<<blocks,threads>>>(nGRU,maxSnowLayers,nLook,&
+nSnow,nSoil,nLayers,&
+use_lookup,computJac,temperature,psiLiq_int,deriv2,&
+  mLayerEnthalpyTrial,&
+  ! scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial,&
+  ! scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime,&
+  mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial,&
+  mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime,&
+  ixNrgLayer,ixHydLayer,&
+  ixDomainType_subset,ixControlVolume,ixStateType, &
+  snowfrz_scale,&
+  soil_dens_intr,vGn_m,vGn_n,vGn_alpha,theta_sat,theta_res,&
+  ! specificHeatVeg,maxMassVegetation,canopyDepth,&
+  mLayerFracLiqSnow,&
+  mLayerTemp,&
+  ! scalarCanopyIce,mLayerVolFracIce,&
+  dVolTot_dPsi0,dPsiLiq_dPsi0,dPsiLiq_dTemp,mLayerdTheta_dTk,&
+  dFracLiqWat_dTk,&
+  d2VolTot_dPsi02,mLayerd2Theta_dTk2,&
+  dTemp_dEnthalpy,&
+  dTemp_dTheta,dTemp_dPsi0)
+    end if
     ! deallocate space
-    deallocate(computedCoupling,stat=err)        ! .true. if computed the coupling for a given state variable
-    if(err/=0)then; message=trim(message)//'problem deallocating computedCoupling'; return; endif
+    ! deallocate(computedCoupling,stat=err)        ! .true. if computed the coupling for a given state variable
+    ! if(err/=0)then; message=trim(message)//'problem deallocating computedCoupling'; return; endif
 
     ! end association to the variables in the data structures
 end associate
 
 end subroutine updateVarsWithPrime
 
-attributes(global) subroutine updateVarsWithPrime_kernel(nGRU,computedCoupling,&
+attributes(global) subroutine updateVarsWithPrime_kernel_cas(nGRU, computJac, scalarCanairEnthalpyTrial, &
+  scalarCanairTempTrial, ixNrgCanair, dCanairTemp_dEnthalpy)
+  use initialize_device,only:get_iGRU
+  integer(i4b),intent(in),value :: nGRU
+  logical(lgt),intent(in),value :: computJac
+  real(rkind),intent(in)             :: scalarCanairEnthalpyTrial(nGRU)       ! trial value for enthalpy of the canopy air space (J m-3)
+  ! output: variables for the vegetation canopy
+  real(rkind),intent(inout)          :: scalarCanairTempTrial(nGRU)           ! trial value of canopy air space temperature (K)
+  ! indices defining model states and layers
+  ! indices in the full vector for specific domains
+  integer(i4b),intent(in) :: ixNrgCanair(nGRU)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
+  ! derivatives of temperature if enthalpy is the state variable
+  real(rkind),intent(inout) :: dCanairTemp_dEnthalpy(nGRU)      ! intent(out): [dp]     derivative of canopy air temperature w.r.t. enthalpy
+
+  integer(i4b) :: iGRU
+  iGRU = get_iGRU()
+
+  if (iGRU .gt. nGRU) return
+  call updateVarsWithPrime_device_cas(computJac, &
+    scalarCanairEnthalpyTrial, &
+    scalarCanairTempTrial, &
+    ixNrgCanair, &
+    dCanairTemp_dEnthalpy)
+end subroutine
+
+attributes(global) subroutine updateVarsWithPrime_kernel_veg(nGRU,computJac, &
+scalarCanopyEnthalpyTrial, &
+scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial, &
+scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime, &
+ixNrgCanopy, &
+snowfrz_scale, &
+specificHeatVeg, maxMassVegetation, canopyDepth, &
+scalarFracLiqVeg, scalarCanopyTemp, &
+dTheta_dTkCanopy, dFracLiqVeg_dTkCanopy, d2Theta_dTkCanopy2, &
+dCanopyTemp_dEnthalpy, dCanopyTemp_dCanWat)
+  use initialize_device,only:get_iGRU
+  integer(i4b),intent(in),value :: nGRU
+  logical(lgt),intent(in),value :: computJac
+      ! input: enthalpy state variables  
+  real(rkind),intent(in)             :: scalarCanopyEnthalpyTrial(nGRU)       ! trial value for enthalpy of the vegetation canopy (J m-3)
+  ! output: variables for the vegetation canopy
+  real(rkind),intent(inout)          :: scalarCanopyTempTrial(nGRU)           ! trial value of canopy temperature (K)
+  real(rkind),intent(inout)          :: scalarCanopyWatTrial(nGRU)            ! trial value of canopy total water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyLiqTrial(nGRU)            ! trial value of canopy liquid water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyIceTrial(nGRU)            ! trial value of canopy ice content (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyTempPrime(nGRU)           ! trial value of time derivative canopy temperature (K)
+  real(rkind),intent(inout)          :: scalarCanopyWatPrime(nGRU)            ! trial value of time derivative canopy total water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyLiqPrime(nGRU)            ! trial value of time derivative canopy liquid water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyIcePrime(nGRU)            ! trial value of time derivative canopy ice content (kg m-2)
+
+    ! indices defining model states and layers
+    ! indices in the full vector for specific domains
+    integer(i4b),intent(in) :: ixNrgCanopy(nGRU)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
+    ! snow parameters
+    real(rkind),intent(in) :: snowfrz_scale(nGRU)            ! intent(in):  [dp    ] scaling parameter for the snow freezing curve (K-1)
+    ! model diagnostic variables (heat capacity, enthalpy)
+    real(rkind),intent(in) :: specificHeatVeg(nGRU)          ! intent(in):  [dp   ]  specific heat of vegetation (J kg-1 K-1)
+    real(rkind),intent(in) :: maxMassVegetation(nGRU)        ! intent(in):  [dp   ]  maximum mass of vegetation (kg m-2)
+    real(rkind),intent(in) :: canopyDepth(nGRU)              ! intent(in):  [dp   ]  canopy depth (m)
+    ! model diagnostic variables (fraction of liquid water)
+    real(rkind),intent(inout) :: scalarFracLiqVeg(nGRU)         ! intent(out): [dp]     fraction of liquid water on vegetation (-)
+    ! model states from a previous solution
+    real(rkind),intent(in) :: scalarCanopyTemp(nGRU)         ! intent(in):  [dp]     temperature of the vegetation canopy (K)
+    ! derivatives
+    real(rkind),intent(inout) :: dTheta_dTkCanopy(nGRU)        ! intent(out): [dp]     derivative of volumetric liquid water content w.r.t. temperature
+    real(rkind),intent(inout) :: dFracLiqVeg_dTkCanopy(nGRU)   ! intent(out): [dp   ]  derivative in fraction of (throughfall + drainage) w.r.t. temperature
+    ! derivatives inside solver for Jacobian only
+    real(rkind),intent(inout) :: d2Theta_dTkCanopy2(nGRU)       ! intent(out): [dp   ]  second derivative of volumetric liquid water content w.r.t. temperature
+    ! derivatives of temperature if enthalpy is the state variable
+    real(rkind),intent(inout) :: dCanopyTemp_dEnthalpy(nGRU)      ! intent(out): [dp]     derivative of canopy temperature w.r.t. enthalpy 
+    real(rkind),intent(inout) :: dCanopyTemp_dCanWat(nGRU)        ! intent(out): [dp]     derivative of canopy temperature w.r.t. volumetric water content
+
+    integer(i4b) :: iGRU
+  iGRU = get_iGRU()
+
+  if (iGRU .gt. nGRU) return
+
+  call updateVarsWithPrime_device_veg(computJac, &
+    scalarCanopyEnthalpyTrial, &
+    scalarCanopyTempTrial, scalarCanopyWatTrial, scalarCanopyLiqTrial, scalarCanopyIceTrial, &
+    scalarCanopyTempPrime, scalarCanopyWatPrime, scalarCanopyLiqPrime, scalarCanopyIcePrime, &
+    ixNrgCanopy, &
+    snowfrz_scale, &
+    specificHeatVeg,maxMassVegetation,canopyDepth, &
+    scalarFracLiqVeg, &
+    scalarCanopyTemp, &
+    dTheta_dTkCanopy, dFracLiqVeg_dTkCanopy, d2Theta_dTkCanopy2, &
+    dCanopyTemp_dEnthalpy, dCanopyTemp_dCanWat)
+end subroutine
+
+
+attributes(global) subroutine updateVarsWithPrime_kernel(nGRU,maxSnowLayers,nLook,&
+nSnow,nSoil,nLayers,&
+use_lookup,computJac,temperature,psiLiq_int,deriv2,&
+  mLayerEnthalpyTrial,&
+  ! scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial,&
+  ! scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime,&
+  mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial,&
+  mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime,&
+  ixNrgLayer,ixHydLayer,&
+  ixDomainType_subset,ixControlVolume,ixStateType, &
+  snowfrz_scale,&
+  soil_dens_intr,vGn_m,vGn_n,vGn_alpha,theta_sat,theta_res,&
+  ! specificHeatVeg,maxMassVegetation,canopyDepth,&
+  mLayerFracLiqSnow,&
+  mLayerTemp,&
+  ! scalarCanopyIce,mLayerVolFracIce,&
+  dVolTot_dPsi0,dPsiLiq_dPsi0,dPsiLiq_dTemp,mLayerdTheta_dTk,&
+  dFracLiqWat_dTk,&
+  d2VolTot_dPsi02,mLayerd2Theta_dTk2,&
+  dTemp_dEnthalpy,&
+  dTemp_dTheta,dTemp_dPsi0)
+  integer(i4b),intent(in),value :: nGRU,maxSnowLayers,nLook
+  integer(i4b),intent(in) :: nSnow(nGRU),nLayers(nGRU)
+  integer(i4b),value :: nSoil
+      ! input
+  logical(lgt)     ,intent(in),value       :: use_lookup                      ! flag to use the lookup table for soil enthalpy, otherwise use hypergeometric function
+  logical(lgt)     ,intent(in),value       :: computJac                       ! flag if computing for Jacobian update
+    ! type(zLookup)    ,intent(in)       :: lookup_data                     ! lookup tables
+  real(rkind),intent(in) :: temperature(nLook,nSoil,nGRU), psiLiq_int(nLook,nSoil,nGRU), deriv2(nLook,nSoil,nGRU)
+
+    ! input: enthalpy state variables  
+  ! real(rkind),intent(in)             :: scalarCanairEnthalpyTrial(nGRU)       ! trial value for enthalpy of the canopy air space (J m-3)
+  ! real(rkind),intent(in)             :: scalarCanopyEnthalpyTrial(nGRU)       ! trial value for enthalpy of the vegetation canopy (J m-3)
+  real(rkind),intent(in)             :: mLayerEnthalpyTrial(nSoil+maxSnowLayers+1,nGRU)          ! trial vector of enthalpy of each snow+soil layer (J m-3)                      
+  ! output: variables for the vegetation canopy
+  ! real(rkind),intent(inout)          :: scalarCanairTempTrial(nGRU)           ! trial value of canopy air space temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyTempTrial(nGRU)           ! trial value of canopy temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyWatTrial(nGRU)            ! trial value of canopy total water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyLiqTrial(nGRU)            ! trial value of canopy liquid water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyIceTrial(nGRU)            ! trial value of canopy ice content (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyTempPrime(nGRU)           ! trial value of time derivative canopy temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyWatPrime(nGRU)            ! trial value of time derivative canopy total water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyLiqPrime(nGRU)            ! trial value of time derivative canopy liquid water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyIcePrime(nGRU)            ! trial value of time derivative canopy ice content (kg m-2)
+  ! output: variables for the snow-soil domain
+  real(rkind),intent(inout),device          :: mLayerTempTrial(nSoil+maxSnowLayers+1,nGRU)              ! trial vector of layer temperature (K)
+  real(rkind),intent(inout),device          :: mLayerVolFracWatTrial(nSoil+maxSnowLayers+1,nGRU)        ! trial vector of volumetric total water content (-)
+  real(rkind),intent(inout),device          :: mLayerVolFracLiqTrial(nSoil+maxSnowLayers+1,nGRU)        ! trial vector of volumetric liquid water content (-)
+  real(rkind),intent(inout),device          :: mLayerVolFracIceTrial(nSoil+maxSnowLayers+1,nGRU)        ! trial vector of volumetric ice water content (-)
+  real(rkind),intent(inout),device          :: mLayerMatricHeadTrial(nSoil,nGRU)        ! trial vector of total water matric potential (m)
+  real(rkind),intent(inout),device          :: mLayerMatricHeadLiqTrial(nSoil,nGRU)     ! trial vector of liquid water matric potential (m)
+  real(rkind),intent(inout),device          :: mLayerTempPrime(nSoil+maxSnowLayers+1,nGRU)              ! trial value of time derivative layer temperature (K)
+  real(rkind),intent(inout),device          :: mLayerVolFracWatPrime(nSoil+maxSnowLayers+1,nGRU)        ! trial value of time derivative volumetric total water content (-)
+  real(rkind),intent(inout),device          :: mLayerVolFracLiqPrime(nSoil+maxSnowLayers+1,nGRU)        ! trial value of time derivative volumetric liquid water content (-)
+  real(rkind),intent(inout),device          :: mLayerVolFracIcePrime(nSoil+maxSnowLayers+1,nGRU)        ! trial value of time derivative volumetric ice water content (-)
+  real(rkind),intent(inout),device          :: mLayerMatricHeadPrime(nSoil,nGRU)        ! trial value of time derivative total water matric potential (m)
+  real(rkind),intent(inout),device          :: mLayerMatricHeadLiqPrime(nSoil,nGRU)     ! trial value of time derivative liquid water matric potential (m)
+
+    ! indices in the full vector for specific domains
+    ! integer(i4b),intent(in) :: ixNrgCanair(nGRU)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
+    ! integer(i4b),intent(in) :: ixNrgCanopy(nGRU)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
+    integer(i4b),intent(in) :: ixNrgLayer(nSoil+maxSnowLayers+1,nGRU)               ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the snow+soil domain
+    integer(i4b),intent(in) :: ixHydLayer(nSoil+maxSnowLayers+1,nGRU)               ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for hydrology states in the snow+soil domain
+    ! type of domain, type of state variable, and index of control volume within domain
+    integer(i4b),intent(in) :: ixDomainType_subset(2*(nSoil+maxSnowLayers+1)+4,nGRU)      ! intent(in):  [i4b(:)] [state subset] id of domain for desired model state variables
+    integer(i4b),intent(in) :: ixControlVolume(2*(nSoil+maxSnowLayers+1)+4,nGRU)          ! intent(in):  [i4b(:)] index of the control volume for different domains (veg, snow, soil)
+    integer(i4b),intent(in) :: ixStateType(2*(nSoil+maxSnowLayers+1)+4,nGRU)              ! intent(in):  [i4b(:)] indices defining the type of the state (iname_nrgLayer...)
+    ! snow parameters
+    real(rkind),intent(in) :: snowfrz_scale(nGRU)            ! intent(in):  [dp    ] scaling parameter for the snow freezing curve (K-1)
+    ! depth-varying model parameters
+    real(rkind),intent(in) :: soil_dens_intr(nSoil,nGRU)           ! intent(in):  [dp(:)]  intrinsic soil density (kg m-3)
+    real(rkind),intent(in) :: vGn_m(nSoil,nGRU)                    ! intent(in):  [dp(:)]  van Genutchen "m" parameter (-)
+    real(rkind),intent(in) :: vGn_n(nSoil,nGRU)                    ! intent(in):  [dp(:)]  van Genutchen "n" parameter (-)
+    real(rkind),intent(in) :: vGn_alpha(nSoil,nGRU)                ! intent(in):  [dp(:)]  van Genutchen "alpha" parameter (m-1)
+    real(rkind),intent(in) :: theta_sat(nSoil,nGRU)                ! intent(in):  [dp(:)]  soil porosity (-)
+    real(rkind),intent(in) :: theta_res(nSoil,nGRU)                ! intent(in):  [dp(:)]  soil residual volumetric water content (-)
+    ! model diagnostic variables (heat capacity, enthalpy)
+    ! real(rkind),intent(in) :: specificHeatVeg(nGRU)          ! intent(in):  [dp   ]  specific heat of vegetation (J kg-1 K-1)
+    ! real(rkind),intent(in) :: maxMassVegetation(nGRU)        ! intent(in):  [dp   ]  maximum mass of vegetation (kg m-2)
+    ! real(rkind),intent(in) :: canopyDepth(nGRU)              ! intent(in):  [dp   ]  canopy depth (m)
+    ! model diagnostic variables (fraction of liquid water)
+    ! real(rkind),intent(inout) :: scalarFracLiqVeg(nGRU)         ! intent(out): [dp]     fraction of liquid water on vegetation (-)
+    real(rkind),intent(inout) :: mLayerFracLiqSnow(maxSnowLayers+1,nGRU)    ! intent(out): [dp(:)]  fraction of liquid water in each snow layer (-)
+    ! model states from a previous solution
+    ! real(rkind),intent(in) :: scalarCanopyTemp(nGRU)         ! intent(in):  [dp]     temperature of the vegetation canopy (K)
+    real(rkind),intent(in) :: mLayerTemp(nSoil+maxSnowLayers+1,nGRU)               ! intent(in):  [dp(:)]  temperature of each snow/soil layer (K)
+    ! model diagnostic variables from a previous solution
+    ! real(rkind),intent(in) :: scalarCanopyIce(nGRU)          ! intent(in):  [dp(:)]  mass of ice on the vegetation canopy (kg m-2)
+    ! real(rkind),intent(in) :: mLayerVolFracIce(nSoil+maxSnowLayers+1,nGRU)         ! intent(in):  [dp(:)]  volumetric fraction of ice (-)
+    ! derivatives
+    real(rkind),intent(inout) :: dVolTot_dPsi0(nSoil,nGRU)            ! intent(out): [dp(:)]  derivative in total water content w.r.t. total water matric potential
+    real(rkind),intent(inout) :: dPsiLiq_dPsi0(nSoil,nGRU)            ! intent(out): [dp(:)]  derivative in liquid water matric pot w.r.t. the total water matric pot (-)
+    real(rkind),intent(inout) :: dPsiLiq_dTemp(nSoil,nGRU)            ! intent(out): [dp(:)]  derivative in the liquid water matric potential w.r.t. temperature
+    real(rkind),intent(inout) :: mLayerdTheta_dTk(nSoil+maxSnowLayers,nGRU)         ! intent(out): [dp(:)]  derivative of volumetric liquid water content w.r.t. temperature
+    ! real(rkind),intent(inout) :: dTheta_dTkCanopy(nGRU)        ! intent(out): [dp]     derivative of volumetric liquid water content w.r.t. temperature
+    real(rkind),intent(inout) :: dFracLiqWat_dTk(nSoil+maxSnowLayers,nGRU)      ! intent(out): [dp(:)]  derivative in fraction of liquid water w.r.t. temperature
+    ! real(rkind),intent(inout) :: dFracLiqVeg_dTkCanopy(nGRU)   ! intent(out): [dp   ]  derivative in fraction of (throughfall + drainage) w.r.t. temperature
+    ! derivatives inside solver for Jacobian only
+    real(rkind),intent(inout) :: d2VolTot_dPsi02(nSoil,nGRU)          ! intent(out): [dp(:)]  second derivative in total water content w.r.t. total water matric potential
+    real(rkind),intent(inout) :: mLayerd2Theta_dTk2(nSoil,nGRU)       ! intent(out): [dp(:)]  second derivative of volumetric liquid water content w.r.t. temperature
+    ! real(rkind),intent(inout) :: d2Theta_dTkCanopy2(nGRU)       ! intent(out): [dp   ]  second derivative of volumetric liquid water content w.r.t. temperature
+    ! derivatives of temperature if enthalpy is the state variable
+    ! real(rkind),intent(inout) :: dCanairTemp_dEnthalpy(nGRU)      ! intent(out): [dp]     derivative of canopy air temperature w.r.t. enthalpy
+    ! real(rkind),intent(inout) :: dCanopyTemp_dEnthalpy(nGRU)      ! intent(out): [dp]     derivative of canopy temperature w.r.t. enthalpy 
+    real(rkind),intent(inout) :: dTemp_dEnthalpy(nSoil+maxSnowLayers,nGRU)            ! intent(out): [dp(:)]  derivative of temperature w.r.t. enthalpy
+    ! real(rkind),intent(inout) :: dCanopyTemp_dCanWat(nGRU)        ! intent(out): [dp]     derivative of canopy temperature w.r.t. volumetric water content
+    real(rkind),intent(inout) :: dTemp_dTheta(nSoil+maxSnowLayers,nGRU)               ! intent(out): [dp(:)]  derivative of temperature w.r.t. volumetric water content
+    real(rkind),intent(inout) :: dTemp_dPsi0(nSoil,nGRU)                ! intent(out): [dp(:)]  derivative of temperature w.r.t. total water matric potential
+
+  integer(i4b) :: iGRU
+  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+
+  if (iGRU .gt. nGRU) return
+  call updateVarsWithPrime_device_Snow(nSnow, computJac, &
+  mLayerEnthalpyTrial(:,iGRU), &
+  mLayerTempTrial(:,iGRU), mLayerVolFracWatTrial(:,iGRU),mLayerVolFracLiqTrial(:,iGRU),mLayerVolFracIceTrial(:,iGRU), &
+  mLayerTempPrime(:,iGRU), mLayerVolFracWatPrime(:,iGRU), mLayerVolFracLiqPrime(:,iGRU), mLayerVolFracIcePrime(:,iGRU), &
+  snowfrz_scale, &
+  mLayerFracLiqSnow(:,iGRU), &
+  mLayerTemp(:,iGRU), &
+  mLayerdTheta_dTk(:,iGRU), dFracLiqWat_dTk(:,iGRU), mLayerd2Theta_dTk2(:,iGRU), &
+  dTemp_dEnthalpy(:,iGRU), dTemp_dTheta(:,iGRU))
+  call updateVarsWithPrime_device_Soil(nSnow, nSoil, &
+  use_lookup, computJac, temperature(:,:,iGRU), psiLiq_int(:,:,iGRU), deriv2(:,:,iGRU), &
+  mLayerEnthalpyTrial(:,iGRU), &
+  mLayerTempTrial(:,iGRU),mLayerVolFracWatTrial(:,iGRU),mLayerVolFracLiqTrial(:,iGRU),mLayerVolFracIceTrial(:,iGRU),mLayerMatricHeadTrial(:,iGRU),mLayerMatricHeadLiqTrial(:,iGRU), &
+  mLayerTempPrime(:,iGRU),mLayerVolFracWatPrime(:,iGRU),mLayerVolFracLiqPrime(:,iGRU),mLayerVolFracIcePrime(:,iGRU),mLayerMatricHeadPrime(:,iGRU),mLayerMatricHeadLiqPrime(:,iGRU), &
+  ixNrgLayer(:,iGRU), ixStateType(:,iGRU), &
+  soil_dens_intr(:,iGRU),vGn_m(:,iGRU),vGn_n(:,iGRU),vGn_alpha(:,iGRU),theta_sat(:,iGRU),theta_res(:,iGRU), &
+  mLayerTemp(:,iGRU), &
+  dVolTot_dPsi0(:,iGRU), dPsiLiq_dPsi0(:,iGRU), dPsiLiq_dTemp(:,iGRU),mLayerdTheta_dTk(:,iGRU), &
+  dFracLiqWat_dTk(:,iGRU), &
+  d2VolTot_dPsi02(:,iGRU),mLayerd2Theta_dTk2(:,iGRU), &
+  dTemp_dEnthalpy(:,iGRU), &
+  dTemp_dTheta(:,iGRU), dTemp_dPsi0(:,iGRU))
+  !   call updateVarsWithPrime_device_noAdjust(nSnow, &
+  !   use_lookup,computJac,temperature(:,:,iGRU),psiLiq_int(:,:,iGRU),deriv2(:,:,iGRU),&
+  !   mLayerEnthalpyTrial(:,iGRU), &
+  ! mLayerTempTrial(:,iGRU),mLayerVolFracWatTrial(:,iGRU),mLayerVolFracLiqTrial(:,iGRU),mLayerVolFracIceTrial(:,iGRU),mLayerMatricHeadTrial(:,iGRU),mLayerMatricHeadLiqTrial(:,iGRU),&
+  ! mLayerTempPrime(:,iGRU),mLayerVolFracWatPrime(:,iGRU),mLayerVolFracLiqPrime(:,iGRU),mLayerVolFracIcePrime(:,iGRU),mLayerMatricHeadPrime(:,iGRU),mLayerMatricHeadLiqPrime(:,iGRU), &
+  ! ixNrgLayer(:,iGRU), ixHydLayer(:,iGRU), &
+  ! ixDomainType_subset(:,iGRU),ixControlVolume(:,iGRU),ixStateType(:,iGRU), &
+  ! snowfrz_scale,&
+  ! soil_dens_intr(:,iGRU),vGn_m(:,iGRU),vGn_n(:,iGRU),vGn_alpha(:,iGRU),theta_sat(:,iGRU),theta_res(:,iGRU), &
+  ! mLayerFracLiqSnow(:,iGRU), &
+  ! mLayerTemp(:,iGRU), &
+  ! dVolTot_dPsi0(:,iGRU),dPsiLiq_dPsi0(:,iGRU),dPsiLiq_dTemp(:,iGRU),mLayerdTheta_dTk(:,iGRU),&
+  ! dFracLiqWat_dTk(:,iGRU), &
+  ! d2VolTot_dPsi02(:,iGRU),mLayerd2Theta_dTk2(:,iGRU), &
+  ! dTemp_dEnthalpy(:,iGRU), &
+  ! dTemp_dTheta(:,iGRU), dTemp_dPsi0(:,iGRU))
+  !   (nSnow,nSoil,nLayers,mLayerDepth(:,iGRU),&
+  ! use_lookup,computJac,temperature(:,:,iGRU),psiLiq_int(:,:,iGRU),deriv2(:,:,iGRU),&
+  ! scalarCanairEnthalpyTrial,scalarCanopyEnthalpyTrial,mLayerEnthalpyTrial(:,iGRU),&
+  ! scalarCanairTempTrial,scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial,&
+  ! scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime,&
+  ! mLayerTempTrial(:,iGRU),mLayerVolFracWatTrial(:,iGRU),mLayerVolFracLiqTrial(:,iGRU),mLayerVolFracIceTrial(:,iGRU),mLayerMatricHeadTrial(:,iGRU),mLayerMatricHeadLiqTrial(:,iGRU),&
+  ! mLayerTempPrime(:,iGRU),mLayerVolFracWatPrime(:,iGRU),mLayerVolFracLiqPrime(:,iGRU),mLayerVolFracIcePrime(:,iGRU),mLayerMatricHeadPrime(:,iGRU),mLayerMatricHeadLiqPrime(:,iGRU),&
+  ! ixNrgCanair,ixNrgCanopy,ixNrgLayer(:,iGRU),ixHydLayer(:,iGRU),&
+  ! ixDomainType_subset(:,iGRU),ixControlVolume(:,iGRU),ixStateType(:,iGRU), &
+  ! snowfrz_scale,&
+  ! soil_dens_intr(:,iGRU),vGn_m(:,iGRU),vGn_n(:,iGRU),vGn_alpha(:,iGRU),theta_sat(:,iGRU),theta_res(:,iGRU),&
+  ! specificHeatVeg,maxMassVegetation,canopyDepth,&
+  ! scalarFracLiqVeg,mLayerFracLiqSnow(:,iGRU),&
+  ! scalarCanopyTemp,mLayerTemp(:,iGRU),&
+  ! ! scalarCanopyIce,mLayerVolFracIce(:,iGRU),&
+  ! dVolTot_dPsi0(:,iGRU),dPsiLiq_dPsi0(:,iGRU),dPsiLiq_dTemp(:,iGRU),mLayerdTheta_dTk(:,iGRU),&
+  ! dTheta_dTkCanopy,dFracLiqWat_dTk(:,iGRU),dFracLiqVeg_dTkCanopy,&
+  ! d2VolTot_dPsi02(:,iGRU),mLayerd2Theta_dTk2(:,iGRU),d2Theta_dTkCanopy2,&
+  ! dCanairTemp_dEnthalpy,dCanopyTemp_dEnthalpy,dTemp_dEnthalpy(:,iGRU),&
+  ! dCanopyTemp_dCanWat,dTemp_dTheta(:,iGRU),dTemp_dPsi0(:,iGRU))
+end subroutine
+attributes(global) subroutine updateVarsWithPrime_kernel2(nGRU,computedCoupling,&
 nSnow,nSoil,nLayers,mLayerDepth,&
-enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv2,&
+use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv2,&
   scalarCanairEnthalpyTrial,scalarCanopyEnthalpyTrial,mLayerEnthalpyTrial,&
   scalarCanairTempTrial,scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial,&
   scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime,&
   mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial,&
   mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime,&
-  ixVegNrg,ixVegHyd, &
   ixNrgCanair,ixNrgCanopy,ixHydCanopy,ixNrgLayer,ixHydLayer,&
   ixDomainType_subset,ixControlVolume,ixStateType, &
   snowfrz_scale,&
@@ -377,7 +684,6 @@ enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv
   integer(i4b),value :: nSoil
   real(rkind),intent(in) :: mLayerDepth(:,:)
       ! input
-  logical(lgt)     ,intent(in),value       :: enthalpyStateVec                ! flag if enthalpy is the state variable
   logical(lgt)     ,intent(in),value       :: use_lookup                      ! flag to use the lookup table for soil enthalpy, otherwise use hypergeometric function
   logical(lgt)     ,intent(in),value       :: computJac                       ! flag if computing for Jacobian update
   logical(lgt)     ,intent(in),value       :: do_adjustTemp                   ! flag to adjust temperature to account for the energy used in melt+freeze
@@ -413,8 +719,6 @@ enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv
   real(rkind),intent(inout),device          :: mLayerMatricHeadLiqPrime(:,:)     ! trial value of time derivative liquid water matric potential (m)
 
     ! indices defining model states and layers
-    integer(i4b),intent(in) :: ixVegNrg(:)                 ! intent(in):  [i4b]    index of canopy energy state variable
-    integer(i4b),intent(in) :: ixVegHyd(:)                 ! intent(in):  [i4b]    index of canopy hydrology state variable (mass)
     ! indices in the full vector for specific domains
     integer(i4b),intent(in) :: ixNrgCanair(:)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
     integer(i4b),intent(in) :: ixNrgCanopy(:)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
@@ -474,13 +778,12 @@ enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv
 
   if (iGRU .gt. nGRU) return
     call updateVarsWithPrime_device(computedCoupling(:,iGRU),nSnow(iGRU),nSoil,nLayers(iGRU),mLayerDepth(:,iGRU),&
-  enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature(:,:,iGRU),psiLiq_int(:,:,iGRU),deriv2(:,:,iGRU),&
+  use_lookup,computJac,do_adjustTemp,temperature(:,:,iGRU),psiLiq_int(:,:,iGRU),deriv2(:,:,iGRU),&
   scalarCanairEnthalpyTrial(iGRU),scalarCanopyEnthalpyTrial(iGRU),mLayerEnthalpyTrial(:,iGRU),&
   scalarCanairTempTrial(iGRU),scalarCanopyTempTrial(iGRU),scalarCanopyWatTrial(iGRU),scalarCanopyLiqTrial(iGRU),scalarCanopyIceTrial(iGRU),&
   scalarCanopyTempPrime(iGRU),scalarCanopyWatPrime(iGRU),scalarCanopyLiqPrime(iGRU),scalarCanopyIcePrime(iGRU),&
   mLayerTempTrial(:,iGRU),mLayerVolFracWatTrial(:,iGRU),mLayerVolFracLiqTrial(:,iGRU),mLayerVolFracIceTrial(:,iGRU),mLayerMatricHeadTrial(:,iGRU),mLayerMatricHeadLiqTrial(:,iGRU),&
   mLayerTempPrime(:,iGRU),mLayerVolFracWatPrime(:,iGRU),mLayerVolFracLiqPrime(:,iGRU),mLayerVolFracIcePrime(:,iGRU),mLayerMatricHeadPrime(:,iGRU),mLayerMatricHeadLiqPrime(:,iGRU),&
-  ixVegNrg(iGRU),ixVegHyd(iGRU), &
   ixNrgCanair(iGRU),ixNrgCanopy(iGRU),ixHydCanopy(iGRU),ixNrgLayer(:,iGRU),ixHydLayer(:,iGRU),&
   ixDomainType_subset(:,iGRU),ixControlVolume(:,iGRU),ixStateType(:,iGRU), &
   snowfrz_scale(iGRU),&
@@ -495,14 +798,14 @@ enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv
   dCanairTemp_dEnthalpy(iGRU),dCanopyTemp_dEnthalpy(iGRU),dTemp_dEnthalpy(:,iGRU),&
   dCanopyTemp_dCanWat(iGRU),dTemp_dTheta(:,iGRU),dTemp_dPsi0(:,iGRU))
 end subroutine
+
 attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,nSoil,nLayers,mLayerDepth,&
-  enthalpyStateVec,use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv2,&
+  use_lookup,computJac,do_adjustTemp,temperature,psiLiq_int,deriv2,&
   scalarCanairEnthalpyTrial,scalarCanopyEnthalpyTrial,mLayerEnthalpyTrial,&
   scalarCanairTempTrial,scalarCanopyTempTrial,scalarCanopyWatTrial,scalarCanopyLiqTrial,scalarCanopyIceTrial,&
   scalarCanopyTempPrime,scalarCanopyWatPrime,scalarCanopyLiqPrime,scalarCanopyIcePrime,&
   mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial,&
   mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime,&
-  ixVegNrg,ixVegHyd, &
   ixNrgCanair_d,ixNrgCanopy_d,ixHydCanopy_d,ixNrgLayer,ixHydLayer,&
   ixDomainType_subset,ixControlVolume,ixStateType, &
   snowfrz_scale,&
@@ -518,7 +821,7 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
   dCanopyTemp_dCanWat,dTemp_dTheta,dTemp_dPsi0)
   logical(lgt),intent(inout) :: computedCoupling(:)
     ! input
-  logical(lgt)     ,intent(in)       :: enthalpyStateVec                ! flag if enthalpy is the state variable
+  ! logical(lgt)     ,intent(in)       :: enthalpyStateVec                ! flag if enthalpy is the state variable
   logical(lgt)     ,intent(in)       :: use_lookup                      ! flag to use the lookup table for soil enthalpy, otherwise use hypergeometric function
   logical(lgt)     ,intent(in)       :: computJac                       ! flag if computing for Jacobian update
   logical(lgt)     ,intent(in)       :: do_adjustTemp                   ! flag to adjust temperature to account for the energy used in melt+freeze
@@ -558,8 +861,6 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
     integer(i4b),intent(in) :: nLayers                  ! intent(in):  [i4b]    total number of snow and soil layers
     real(rkind),intent(in) :: mLayerDepth(:)                                ! intent(in):  [dp(:)]  depth of each layer in the snow-soil sub-domain (m)
     ! indices defining model states and layers
-    integer(i4b),intent(in) :: ixVegNrg                 ! intent(in):  [i4b]    index of canopy energy state variable
-    integer(i4b),intent(in) :: ixVegHyd                 ! intent(in):  [i4b]    index of canopy hydrology state variable (mass)
     ! indices in the full vector for specific domains
     integer(i4b),intent(in) :: ixNrgCanair_d              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
     integer(i4b),intent(in) :: ixNrgCanopy_d              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
@@ -716,7 +1017,7 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
 
       ! compute temperature from enthalpy for canopy air space
       if(ixDomainType==iname_cas)then
-        if(enthalpyStateVec)then
+        ! if(enthalpyStateVec)then
           call enthalpy2T_cas(&
                    computJac,                  & ! intent(in):  flag if computing for Jacobian update
                    scalarCanairEnthalpyTrial,  & ! intent(in):  trial value for enthalpy of the canopy air space (J m-3)
@@ -724,9 +1025,9 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
                    dCanairTemp_dEnthalpy,      & ! intent(out): derivative of canopy air temperature with enthalpy
                    err)                 ! intent(out): error control
           ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
-        else
-            dCanairTemp_dEnthalpy = 0._rkind
-        endif
+        ! else
+        !     dCanairTemp_dEnthalpy = 0._rkind
+        ! endif
         cycle ! no more to do on canopy air space
       end if
 
@@ -777,7 +1078,7 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
 
       ! compute temperature from enthalpy and water content for remaining domains 
       if(ixDomainType==iname_veg)then
-        if(enthalpyStateVec)then
+        ! if(enthalpyStateVec)then
           scalarCanopyTempTrial = scalarCanopyTemp ! start at previous value
           call enthalpy2T_veg(&
                    computJac,                  & ! intent(in):    flag if computing for Jacobian update          
@@ -792,12 +1093,12 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
                    dCanopyTemp_dCanWat,        & ! intent(inout): derivative of canopy temperature with canopy water
                    err)                 ! intent(out):   error control
           ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
-        else
-          dCanopyTemp_dEnthalpy = 0._rkind
-          dCanopyTemp_dCanWat   = 0._rkind
-        endif
+        ! else
+        !   dCanopyTemp_dEnthalpy = 0._rkind
+        !   dCanopyTemp_dCanWat   = 0._rkind
+        ! endif
       elseif(ixDomainType==iname_snow)then
-        if(enthalpyStateVec)then
+        ! if(enthalpyStateVec)then
           mLayerTempTrial(iLayer) = mLayerTemp(iLayer) ! start at previous value
           call enthalpy2T_snow(&
                    computJac,                      & ! intent(in):    flag if computing for Jacobian update       
@@ -809,12 +1110,12 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
                    dTemp_dTheta(iLayer),           & ! intent(inout): derivative of layer temperature with volumetric total water content
                    err)                     ! intent(out):   error control
           ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
-        else
-          dTemp_dEnthalpy(iLayer) = 0._rkind
-          dTemp_dTheta(iLayer)    = 0._rkind
-        endif
+        ! else
+        !   dTemp_dEnthalpy(iLayer) = 0._rkind
+        !   dTemp_dTheta(iLayer)    = 0._rkind
+        ! endif
       elseif(ixDomainType==iname_soil)then
-        if(enthalpyStateVec)then
+        ! if(enthalpyStateVec)then
           mLayerTempTrial(iLayer) = mLayerTemp(iLayer) ! start at previous value
           call enthalpy2T_soil(&
                    computJac,                              & ! intent(in):    flag if computing for Jacobian update
@@ -836,11 +1137,11 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
                    dTemp_dPsi0(ixControlIndex),            & ! intent(inout): derivative of layer temperature with total water matric potential
                    err)                             ! intent(out):   error control
           !  if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
-        else
-          dTemp_dEnthalpy(iLayer)     = 0._rkind
-          dTemp_dTheta(iLayer)        = 0._rkind
-          dTemp_dPsi0(ixControlIndex) = 0._rkind 
-        endif
+        ! else
+        !   dTemp_dEnthalpy(iLayer)     = 0._rkind
+        !   dTemp_dTheta(iLayer)        = 0._rkind
+        !   dTemp_dPsi0(ixControlIndex) = 0._rkind 
+        ! endif
       endif 
 
       ! compute the critical soil temperature below which ice exists
@@ -1201,6 +1502,1108 @@ attributes(device) subroutine updateVarsWithPrime_device(computedCoupling,nSnow,
 
     end do ! looping through state variables
   end subroutine
+
+attributes(device) subroutine updateVarsWithPrime_device_cas(computJac, &
+scalarCanairEnthalpyTrial_, &
+scalarCanairTempTrial_, & !scalarCanopyWatTrial_, scalarCanopyLiqTrial_, scalarCanopyIceTrial_, &
+! scalarCanopyTempPrime_, scalarCanopyWatPrime_, scalarCanopyLiqPrime_, scalarCanopyIcePrime_, &
+ixNrgCanair_, &
+! snowfrz_scale_, &
+! specificHeatVeg_,maxMassVegetation_,canopyDepth_, &
+! scalarFracLiqVeg_, &
+! scalarCanopyTemp_, &
+! dTheta_dTkCanopy_, dFracLiqVeg_dTkCanopy_, d2Theta_dTkCanopy2_, &
+dCanairTemp_dEnthalpy_)
+  use initialize_device,only:get_iGRU
+    ! input
+  logical(lgt)     ,intent(in)       :: computJac                       ! flag if computing for Jacobian update
+  ! input: enthalpy state variables  
+  real(rkind),intent(in)             :: scalarCanairEnthalpyTrial_(:)       ! trial value for enthalpy of the canopy air space (J m-3)
+  ! output: variables for the vegetation canopy
+  real(rkind),intent(inout)          :: scalarCanairTempTrial_(:)           ! trial value of canopy air space temperature (K)
+    ! indices defining model states and layers
+    ! indices in the full vector for specific domains
+    integer(i4b),intent(in) :: ixNrgCanair_(:)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
+    ! derivatives of temperature if enthalpy is the state variable
+    real(rkind),intent(inout) :: dCanairTemp_dEnthalpy_(:)      ! intent(out): [dp]     derivative of canopy air temperature w.r.t. enthalpy
+    ! --------------------------------------------------------------------------------------------------------------------------------
+  ! general local variables
+  integer(i4b) :: err, iGRU
+  iGRU = get_iGRU()
+
+
+  if (ixNrgCanair_(iGRU).ne.integerMissing) then
+        ! if(enthalpyStateVec)then
+          call enthalpy2T_cas(&
+                   computJac,                  & ! intent(in):  flag if computing for Jacobian update
+                   scalarCanairEnthalpyTrial_(iGRU),  & ! intent(in):  trial value for enthalpy of the canopy air space (J m-3)
+                   scalarCanairTempTrial_(iGRU),      & ! intent(out): trial value for canopy air temperature (K)
+                   dCanairTemp_dEnthalpy_(iGRU),      & ! intent(out): derivative of canopy air temperature with enthalpy
+                   err)                 ! intent(out): error control
+  end if
+
+
+
+  end subroutine
+
+attributes(device) subroutine updateVarsWithPrime_device_veg(computJac, &
+scalarCanopyEnthalpyTrial_, &
+scalarCanopyTempTrial_, scalarCanopyWatTrial_, scalarCanopyLiqTrial_, scalarCanopyIceTrial_, &
+scalarCanopyTempPrime_, scalarCanopyWatPrime_, scalarCanopyLiqPrime_, scalarCanopyIcePrime_, &
+ixNrgCanopy_, &
+snowfrz_scale_, &
+specificHeatVeg_,maxMassVegetation_,canopyDepth_, &
+scalarFracLiqVeg_, &
+scalarCanopyTemp_, &
+dTheta_dTkCanopy_, dFracLiqVeg_dTkCanopy_, d2Theta_dTkCanopy2_, &
+dCanopyTemp_dEnthalpy_, dCanopyTemp_dCanWat_)
+  use initialize_device,only:get_iGRU
+    ! input
+  logical(lgt)     ,intent(in)       :: computJac                       ! flag if computing for Jacobian update
+
+    ! input: enthalpy state variables  
+  real(rkind),intent(in)             :: scalarCanopyEnthalpyTrial_(:)       ! trial value for enthalpy of the vegetation canopy (J m-3)
+  ! output: variables for the vegetation canopy
+  real(rkind),intent(inout)          :: scalarCanopyTempTrial_(:)           ! trial value of canopy temperature (K)
+  real(rkind),intent(inout)          :: scalarCanopyWatTrial_(:)            ! trial value of canopy total water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyLiqTrial_(:)            ! trial value of canopy liquid water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyIceTrial_(:)            ! trial value of canopy ice content (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyTempPrime_(:)           ! trial value of time derivative canopy temperature (K)
+  real(rkind),intent(inout)          :: scalarCanopyWatPrime_(:)            ! trial value of time derivative canopy total water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyLiqPrime_(:)            ! trial value of time derivative canopy liquid water (kg m-2)
+  real(rkind),intent(inout)          :: scalarCanopyIcePrime_(:)            ! trial value of time derivative canopy ice content (kg m-2)
+
+    ! indices defining model states and layers
+    ! indices in the full vector for specific domains
+    integer(i4b),intent(in) :: ixNrgCanopy_(:)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
+    ! snow parameters
+    real(rkind),intent(in) :: snowfrz_scale_(:)            ! intent(in):  [dp    ] scaling parameter for the snow freezing curve (K-1)
+    ! model diagnostic variables (heat capacity, enthalpy)
+    real(rkind),intent(in) :: specificHeatVeg_(:)          ! intent(in):  [dp   ]  specific heat of vegetation (J kg-1 K-1)
+    real(rkind),intent(in) :: maxMassVegetation_(:)        ! intent(in):  [dp   ]  maximum mass of vegetation (kg m-2)
+    real(rkind),intent(in) :: canopyDepth_(:)              ! intent(in):  [dp   ]  canopy depth (m)
+    ! model diagnostic variables (fraction of liquid water)
+    real(rkind),intent(inout) :: scalarFracLiqVeg_(:)         ! intent(out): [dp]     fraction of liquid water on vegetation (-)
+    ! model states from a previous solution
+    real(rkind),intent(in) :: scalarCanopyTemp_(:)         ! intent(in):  [dp]     temperature of the vegetation canopy (K)
+    ! derivatives
+    real(rkind),intent(inout) :: dTheta_dTkCanopy_(:)        ! intent(out): [dp]     derivative of volumetric liquid water content w.r.t. temperature
+    real(rkind),intent(inout) :: dFracLiqVeg_dTkCanopy_(:)   ! intent(out): [dp   ]  derivative in fraction of (throughfall + drainage) w.r.t. temperature
+    ! derivatives inside solver for Jacobian only
+    real(rkind),intent(inout) :: d2Theta_dTkCanopy2_(:)       ! intent(out): [dp   ]  second derivative of volumetric liquid water content w.r.t. temperature
+    ! derivatives of temperature if enthalpy is the state variable
+    ! real(rkind),intent(inout) :: dCanairTemp_dEnthalpy_(:)      ! intent(out): [dp]     derivative of canopy air temperature w.r.t. enthalpy
+    real(rkind),intent(inout) :: dCanopyTemp_dEnthalpy_(:)      ! intent(out): [dp]     derivative of canopy temperature w.r.t. enthalpy 
+  !   real(rkind),intent(inout) :: dTemp_dEnthalpy(:)            ! intent(out): [dp(:)]  derivative of temperature w.r.t. enthalpy
+    real(rkind),intent(inout) :: dCanopyTemp_dCanWat_(:)        ! intent(out): [dp]     derivative of canopy temperature w.r.t. volumetric water content
+  !   real(rkind),intent(inout) :: dTemp_dTheta(:)               ! intent(out): [dp(:)]  derivative of temperature w.r.t. volumetric water content
+  !   real(rkind),intent(inout) :: dTemp_dPsi0(:)                ! intent(out): [dp(:)]  derivative of temperature w.r.t. total water matric potential
+
+
+    ! --------------------------------------------------------------------------------------------------------------------------------
+  ! general local variables
+  ! integer(i4b)                       :: iState                          ! index of model state variable
+  ! integer(i4b)                       :: iLayer                          ! index of layer within the snow+soil domain
+  ! integer(i4b)                       :: ixFullVector                    ! index within full state vector
+  ! integer(i4b)                       :: ixDomainType                    ! name of a given model domain
+  ! integer(i4b)                       :: ixControlIndex                  ! index within a given model domain
+  ! integer(i4b)                       :: ixOther,ixOtherLocal            ! index of the coupled state variable within the (full, local) vector
+  ! logical(lgt)                       :: isCoupled                       ! .true. if a given variable shared another state variable in the same control volume
+  ! logical(lgt)                       :: isNrgState                      ! .true. if a given variable is an energy state
+  real(rkind)                        :: scalarVolFracLiq                ! volumetric fraction of liquid water (-)
+  real(rkind)                        :: scalarVolFracIce                ! volumetric fraction of ice (-)
+  real(rkind)                        :: scalarVolFracLiqPrime           ! time derivative volumetric fraction of liquid water (-)
+  real(rkind)                        :: scalarVolFracIcePrime           ! time derivative volumetric fraction of ice (-)
+  real(rkind)                        :: Tcrit                           ! critical soil temperature below which ice exists (K)
+  real(rkind)                        :: xTemp                           ! temporary temperature (K)
+  real(rkind)                        :: fLiq                            ! fraction of liquid water (-)
+  ! real(rkind)                        :: effSat                          ! effective saturation (-)
+  ! real(rkind)                        :: avPore                          ! available pore space (-)
+  ! logical(lgt),parameter             :: printFlag=.false.               ! flag to turn on printing
+  ! ! iterative solution for temperature
+  ! real(rkind)                        :: meltNrg                         ! energy for melt+freeze (J m-3)
+  ! real(rkind)                        :: residual                        ! residual in the energy equation (J m-3)
+  ! real(rkind)                        :: derivative                      ! derivative in the energy equation (J m-3 K-1)
+  ! real(rkind)                        :: tempInc                         ! iteration increment (K)
+  ! integer(i4b)                       :: iter                            ! iteration index
+  ! ! integer(i4b)                       :: niter                           ! number of iterations
+  ! integer(i4b),parameter             :: maxiter=100                     ! maximum number of iterations
+  ! real(rkind),parameter              :: nrgConvTol=1.e-4_rkind          ! convergence tolerance for energy (J m-3)
+  ! real(rkind),parameter              :: tempConvTol=1.e-6_rkind         ! convergence tolerance for temperature (K)
+  ! real(rkind)                        :: critDiff                        ! temperature difference from critical (K)
+  ! real(rkind)                        :: tempMin                         ! minimum bracket for temperature (K)
+  ! real(rkind)                        :: tempMax                         ! maximum bracket for temperature (K)
+  ! logical(lgt)                       :: bFlag                           ! flag to denote that iteration increment was constrained using bi-section
+  ! real(rkind),parameter              :: epsT=1.e-7_rkind                ! small interval above/below critical temperature (K)
+  integer(i4b) :: err, iGRU
+  iGRU = get_iGRU()
+
+  if (ixNrgCanopy_(iGRU).ne.integerMissing) then
+
+      ! compute temperature from enthalpy and water content for remaining domains 
+        ! if(enthalpyStateVec)then
+          scalarCanopyTempTrial_(iGRU) = scalarCanopyTemp_(iGRU) ! start at previous value
+          call enthalpy2T_veg(&
+                   computJac,                  & ! intent(in):    flag if computing for Jacobian update          
+                   canopyDepth_(iGRU),                & ! intent(in):    canopy depth (m)
+                   specificHeatVeg_(iGRU),            & ! intent(in):    specific heat of vegetation (J kg-1 K-1)
+                   maxMassVegetation_(iGRU),          & ! intent(in):    maximum mass of vegetation (kg m-2)
+                   snowfrz_scale_(iGRU),              & ! intent(in):    scaling parameter for the snow freezing curve  (K-1)
+                   scalarCanopyEnthalpyTrial_(iGRU),  & ! intent(in):    trial value for enthalpy of the vegetation canopy (J m-3)
+                   scalarCanopyWatTrial_(iGRU),       & ! intent(in):    trial value for canopy total water (kg m-2)
+                   scalarCanopyTempTrial_(iGRU),      & ! intent(inout): trial value for canopy temperature (K)
+                   dCanopyTemp_dEnthalpy_(iGRU),      & ! intent(inout): derivative of canopy temperature with enthalpy
+                   dCanopyTemp_dCanWat_(iGRU),        & ! intent(inout): derivative of canopy temperature with canopy water
+                   err)                 ! intent(out):   error control
+          ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+        ! else
+        !   dCanopyTemp_dEnthalpy_(iGRU) = 0._rkind
+        !   dCanopyTemp_dCanWat_(iGRU)   = 0._rkind
+        ! endif
+
+      ! compute the critical soil temperature below which ice exists
+        Tcrit = Tfreeze
+
+      ! initialize temperature
+        xTemp = scalarCanopyTempTrial_(iGRU)
+
+      ! define brackets for the root
+      ! NOTE: start with an enormous range; updated quickly in the iterations
+      ! tempMin = xTemp - 10._rkind
+      ! tempMax = xTemp + 10._rkind
+
+
+      !   ! restrict temperature
+      !   if(xTemp <= tempMin .or. xTemp >= tempMax)then
+      !     xTemp = 0.5_rkind*(tempMin + tempMax)  ! new value
+      !     ! bFlag = .true.
+      !   ! else
+      !     ! bFlag = .false.
+      !   endif
+
+        ! -----
+        ! - compute derivatives...
+        ! ------------------------
+
+        ! compute the derivative in total water content w.r.t. total water matric potential (m-1)
+        ! NOTE 1: valid for frozen and unfrozen conditions
+        ! NOTE 2: for case "iname_lmpLayer", dVolTot_dPsi0 = dVolLiq_dPsi
+
+        ! compute the derivative in liquid water content w.r.t. temperature
+        ! --> partially frozen: dependence of liquid water on temperature
+        if(xTemp<Tcrit)then
+              dFracLiqVeg_dTkCanopy_(iGRU) = dFracLiq_dTk(xTemp,snowfrz_scale_(iGRU))
+              dTheta_dTkCanopy_(iGRU) = dFracLiqVeg_dTkCanopy_(iGRU) * scalarCanopyWatTrial_(iGRU)/(iden_water*canopyDepth_(iGRU))
+              if(computJac)then
+                fLiq = fracLiquid(xTemp,snowfrz_scale_(iGRU))
+                d2Theta_dTkCanopy2_(iGRU) = 2._rkind * snowfrz_scale_(iGRU)**2_i4b * ( (Tfreeze - xTemp) * 2._rkind * fLiq * dFracLiqVeg_dTkCanopy_(iGRU) - fLiq**2_i4b ) * scalarCanopyWatTrial_(iGRU)/(iden_water*canopyDepth_(iGRU))
+              endif
+
+        ! --> unfrozen: no dependence of liquid water on temperature
+        else
+
+            dTheta_dTkCanopy_(iGRU)         = 0._rkind; d2Theta_dTkCanopy2_(iGRU)         = 0._rkind; dFracLiqVeg_dTkCanopy_(iGRU)    = 0._rkind
+        endif
+
+        ! -----
+        ! - update volumetric fraction of liquid water and ice...
+        !    => case of hydrology state uncoupled with energy (and when not adjusting the temperature)...
+        ! -----------------------------------------------------------------------------------------------
+
+        ! case of energy state OR coupled solution (or adjusting the temperature)
+
+              ! compute volumetric fraction of liquid water and ice
+              call updateSnowPrime(&
+                              xTemp,                                        & ! intent(in):  temperature (K)
+                              scalarCanopyWatTrial_(iGRU)/(iden_water*canopyDepth_(iGRU)),& ! intent(in):  volumetric fraction of total water (-)
+                              snowfrz_scale_(iGRU),                                & ! intent(in):  scaling parameter for the snow freezing curve (K-1)
+                              scalarCanopyTempPrime_(iGRU),                        & ! intent(in):  canopy temperature time derivative (K/s)
+                              scalarCanopyWatPrime_(iGRU)/(iden_water*canopyDepth_(iGRU)),& ! intent(in):  volumetric fraction of total water time derivative (-)
+                              scalarVolFracLiq,                             & ! intent(out): trial canopy liquid water (-)
+                              scalarVolFracIce,                             & ! intent(out): trial volumetric canopy ice (-)
+                              scalarVolFracLiqPrime,                        & ! intent(out): trial volumetric canopy liquid water (-)
+                              scalarVolFracIcePrime,                        & ! intent(out): trial volumetric canopy ice (-)
+                              scalarFracLiqVeg_(iGRU),                             & ! intent(out): fraction of liquid water (-)
+                              err)                                   ! intent(out): error control
+              ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+
+              ! compute mass of water on the canopy
+              ! NOTE: possibilities for speed-up here
+              scalarCanopyLiqTrial_(iGRU) =             scalarFracLiqVeg_(iGRU) *scalarCanopyWatTrial_(iGRU) !(kg m-2), scalarVolFracLiq*iden_water*canopyDepth
+              scalarCanopyLiqPrime_(iGRU) =             scalarVolFracLiqPrime*iden_water*canopyDepth_(iGRU)
+              scalarCanopyIceTrial_(iGRU) = (1._rkind - scalarFracLiqVeg_(iGRU))*scalarCanopyWatTrial_(iGRU) !(kg m-2), scalarVolFracIce* iden_ice *canopyDepth
+              scalarCanopyIcePrime_(iGRU) =             scalarVolFracIcePrime* iden_ice *canopyDepth_(iGRU)
+
+        ! endif  ! if energy state or solution is coupled
+
+
+      ! save temperature
+        scalarCanopyTempTrial_(iGRU)   = xTemp
+
+  end if
+
+
+  end subroutine
+
+
+  attributes(device) subroutine updateVarsWithPrime_device_noAdjust(nSnow_, &
+    use_lookup,computJac,temperature,psiLiq_int,deriv2,&
+    mLayerEnthalpyTrial, &
+  ! scalarCanairEnthalpyTrial_,scalarCanopyEnthalpyTrial_,mLayerEnthalpyTrial,&
+  ! scalarCanairTempTrial_,scalarCanopyTempTrial_,scalarCanopyWatTrial_,scalarCanopyLiqTrial_,scalarCanopyIceTrial_,&
+  ! scalarCanopyTempPrime_,scalarCanopyWatPrime_,scalarCanopyLiqPrime_,scalarCanopyIcePrime_,&
+  mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial,&
+  mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime, &
+  ixNrgLayer, ixHydLayer, &
+  ! ixNrgCanair_,ixNrgCanopy_,ixNrgLayer,ixHydLayer,&
+  ixDomainType_subset,ixControlVolume,ixStateType, &
+  snowfrz_scale_,&
+  soil_dens_intr,vGn_m,vGn_n,vGn_alpha,theta_sat,theta_res, &
+  ! specificHeatVeg_,maxMassVegetation_,canopyDepth_,&
+  ! scalarFracLiqVeg_,mLayerFracLiqSnow,&
+  mLayerFracLiqSnow, &
+  mLayerTemp, &
+  ! scalarCanopyTemp_,mLayerTemp,&
+  dVolTot_dPsi0,dPsiLiq_dPsi0,dPsiLiq_dTemp,mLayerdTheta_dTk,&
+  dFracLiqWat_dTk, &
+  ! dTheta_dTkCanopy_,dFracLiqWat_dTk,dFracLiqVeg_dTkCanopy_,&
+  d2VolTot_dPsi02,mLayerd2Theta_dTk2, &!d2Theta_dTkCanopy2_,&
+  ! dCanairTemp_dEnthalpy_,dCanopyTemp_dEnthalpy_,dTemp_dEnthalpy,&
+  dTemp_dEnthalpy, &
+  dTemp_dTheta, dTemp_dPsi0)
+  ! dCanopyTemp_dCanWat_,dTemp_dTheta,dTemp_dPsi0)
+  use initialize_device,only:get_iGRU
+    ! input
+  ! logical(lgt)     ,intent(in)       :: enthalpyStateVec                ! flag if enthalpy is the state variable
+  logical(lgt)     ,intent(in)       :: use_lookup                      ! flag to use the lookup table for soil enthalpy, otherwise use hypergeometric function
+  logical(lgt)     ,intent(in)       :: computJac                       ! flag if computing for Jacobian update
+  !   ! type(zLookup)    ,intent(in)       :: lookup_data                     ! lookup tables
+  real(rkind),intent(in) :: temperature(:,:), psiLiq_int(:,:), deriv2(:,:)
+
+  !   ! input: enthalpy state variables  
+  ! real(rkind),intent(in)             :: scalarCanairEnthalpyTrial_(:)       ! trial value for enthalpy of the canopy air space (J m-3)
+  ! real(rkind),intent(in)             :: scalarCanopyEnthalpyTrial_(:)       ! trial value for enthalpy of the vegetation canopy (J m-3)
+  real(rkind),intent(in)             :: mLayerEnthalpyTrial(:)          ! trial vector of enthalpy of each snow+soil layer (J m-3)                      
+  ! ! output: variables for the vegetation canopy
+  ! real(rkind),intent(inout)          :: scalarCanairTempTrial_(:)           ! trial value of canopy air space temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyTempTrial_(:)           ! trial value of canopy temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyWatTrial_(:)            ! trial value of canopy total water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyLiqTrial_(:)            ! trial value of canopy liquid water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyIceTrial_(:)            ! trial value of canopy ice content (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyTempPrime_(:)           ! trial value of time derivative canopy temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyWatPrime_(:)            ! trial value of time derivative canopy total water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyLiqPrime_(:)            ! trial value of time derivative canopy liquid water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyIcePrime_(:)            ! trial value of time derivative canopy ice content (kg m-2)
+  ! ! output: variables for the snow-soil domain
+  real(rkind),intent(inout)          :: mLayerTempTrial(:)              ! trial vector of layer temperature (K)
+  real(rkind),intent(inout)          :: mLayerVolFracWatTrial(:)        ! trial vector of volumetric total water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracLiqTrial(:)        ! trial vector of volumetric liquid water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracIceTrial(:)        ! trial vector of volumetric ice water content (-)
+  real(rkind),intent(inout)          :: mLayerMatricHeadTrial(:)        ! trial vector of total water matric potential (m)
+  real(rkind),intent(inout)          :: mLayerMatricHeadLiqTrial(:)     ! trial vector of liquid water matric potential (m)
+  real(rkind),intent(inout)          :: mLayerTempPrime(:)              ! trial value of time derivative layer temperature (K)
+  real(rkind),intent(inout)          :: mLayerVolFracWatPrime(:)        ! trial value of time derivative volumetric total water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracLiqPrime(:)        ! trial value of time derivative volumetric liquid water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracIcePrime(:)        ! trial value of time derivative volumetric ice water content (-)
+  real(rkind),intent(inout)          :: mLayerMatricHeadPrime(:)        ! trial value of time derivative total water matric potential (m)
+  real(rkind),intent(inout)          :: mLayerMatricHeadLiqPrime(:)     ! trial value of time derivative liquid water matric potential (m)
+
+    integer(i4b),intent(in) :: nSnow_(:)                    ! intent(in):  [i4b]    total number of snow layers
+  !   integer(i4b),intent(in) :: nSoil                    ! intent(in):  [i4b]    total number of soil layers
+  !   integer(i4b),intent(in) :: nLayers_(:)                  ! intent(in):  [i4b]    total number of snow and soil layers
+  !   real(rkind),intent(in) :: mLayerDepth(:)                                ! intent(in):  [dp(:)]  depth of each layer in the snow-soil sub-domain (m)
+  !   ! indices in the full vector for specific domains
+  !   integer(i4b),intent(in) :: ixNrgCanair_(:)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in canopy air space domain
+  !   integer(i4b),intent(in) :: ixNrgCanopy_(:)              ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the canopy domain
+    integer(i4b),intent(in) :: ixNrgLayer(:)               ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the snow+soil domain
+    integer(i4b),intent(in) :: ixHydLayer(:)               ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for hydrology states in the snow+soil domain
+  !   ! type of domain, type of state variable, and index of control volume within domain
+    integer(i4b),intent(in) :: ixDomainType_subset(:)      ! intent(in):  [i4b(:)] [state subset] id of domain for desired model state variables
+    integer(i4b),intent(in) :: ixControlVolume(:)          ! intent(in):  [i4b(:)] index of the control volume for different domains (veg, snow, soil)
+    integer(i4b),intent(in) :: ixStateType(:)              ! intent(in):  [i4b(:)] indices defining the type of the state (iname_nrgLayer...)
+  !   ! snow parameters
+    real(rkind),intent(in) :: snowfrz_scale_(:)            ! intent(in):  [dp    ] scaling parameter for the snow freezing curve (K-1)
+  !   ! depth-varying model parameters
+    real(rkind),intent(in) :: soil_dens_intr(:)           ! intent(in):  [dp(:)]  intrinsic soil density (kg m-3)
+    real(rkind),intent(in) :: vGn_m(:)                    ! intent(in):  [dp(:)]  van Genutchen "m" parameter (-)
+    real(rkind),intent(in) :: vGn_n(:)                    ! intent(in):  [dp(:)]  van Genutchen "n" parameter (-)
+    real(rkind),intent(in) :: vGn_alpha(:)                ! intent(in):  [dp(:)]  van Genutchen "alpha" parameter (m-1)
+    real(rkind),intent(in) :: theta_sat(:)                ! intent(in):  [dp(:)]  soil porosity (-)
+    real(rkind),intent(in) :: theta_res(:)                ! intent(in):  [dp(:)]  soil residual volumetric water content (-)
+  !   ! model diagnostic variables (heat capacity, enthalpy)
+  !   real(rkind),intent(in) :: specificHeatVeg_(:)          ! intent(in):  [dp   ]  specific heat of vegetation (J kg-1 K-1)
+  !   real(rkind),intent(in) :: maxMassVegetation_(:)        ! intent(in):  [dp   ]  maximum mass of vegetation (kg m-2)
+  !   real(rkind),intent(in) :: canopyDepth_(:)              ! intent(in):  [dp   ]  canopy depth (m)
+  !   ! model diagnostic variables (fraction of liquid water)
+  !   real(rkind),intent(inout) :: scalarFracLiqVeg_(:)         ! intent(out): [dp]     fraction of liquid water on vegetation (-)
+    real(rkind),intent(inout) :: mLayerFracLiqSnow(:)    ! intent(out): [dp(:)]  fraction of liquid water in each snow layer (-)
+  !   ! model states from a previous solution
+  !   real(rkind),intent(in) :: scalarCanopyTemp_(:)         ! intent(in):  [dp]     temperature of the vegetation canopy (K)
+    real(rkind),intent(in) :: mLayerTemp(:)               ! intent(in):  [dp(:)]  temperature of each snow/soil layer (K)
+  !   ! derivatives
+    real(rkind),intent(inout) :: dVolTot_dPsi0(:)            ! intent(out): [dp(:)]  derivative in total water content w.r.t. total water matric potential
+    real(rkind),intent(inout) :: dPsiLiq_dPsi0(:)            ! intent(out): [dp(:)]  derivative in liquid water matric pot w.r.t. the total water matric pot (-)
+    real(rkind),intent(inout) :: dPsiLiq_dTemp(:)            ! intent(out): [dp(:)]  derivative in the liquid water matric potential w.r.t. temperature
+    real(rkind),intent(inout) :: mLayerdTheta_dTk(:)         ! intent(out): [dp(:)]  derivative of volumetric liquid water content w.r.t. temperature
+  !   real(rkind),intent(inout) :: dTheta_dTkCanopy_(:)        ! intent(out): [dp]     derivative of volumetric liquid water content w.r.t. temperature
+    real(rkind),intent(inout) :: dFracLiqWat_dTk(:)      ! intent(out): [dp(:)]  derivative in fraction of liquid water w.r.t. temperature
+  !   real(rkind),intent(inout) :: dFracLiqVeg_dTkCanopy_(:)   ! intent(out): [dp   ]  derivative in fraction of (throughfall + drainage) w.r.t. temperature
+  !   ! derivatives inside solver for Jacobian only
+    real(rkind),intent(inout) :: d2VolTot_dPsi02(:)          ! intent(out): [dp(:)]  second derivative in total water content w.r.t. total water matric potential
+    real(rkind),intent(inout) :: mLayerd2Theta_dTk2(:)       ! intent(out): [dp(:)]  second derivative of volumetric liquid water content w.r.t. temperature
+  !   real(rkind),intent(inout) :: d2Theta_dTkCanopy2_(:)       ! intent(out): [dp   ]  second derivative of volumetric liquid water content w.r.t. temperature
+  !   ! derivatives of temperature if enthalpy is the state variable
+  !   real(rkind),intent(inout) :: dCanairTemp_dEnthalpy_(:)      ! intent(out): [dp]     derivative of canopy air temperature w.r.t. enthalpy
+  !   real(rkind),intent(inout) :: dCanopyTemp_dEnthalpy_(:)      ! intent(out): [dp]     derivative of canopy temperature w.r.t. enthalpy 
+    real(rkind),intent(inout) :: dTemp_dEnthalpy(:)            ! intent(out): [dp(:)]  derivative of temperature w.r.t. enthalpy
+  !   real(rkind),intent(inout) :: dCanopyTemp_dCanWat_(:)        ! intent(out): [dp]     derivative of canopy temperature w.r.t. volumetric water content
+    real(rkind),intent(inout) :: dTemp_dTheta(:)               ! intent(out): [dp(:)]  derivative of temperature w.r.t. volumetric water content
+    real(rkind),intent(inout) :: dTemp_dPsi0(:)                ! intent(out): [dp(:)]  derivative of temperature w.r.t. total water matric potential
+
+
+    ! --------------------------------------------------------------------------------------------------------------------------------
+  ! general local variables
+  integer(i4b)                       :: iState                          ! index of model state variable
+  integer(i4b)                       :: iLayer                          ! index of layer within the snow+soil domain
+  integer(i4b)                       :: ixFullVector                    ! index within full state vector
+  integer(i4b)                       :: ixDomainType                    ! name of a given model domain
+  integer(i4b)                       :: ixControlIndex                  ! index within a given model domain
+  integer(i4b)                       :: ixOther,ixOtherLocal            ! index of the coupled state variable within the (full, local) vector
+  logical(lgt)                       :: isCoupled                       ! .true. if a given variable shared another state variable in the same control volume
+  logical(lgt)                       :: isNrgState                      ! .true. if a given variable is an energy state
+  ! real(rkind)                        :: scalarVolFracLiq                ! volumetric fraction of liquid water (-)
+  ! real(rkind)                        :: scalarVolFracIce                ! volumetric fraction of ice (-)
+  ! real(rkind)                        :: scalarVolFracLiqPrime           ! time derivative volumetric fraction of liquid water (-)
+  ! real(rkind)                        :: scalarVolFracIcePrime           ! time derivative volumetric fraction of ice (-)
+  real(rkind)                        :: Tcrit                           ! critical soil temperature below which ice exists (K)
+  real(rkind)                        :: xTemp                           ! temporary temperature (K)
+  real(rkind)                        :: fLiq                            ! fraction of liquid water (-)
+  real(rkind)                        :: effSat                          ! effective saturation (-)
+  real(rkind)                        :: avPore                          ! available pore space (-)
+  ! logical(lgt),parameter             :: printFlag=.false.               ! flag to turn on printing
+  ! ! iterative solution for temperature
+  ! real(rkind)                        :: meltNrg                         ! energy for melt+freeze (J m-3)
+  ! real(rkind)                        :: residual                        ! residual in the energy equation (J m-3)
+  ! real(rkind)                        :: derivative                      ! derivative in the energy equation (J m-3 K-1)
+  ! real(rkind)                        :: tempInc                         ! iteration increment (K)
+  ! integer(i4b)                       :: iter                            ! iteration index
+  ! ! integer(i4b)                       :: niter                           ! number of iterations
+  ! integer(i4b),parameter             :: maxiter=100                     ! maximum number of iterations
+  ! real(rkind),parameter              :: nrgConvTol=1.e-4_rkind          ! convergence tolerance for energy (J m-3)
+  ! real(rkind),parameter              :: tempConvTol=1.e-6_rkind         ! convergence tolerance for temperature (K)
+  ! real(rkind)                        :: critDiff                        ! temperature difference from critical (K)
+  ! ! real(rkind)                        :: tempMin                         ! minimum bracket for temperature (K)
+  ! ! real(rkind)                        :: tempMax                         ! maximum bracket for temperature (K)
+  ! ! logical(lgt)                       :: bFlag                           ! flag to denote that iteration increment was constrained using bi-section
+  ! real(rkind),parameter              :: epsT=1.e-7_rkind                ! small interval above/below critical temperature (K)
+  integer(i4b) :: err, iGRU
+  iGRU = get_iGRU()
+
+
+    ! loop through model state variables
+    do iState=1,size(ixDomainType_subset)
+      ixOtherLocal = size(ixDomainType_subset)+1
+
+
+      ! -----
+      ! - compute indices...
+      ! --------------------
+
+      ! get domain type, and index of the control volume within the domain
+      ixFullVector   = iState       ! index within full state vector
+      ixDomainType   = ixDomainType_subset(iState)    ! named variables defining the domain (iname_cas, iname_veg, etc.)
+      ixControlIndex = ixControlVolume(ixFullVector)  ! index within a given domain
+
+      ! get the layer index
+      select case(ixDomainType)
+        case(iname_cas);     cycle
+        case(iname_veg);     cycle
+        case(iname_snow);    cycle ;iLayer = ixControlIndex
+        case(iname_soil);    iLayer = ixControlIndex + nSnow_(iGRU)
+        case(iname_aquifer); cycle ! aquifer: do nothing
+        ! case default; err=20; message=trim(message)//'expect case to be iname_cas, iname_veg, iname_snow, iname_soil, iname_aquifer'; return
+      end select
+
+      ! get the index of the other (energy or mass) state variable within the full state vector
+        ixOther = merge(ixHydLayer(iLayer),ixNrgLayer(iLayer),ixStateType(ixFullVector)==iname_nrgLayer)
+        ! case default; err=20; message=trim(message)//'expect case to be iname_cas, iname_veg, iname_snow, iname_soil'; return
+
+      ! get the index in the local state vector
+      ! if(ixDomainType==iname_cas)then
+      !   ixOtherLocal = integerMissing
+      ! else
+        ixOtherLocal = ixOther  ! ixOtherLocal could equal integerMissing
+      ! endif
+      if (ixOtherLocal .lt. iState) cycle
+      ! print*, iGRU, iState, ixOtherLocal, computedCoupling(iState)
+      ! check the need for the computations
+      ! if(computedCoupling(iState)) cycle
+
+      ! if(ixOtherLocal/=integerMissing) computedCoupling(ixOtherLocal)=.true.
+
+      ! check if we have a coupled solution
+      isCoupled    = (ixOtherLocal/=integerMissing)
+
+      ! check if we are an energy state
+      isNrgState   = (ixStateType(ixFullVector)==iname_nrgCanair .or. ixStateType(ixFullVector)==iname_nrgCanopy .or. ixStateType(ixFullVector)==iname_nrgLayer)
+
+      ! update hydrology state variables for the uncoupled solution
+      if(.not.isNrgState .and. .not.isCoupled)then
+
+        ! update the total water from volumetric liquid water
+        if(ixStateType(ixFullVector)==iname_liqCanopy .or. ixStateType(ixFullVector)==iname_liqLayer)then
+          select case(ixDomainType)
+            case(iname_snow)
+                mLayerVolFracWatTrial(iLayer) = mLayerVolFracLiqTrial(iLayer) + mLayerVolFracIceTrial(iLayer)*iden_ice/iden_water
+                mLayerVolFracWatPrime(iLayer) = mLayerVolFracLiqPrime(iLayer) + mLayerVolFracIcePrime(iLayer)*iden_ice/iden_water
+            case(iname_soil)
+                mLayerVolFracWatTrial(iLayer) = mLayerVolFracLiqTrial(iLayer) + mLayerVolFracIceTrial(iLayer) ! no volume expansion
+                mLayerVolFracWatPrime(iLayer) = mLayerVolFracLiqPrime(iLayer) + mLayerVolFracIcePrime(iLayer)
+            ! case default; err=20; message=trim(message)//'expect case to be iname_veg, iname_snow, or iname_soil'; return
+          end select
+        endif
+
+        ! update the total water and the total water matric potential
+        if(ixDomainType==iname_soil)then
+          select case( ixStateType(ixFullVector) )
+            ! --> update the total water from the liquid water matric potential
+            case(iname_lmpLayer)
+              effSat = volFracLiq(mLayerMatricHeadLiqTrial(ixControlIndex),vGn_alpha(ixControlIndex),0._rkind,1._rkind,vGn_n(ixControlIndex),vGn_m(ixControlIndex))  ! effective saturation
+              avPore = theta_sat(ixControlIndex) - mLayerVolFracIceTrial(iLayer) - theta_res(ixControlIndex)  ! available pore space
+              mLayerVolFracLiqTrial(iLayer) = effSat*avPore + theta_res(ixControlIndex)
+              mLayerVolFracWatTrial(iLayer) = mLayerVolFracLiqTrial(iLayer) + mLayerVolFracIceTrial(iLayer) ! no volume expansion
+              mLayerVolFracWatPrime(iLayer) = mLayerVolFracLiqPrime(iLayer) + mLayerVolFracIcePrime(iLayer)
+              mLayerMatricHeadTrial(ixControlIndex) = matricHead(mLayerVolFracWatTrial(iLayer),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              mLayerMatricHeadPrime(ixControlIndex) =  dPsi_dTheta(mLayerVolFracWatTrial(iLayer),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex)) * mLayerVolFracWatPrime(iLayer)
+              ! --> update the total water from the total water matric potential
+            case(iname_matLayer)
+              mLayerVolFracWatTrial(iLayer) = volFracLiq(mLayerMatricHeadTrial(ixControlIndex),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              mLayerVolFracWatPrime(iLayer) = dTheta_dPsi(mLayerMatricHeadTrial(ixControlIndex),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex)) *mLayerMatricHeadPrime(ixControlIndex)
+              ! --> update the total water matric potential (assume already have mLayerVolFracWatTrial given block above)
+            case(iname_liqLayer, iname_watLayer)
+              mLayerMatricHeadTrial(ixControlIndex) = matricHead(mLayerVolFracWatTrial(iLayer),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              mLayerMatricHeadPrime(ixControlIndex) = dPsi_dTheta(mLayerVolFracWatTrial(iLayer),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex)) * mLayerVolFracWatPrime(iLayer)
+            ! case default; err=20; message=trim(message)//'expect iname_lmpLayer, iname_matLayer, iname_liqLayer, or iname_watLayer'; return
+          end select
+        endif  ! if in the soil domain
+
+      endif  ! if hydrology state variable or uncoupled solution
+
+      ! compute temperature from enthalpy and water content for remaining domains 
+      if(ixDomainType==iname_snow)then
+        ! if(enthalpyStateVec)then
+          mLayerTempTrial(iLayer) = mLayerTemp(iLayer) ! start at previous value
+          call enthalpy2T_snow(&
+                   computJac,                      & ! intent(in):    flag if computing for Jacobian update       
+                   snowfrz_scale_(iGRU),                  & ! intent(in):    scaling parameter for the snow freezing curve (K-1)
+                   mLayerEnthalpyTrial(iLayer),    & ! intent(in):    enthalpy of snow+soil layer (J m-3)
+                   mLayerVolFracWatTrial(iLayer),  & ! intent(in):    volumetric total water content (-)
+                   mLayerTempTrial(iLayer),        & ! intent(inout): layer temperature (K)
+                   dTemp_dEnthalpy(iLayer),        & ! intent(inout): derivative of layer temperature with enthalpy
+                   dTemp_dTheta(iLayer),           & ! intent(inout): derivative of layer temperature with volumetric total water content
+                   err)                     ! intent(out):   error control
+          ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+        ! else
+        !   dTemp_dEnthalpy(iLayer) = 0._rkind
+        !   dTemp_dTheta(iLayer)    = 0._rkind
+        ! endif
+      elseif(ixDomainType==iname_soil)then
+        ! if(enthalpyStateVec)then
+          mLayerTempTrial(iLayer) = mLayerTemp(iLayer) ! start at previous value
+          call enthalpy2T_soil(&
+                   computJac,                              & ! intent(in):    flag if computing for Jacobian update
+                   use_lookup,                             & ! intent(in):    flag to use the lookup table for soil enthalpy
+                   soil_dens_intr(ixControlIndex),         & ! intent(in):    intrinsic soil density (kg m-3)
+                   vGn_alpha(ixControlIndex),              & ! intent(in):    van Genutchen "alpha" parameter
+                   vGn_n(ixControlIndex),                  & ! intent(in):    van Genutchen "n" parameter
+                   theta_sat(ixControlIndex),              & ! intent(in):    soil porosity (-)
+                   theta_res(ixControlIndex),              & ! intent(in):    soil residual volumetric water content (-)
+                   vGn_m(ixControlIndex),                  & ! intent(in):    van Genutchen "m" parameter (-)
+                   ixControlIndex,                         & ! intent(in):    index of the control volume within the domain
+                  !  lookup_data,                            & ! intent(in):    lookup table data structure
+                   temperature(:,ixControlIndex),psiLiq_int(:,ixControlIndex),deriv2(:,ixControlIndex),&
+                   mLayerEnthalpyTrial(iLayer),            & ! intent(in):    trial vector of enthalpy of each snow+soil layer (J m-3)
+                   mLayerMatricHeadTrial(ixControlIndex),  & ! intent(in):    trial vector of total water matric potential (m)
+                   mLayerTempTrial(iLayer),                & ! intent(inout): trial vector of layer temperature (K)
+                   dTemp_dEnthalpy(iLayer),                & ! intent(inout): derivative of layer temperature with enthalpy
+                   dTemp_dTheta(iLayer),                   & ! intent(inout): derivative of layer temperature with volumetric total water content
+                   dTemp_dPsi0(ixControlIndex),            & ! intent(inout): derivative of layer temperature with total water matric potential
+                   err)                             ! intent(out):   error control
+          !  if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+        ! else
+        !   dTemp_dEnthalpy(iLayer)     = 0._rkind
+        !   dTemp_dTheta(iLayer)        = 0._rkind
+        !   dTemp_dPsi0(ixControlIndex) = 0._rkind 
+        ! endif
+      endif 
+
+      ! compute the critical soil temperature below which ice exists
+      select case(ixDomainType)
+        case(iname_snow); Tcrit = Tfreeze
+        case(iname_soil);            Tcrit = crit_soilT( mLayerMatricHeadTrial(ixControlIndex) )
+        ! case default; err=20; message=trim(message)//'expect case to be iname_veg, iname_snow, iname_soil'; return
+      end select
+
+      ! initialize temperature
+      xTemp = mLayerTempTrial(iLayer)
+
+        ! -----
+        ! - compute derivatives...
+        ! ------------------------
+
+        ! compute the derivative in total water content w.r.t. total water matric potential (m-1)
+        ! NOTE 1: valid for frozen and unfrozen conditions
+        ! NOTE 2: for case "iname_lmpLayer", dVolTot_dPsi0 = dVolLiq_dPsi
+        if(ixDomainType==iname_soil)then
+          select case( ixStateType(ixFullVector) )
+            case(iname_lmpLayer)
+              dVolTot_dPsi0(ixControlIndex) = dTheta_dPsi(mLayerMatricHeadLiqTrial(ixControlIndex),vGn_alpha(ixControlIndex),0._rkind,1._rkind,vGn_n(ixControlIndex),vGn_m(ixControlIndex))*avPore
+              if(computJac) d2VolTot_dPsi02(ixControlIndex) = d2Theta_dPsi2(mLayerMatricHeadLiqTrial(ixControlIndex),vGn_alpha(ixControlIndex),0._rkind,1._rkind,vGn_n(ixControlIndex),vGn_m(ixControlIndex))*avPore
+            case default
+              dVolTot_dPsi0(ixControlIndex) = dTheta_dPsi(mLayerMatricHeadTrial(ixControlIndex),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              if(computJac) d2VolTot_dPsi02(ixControlIndex) = d2Theta_dPsi2(mLayerMatricHeadTrial(ixControlIndex),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),&
+                                                vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+            end select
+        endif
+
+        ! compute the derivative in liquid water content w.r.t. temperature
+        ! --> partially frozen: dependence of liquid water on temperature
+        if(xTemp<Tcrit)then
+          select case(ixDomainType)
+            case(iname_snow)
+              dFracLiqWat_dTk(iLayer) = dFracLiq_dTk(xTemp,snowfrz_scale_(iGRU))
+              mLayerdTheta_dTk(iLayer) = dFracLiqWat_dTk(iLayer) * mLayerVolFracWatTrial(iLayer)
+              if(computJac)then
+                fLiq = fracLiquid(xTemp,snowfrz_scale_(iGRU))
+                mLayerd2Theta_dTk2(iLayer) = 2._rkind * snowfrz_scale_(iGRU)**2_i4b * ( (Tfreeze - xTemp) * 2._rkind * fLiq * dFracLiqWat_dTk(iLayer) - fLiq**2_i4b ) * mLayerVolFracWatTrial(iLayer)
+              endif
+            case(iname_soil)
+              dFracLiqWat_dTk(iLayer) = 0._rkind !dTheta_dTk(xTemp,theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))/ mLayerVolFracWatTrial(iLayer)
+              mLayerdTheta_dTk(iLayer) = dTheta_dTk(xTemp,theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              if(computJac)then
+                mLayerd2Theta_dTk2(iLayer) = d2Theta_dTk2(xTemp,theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              endif
+            ! case default; err=20; message=trim(message)//'expect case to be iname_veg, iname_snow, iname_soil'; return
+          end select  ! domain type
+
+        ! --> unfrozen: no dependence of liquid water on temperature
+        else
+            mLayerdTheta_dTk(iLayer) = 0._rkind; mLayerd2Theta_dTk2(iLayer) = 0._rkind; dFracLiqWat_dTk(iLayer) = 0._rkind
+        endif
+
+        ! -----
+        ! - update volumetric fraction of liquid water and ice...
+        !    => case of hydrology state uncoupled with energy (and when not adjusting the temperature)...
+        ! -----------------------------------------------------------------------------------------------
+
+        ! ! case of hydrology state uncoupled with energy (and when not adjusting the temperature)
+        ! if(.not.isNrgState .and. .not.isCoupled)then
+
+        ! ! case of energy state OR coupled solution (or adjusting the temperature)
+        ! elseif(( (isNrgState .or. isCoupled) ) )then
+
+          ! identify domain type
+          select case(ixDomainType)
+
+            ! *** snow layers
+            case(iname_snow)
+
+              ! compute volumetric fraction of liquid water and ice
+              call updateSnowPrime(&
+                              xTemp,                          & ! intent(in):  temperature (K)
+                              mLayerVolFracWatTrial(iLayer),  & ! intent(in):  mass state variable = trial volumetric fraction of water (-)
+                              snowfrz_scale_(iGRU),                  & ! intent(in):  scaling parameter for the snow freezing curve (K-1)
+                              mLayerTempPrime(iLayer),        & ! intent(in):  temperature time derivative (K/s)
+                              mLayerVolFracWatPrime(iLayer),  & ! intent(in):  volumetric fraction of total water time derivative (-)
+                              mLayerVolFracLiqTrial(iLayer),  & ! intent(out): trial volumetric fraction of liquid water (-)
+                              mLayerVolFracIceTrial(iLayer),  & ! intent(out): trial volumetric fraction if ice (-)
+                              mLayerVolFracLiqPrime(iLayer),  & ! intent(out): volumetric fraction of liquid water time derivative (-)
+                              mLayerVolFracIcePrime(iLayer),  & ! intent(out): volumetric fraction of ice time derivative (-)
+                              mLayerFracLiqSnow(iLayer),      & ! intent(out): fraction of liquid water (-)
+                              err)                     ! intent(out): error control
+              ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+
+            ! *** soil layers
+            case(iname_soil)
+
+              ! compute volumetric fraction of liquid water and ice
+              call updateSoilPrime(&
+                              xTemp,                                  & ! intent(in):  temperature (K)
+                              mLayerMatricHeadTrial(ixControlIndex),  & ! intent(in):  total water matric potential (m)
+                              mLayerTempPrime(iLayer),                & ! intent(in):  temperature time derivative (K/s)
+                              mLayerMatricHeadPrime(ixControlIndex),  & ! intent(in):  total water matric potential time derivative (m/s)
+                              vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),theta_sat(ixControlIndex),theta_res(ixControlIndex),vGn_m(ixControlIndex), & ! intent(in): soil parameters
+                              mLayerVolFracWatTrial(iLayer),          & ! intent(in):  mass state variable = trial volumetric fraction of water (-)
+                              mLayerVolFracLiqTrial(iLayer),          & ! intent(out): trial volumetric fraction of liquid water (-)
+                              mLayerVolFracIceTrial(iLayer),          & ! intent(out): trial volumetric fraction if ice (-)
+                              mLayerVolFracWatPrime(iLayer),          & ! intent(out): volumetric fraction of total water time derivative (-)
+                              mLayerVolFracLiqPrime(iLayer),          & ! intent(out): volumetric fraction of liquid water time derivative (-)
+                              mLayerVolFracIcePrime(iLayer),          & ! intent(out): volumetric fraction of ice time derivative (-)
+                              err)                             ! intent(out): error control
+              ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+
+            ! check
+            ! case default; err=20; message=trim(message)//'expect case to be iname_veg, iname_snow, iname_soil'; return
+
+          end select  ! domain type
+
+
+        ! endif  ! if energy state or solution is coupled
+
+        ! -----
+        ! ------------------------
+
+
+      ! save temperature
+      mLayerTempTrial(iLayer) = xTemp
+
+      ! =======================================================================================================================================
+      ! =======================================================================================================================================
+
+      ! -----
+      ! - compute the liquid water matric potential (and necessary derivatives)...
+      ! -------------------------------------------------------------------------
+
+      ! only for soil
+      if(ixDomainType==iname_soil)then
+
+        ! check liquid water
+        if(mLayerVolFracLiqTrial(iLayer) > theta_sat(ixControlIndex) )then
+          ! message=trim(message)//'liquid water greater than porosity'
+          err=20; return
+        endif
+
+          ! compute the liquid matric potential (and the derivatives w.r.t. total matric potential and temperature)
+          call liquidHeadPrime(&
+                          ! input
+                          mLayerMatricHeadTrial(ixControlIndex)     ,& ! intent(in):  total water matric potential (m)
+                          mLayerMatricHeadPrime(ixControlIndex)     ,& ! intent(in):  total water matric potential time derivative (m s-1)
+                          mLayerVolFracLiqTrial(iLayer)             ,& ! intent(in):  volumetric fraction of liquid water (-)
+                          mLayerVolFracIceTrial(iLayer)             ,& ! intent(in):  volumetric fraction of ice (-)
+                          vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),theta_sat(ixControlIndex),theta_res(ixControlIndex),vGn_m(ixControlIndex) ,& ! intent(in): soil parameters
+                          dVolTot_dPsi0(ixControlIndex)             ,& ! intent(in):  derivative in the soil water characteristic (m-1)
+                          mLayerdTheta_dTk(iLayer)                  ,& ! intent(in):  derivative in volumetric total water w.r.t. temperature (K-1)
+                          mLayerVolFracLiqPrime(iLayer)             ,& ! intent(in):  volumetric fraction of liquid water time derivative (-)
+                          mLayerVolFracIcePrime(iLayer)             ,& ! intent(in):  volumetric fraction of ice time derivative (-)
+                          ! output
+                          mLayerMatricHeadLiqTrial(ixControlIndex)  ,& ! intent(out): liquid water matric potential (m)
+                          mLayerMatricHeadLiqPrime(ixControlIndex)  ,& ! intent(out): liquid water matric potential time derivative (m s-1)
+                          dPsiLiq_dPsi0(ixControlIndex)             ,& ! intent(out): derivative in the liquid water matric potential w.r.t. the total water matric potential (-)
+                          dPsiLiq_dTemp(ixControlIndex)             ,& ! intent(out): derivative in the liquid water matric potential w.r.t. temperature (m K-1)
+                          err)                                ! intent(out): error control
+          ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+
+
+      endif  ! if domain is soil
+
+    end do ! looping through state variables
+  end subroutine
+
+
+
+  attributes(device) subroutine updateVarsWithPrime_device_Snow(nSnow_, computJac, &
+  mLayerEnthalpyTrial, &
+  mLayerTempTrial, mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial, &
+  mLayerTempPrime, mLayerVolFracWatPrime, mLayerVolFracLiqPrime, mLayerVolFracIcePrime, &
+  snowfrz_scale_, &
+  mLayerFracLiqSnow, &
+  mLayerTemp, &
+  mLayerdTheta_dTk, dFracLiqWat_dTk, mLayerd2Theta_dTk2, &
+  dTemp_dEnthalpy, dTemp_dTheta)
+  ! ixNrgLayer, ixHydLayer, &
+  ! ! ixNrgCanair_,ixNrgCanopy_,ixNrgLayer,ixHydLayer,&
+  ! ixDomainType_subset,ixControlVolume,ixStateType, &
+  ! snowfrz_scale_,&
+  ! soil_dens_intr,vGn_m,vGn_n,vGn_alpha,theta_sat,theta_res, &
+  ! ! specificHeatVeg_,maxMassVegetation_,canopyDepth_,&
+  ! ! scalarFracLiqVeg_,mLayerFracLiqSnow,&
+  ! mLayerFracLiqSnow, &
+  ! mLayerTemp, &
+  ! ! scalarCanopyTemp_,mLayerTemp,&
+  ! dVolTot_dPsi0,dPsiLiq_dPsi0,dPsiLiq_dTemp,mLayerdTheta_dTk,&
+  ! dFracLiqWat_dTk, &
+  ! ! dTheta_dTkCanopy_,dFracLiqWat_dTk,dFracLiqVeg_dTkCanopy_,&
+  ! d2VolTot_dPsi02,mLayerd2Theta_dTk2, &!d2Theta_dTkCanopy2_,&
+  ! ! dCanairTemp_dEnthalpy_,dCanopyTemp_dEnthalpy_,dTemp_dEnthalpy,&
+  ! dTemp_dEnthalpy, &
+  ! dTemp_dTheta, dTemp_dPsi0)
+  ! dCanopyTemp_dCanWat_,dTemp_dTheta,dTemp_dPsi0)
+  use initialize_device,only:get_iGRU
+    ! input
+  ! logical(lgt)     ,intent(in)       :: enthalpyStateVec                ! flag if enthalpy is the state variable
+  logical(lgt)     ,intent(in)       :: computJac                       ! flag if computing for Jacobian update
+  !   ! input: enthalpy state variables  
+  real(rkind),intent(in)             :: mLayerEnthalpyTrial(:)          ! trial vector of enthalpy of each snow+soil layer (J m-3)                      
+  ! ! output: variables for the vegetation canopy
+  ! real(rkind),intent(inout)          :: scalarCanairTempTrial_(:)           ! trial value of canopy air space temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyTempTrial_(:)           ! trial value of canopy temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyWatTrial_(:)            ! trial value of canopy total water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyLiqTrial_(:)            ! trial value of canopy liquid water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyIceTrial_(:)            ! trial value of canopy ice content (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyTempPrime_(:)           ! trial value of time derivative canopy temperature (K)
+  ! real(rkind),intent(inout)          :: scalarCanopyWatPrime_(:)            ! trial value of time derivative canopy total water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyLiqPrime_(:)            ! trial value of time derivative canopy liquid water (kg m-2)
+  ! real(rkind),intent(inout)          :: scalarCanopyIcePrime_(:)            ! trial value of time derivative canopy ice content (kg m-2)
+  ! ! output: variables for the snow-soil domain
+  real(rkind),intent(inout)          :: mLayerTempTrial(:)              ! trial vector of layer temperature (K)
+  real(rkind),intent(inout)          :: mLayerVolFracWatTrial(:)        ! trial vector of volumetric total water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracLiqTrial(:)        ! trial vector of volumetric liquid water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracIceTrial(:)        ! trial vector of volumetric ice water content (-)
+  real(rkind),intent(inout)          :: mLayerTempPrime(:)              ! trial value of time derivative layer temperature (K)
+  real(rkind),intent(inout)          :: mLayerVolFracWatPrime(:)        ! trial value of time derivative volumetric total water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracLiqPrime(:)        ! trial value of time derivative volumetric liquid water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracIcePrime(:)        ! trial value of time derivative volumetric ice water content (-)
+
+    integer(i4b),intent(in) :: nSnow_(:)                    ! intent(in):  [i4b]    total number of snow layers
+    ! snow parameters
+    real(rkind),intent(in) :: snowfrz_scale_(:)            ! intent(in):  [dp    ] scaling parameter for the snow freezing curve (K-1)
+    ! model diagnostic variables (fraction of liquid water)
+    real(rkind),intent(inout) :: mLayerFracLiqSnow(:)    ! intent(out): [dp(:)]  fraction of liquid water in each snow layer (-)
+    ! model states from a previous solution
+    real(rkind),intent(in) :: mLayerTemp(:)               ! intent(in):  [dp(:)]  temperature of each snow/soil layer (K)
+    ! derivatives
+    real(rkind),intent(inout) :: mLayerdTheta_dTk(:)         ! intent(out): [dp(:)]  derivative of volumetric liquid water content w.r.t. temperature
+    real(rkind),intent(inout) :: dFracLiqWat_dTk(:)      ! intent(out): [dp(:)]  derivative in fraction of liquid water w.r.t. temperature
+    ! derivatives inside solver for Jacobian only
+    real(rkind),intent(inout) :: mLayerd2Theta_dTk2(:)       ! intent(out): [dp(:)]  second derivative of volumetric liquid water content w.r.t. temperature
+    ! derivatives of temperature if enthalpy is the state variable
+    real(rkind),intent(inout) :: dTemp_dEnthalpy(:)            ! intent(out): [dp(:)]  derivative of temperature w.r.t. enthalpy
+    real(rkind),intent(inout) :: dTemp_dTheta(:)               ! intent(out): [dp(:)]  derivative of temperature w.r.t. volumetric water content
+
+
+    ! --------------------------------------------------------------------------------------------------------------------------------
+  ! general local variables
+  integer(i4b)                       :: iLayer                          ! index of layer within the snow+soil domain
+  real(rkind)                        :: Tcrit                           ! critical soil temperature below which ice exists (K)
+  real(rkind)                        :: xTemp                           ! temporary temperature (K)
+  real(rkind)                        :: fLiq                            ! fraction of liquid water (-)
+  integer(i4b) :: err, iGRU
+  iGRU = get_iGRU()
+
+
+  do iLayer=1,nSnow_(iGRU)
+      ! -----
+      ! - compute indices...
+      ! --------------------
+
+      ! get domain type, and index of the control volume within the domain
+      ! ixFullVector   = ixNrgLayer(iLayer)       ! index within full state vector
+
+      ! compute temperature from enthalpy and water content for remaining domains 
+        ! if(enthalpyStateVec)then
+          mLayerTempTrial(iLayer) = mLayerTemp(iLayer) ! start at previous value
+          call enthalpy2T_snow(&
+                   computJac,                      & ! intent(in):    flag if computing for Jacobian update       
+                   snowfrz_scale_(iGRU),                  & ! intent(in):    scaling parameter for the snow freezing curve (K-1)
+                   mLayerEnthalpyTrial(iLayer),    & ! intent(in):    enthalpy of snow+soil layer (J m-3)
+                   mLayerVolFracWatTrial(iLayer),  & ! intent(in):    volumetric total water content (-)
+                   mLayerTempTrial(iLayer),        & ! intent(inout): layer temperature (K)
+                   dTemp_dEnthalpy(iLayer),        & ! intent(inout): derivative of layer temperature with enthalpy
+                   dTemp_dTheta(iLayer),           & ! intent(inout): derivative of layer temperature with volumetric total water content
+                   err)                     ! intent(out):   error control
+          ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+        ! else
+        !   dTemp_dEnthalpy(iLayer) = 0._rkind
+        !   dTemp_dTheta(iLayer)    = 0._rkind
+        ! endif
+
+      ! compute the critical soil temperature below which ice exists
+        Tcrit = Tfreeze
+
+      ! initialize temperature
+      xTemp = mLayerTempTrial(iLayer)
+
+        ! -----
+        ! - compute derivatives...
+        ! ------------------------
+        ! compute the derivative in liquid water content w.r.t. temperature
+        ! --> partially frozen: dependence of liquid water on temperature
+        if(xTemp<Tcrit)then
+              dFracLiqWat_dTk(iLayer) = dFracLiq_dTk(xTemp,snowfrz_scale_(iGRU))
+              mLayerdTheta_dTk(iLayer) = dFracLiqWat_dTk(iLayer) * mLayerVolFracWatTrial(iLayer)
+              if(computJac)then
+                fLiq = fracLiquid(xTemp,snowfrz_scale_(iGRU))
+                mLayerd2Theta_dTk2(iLayer) = 2._rkind * snowfrz_scale_(iGRU)**2_i4b * ( (Tfreeze - xTemp) * 2._rkind * fLiq * dFracLiqWat_dTk(iLayer) - fLiq**2_i4b ) * mLayerVolFracWatTrial(iLayer)
+              endif
+        ! --> unfrozen: no dependence of liquid water on temperature
+        else
+            mLayerdTheta_dTk(iLayer) = 0._rkind; mLayerd2Theta_dTk2(iLayer) = 0._rkind; dFracLiqWat_dTk(iLayer) = 0._rkind
+        endif
+
+        ! -----
+        ! - update volumetric fraction of liquid water and ice...
+        ! -----------------------------------------------------------------------------------------------
+        ! ! case of energy state OR coupled solution (or adjusting the temperature)
+
+              ! compute volumetric fraction of liquid water and ice
+              call updateSnowPrime(&
+                              xTemp,                          & ! intent(in):  temperature (K)
+                              mLayerVolFracWatTrial(iLayer),  & ! intent(in):  mass state variable = trial volumetric fraction of water (-)
+                              snowfrz_scale_(iGRU),                  & ! intent(in):  scaling parameter for the snow freezing curve (K-1)
+                              mLayerTempPrime(iLayer),        & ! intent(in):  temperature time derivative (K/s)
+                              mLayerVolFracWatPrime(iLayer),  & ! intent(in):  volumetric fraction of total water time derivative (-)
+                              mLayerVolFracLiqTrial(iLayer),  & ! intent(out): trial volumetric fraction of liquid water (-)
+                              mLayerVolFracIceTrial(iLayer),  & ! intent(out): trial volumetric fraction if ice (-)
+                              mLayerVolFracLiqPrime(iLayer),  & ! intent(out): volumetric fraction of liquid water time derivative (-)
+                              mLayerVolFracIcePrime(iLayer),  & ! intent(out): volumetric fraction of ice time derivative (-)
+                              mLayerFracLiqSnow(iLayer),      & ! intent(out): fraction of liquid water (-)
+                              err)                     ! intent(out): error control
+              ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+
+        ! -----
+        ! ------------------------
+
+
+      ! save temperature
+      mLayerTempTrial(iLayer) = xTemp
+
+    end do ! looping through state variables
+  end subroutine
+
+  attributes(device) subroutine updateVarsWithPrime_device_Soil(nSnow_, nSoil, &
+  use_lookup, computJac, temperature, psiLiq_int, deriv2, &
+  mLayerEnthalpyTrial, &
+  mLayerTempTrial,mLayerVolFracWatTrial,mLayerVolFracLiqTrial,mLayerVolFracIceTrial,mLayerMatricHeadTrial,mLayerMatricHeadLiqTrial, &
+  mLayerTempPrime,mLayerVolFracWatPrime,mLayerVolFracLiqPrime,mLayerVolFracIcePrime,mLayerMatricHeadPrime,mLayerMatricHeadLiqPrime, &
+  ixNrgLayer, ixStateType, &
+  soil_dens_intr,vGn_m,vGn_n,vGn_alpha,theta_sat,theta_res, &
+  mLayerTemp, &
+  dVolTot_dPsi0, dPsiLiq_dPsi0, dPsiLiq_dTemp,mLayerdTheta_dTk, &
+  dFracLiqWat_dTk, &
+  d2VolTot_dPsi02,mLayerd2Theta_dTk2, &
+  dTemp_dEnthalpy, &
+  dTemp_dTheta, dTemp_dPsi0)
+  use initialize_device,only:get_iGRU
+    ! input
+  logical(lgt)     ,intent(in)       :: use_lookup                      ! flag to use the lookup table for soil enthalpy, otherwise use hypergeometric function
+  logical(lgt)     ,intent(in)       :: computJac                       ! flag if computing for Jacobian update
+  real(rkind),intent(in) :: temperature(:,:), psiLiq_int(:,:), deriv2(:,:)
+
+    ! input: enthalpy state variables  
+  real(rkind),intent(in)             :: mLayerEnthalpyTrial(:)          ! trial vector of enthalpy of each snow+soil layer (J m-3)                      
+  ! output: variables for the snow-soil domain
+  real(rkind),intent(inout)          :: mLayerTempTrial(:)              ! trial vector of layer temperature (K)
+  real(rkind),intent(inout)          :: mLayerVolFracWatTrial(:)        ! trial vector of volumetric total water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracLiqTrial(:)        ! trial vector of volumetric liquid water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracIceTrial(:)        ! trial vector of volumetric ice water content (-)
+  real(rkind),intent(inout)          :: mLayerMatricHeadTrial(:)        ! trial vector of total water matric potential (m)
+  real(rkind),intent(inout)          :: mLayerMatricHeadLiqTrial(:)     ! trial vector of liquid water matric potential (m)
+  real(rkind),intent(inout)          :: mLayerTempPrime(:)              ! trial value of time derivative layer temperature (K)
+  real(rkind),intent(inout)          :: mLayerVolFracWatPrime(:)        ! trial value of time derivative volumetric total water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracLiqPrime(:)        ! trial value of time derivative volumetric liquid water content (-)
+  real(rkind),intent(inout)          :: mLayerVolFracIcePrime(:)        ! trial value of time derivative volumetric ice water content (-)
+  real(rkind),intent(inout)          :: mLayerMatricHeadPrime(:)        ! trial value of time derivative total water matric potential (m)
+  real(rkind),intent(inout)          :: mLayerMatricHeadLiqPrime(:)     ! trial value of time derivative liquid water matric potential (m)
+
+    integer(i4b),intent(in) :: nSnow_(:)                    ! intent(in):  [i4b]    total number of snow layers
+    integer(i4b),intent(in) :: nSoil
+    ! indices in the full vector for specific domains
+    integer(i4b),intent(in) :: ixNrgLayer(:)               ! intent(in):  [i4b(:)] indices IN THE FULL VECTOR for energy states in the snow+soil domain
+    ! type of domain, type of state variable, and index of control volume within domain
+    integer(i4b),intent(in) :: ixStateType(:)              ! intent(in):  [i4b(:)] indices defining the type of the state (iname_nrgLayer...)
+  !   ! depth-varying model parameters
+    real(rkind),intent(in) :: soil_dens_intr(:)           ! intent(in):  [dp(:)]  intrinsic soil density (kg m-3)
+    real(rkind),intent(in) :: vGn_m(:)                    ! intent(in):  [dp(:)]  van Genutchen "m" parameter (-)
+    real(rkind),intent(in) :: vGn_n(:)                    ! intent(in):  [dp(:)]  van Genutchen "n" parameter (-)
+    real(rkind),intent(in) :: vGn_alpha(:)                ! intent(in):  [dp(:)]  van Genutchen "alpha" parameter (m-1)
+    real(rkind),intent(in) :: theta_sat(:)                ! intent(in):  [dp(:)]  soil porosity (-)
+    real(rkind),intent(in) :: theta_res(:)                ! intent(in):  [dp(:)]  soil residual volumetric water content (-)
+    ! model states from a previous solution
+    real(rkind),intent(in) :: mLayerTemp(:)               ! intent(in):  [dp(:)]  temperature of each snow/soil layer (K)
+    ! derivatives
+    real(rkind),intent(inout) :: dVolTot_dPsi0(:)            ! intent(out): [dp(:)]  derivative in total water content w.r.t. total water matric potential
+    real(rkind),intent(inout) :: dPsiLiq_dPsi0(:)            ! intent(out): [dp(:)]  derivative in liquid water matric pot w.r.t. the total water matric pot (-)
+    real(rkind),intent(inout) :: dPsiLiq_dTemp(:)            ! intent(out): [dp(:)]  derivative in the liquid water matric potential w.r.t. temperature
+    real(rkind),intent(inout) :: mLayerdTheta_dTk(:)         ! intent(out): [dp(:)]  derivative of volumetric liquid water content w.r.t. temperature
+    real(rkind),intent(inout) :: dFracLiqWat_dTk(:)      ! intent(out): [dp(:)]  derivative in fraction of liquid water w.r.t. temperature
+  !   ! derivatives inside solver for Jacobian only
+    real(rkind),intent(inout) :: d2VolTot_dPsi02(:)          ! intent(out): [dp(:)]  second derivative in total water content w.r.t. total water matric potential
+    real(rkind),intent(inout) :: mLayerd2Theta_dTk2(:)       ! intent(out): [dp(:)]  second derivative of volumetric liquid water content w.r.t. temperature
+  !   ! derivatives of temperature if enthalpy is the state variable
+    real(rkind),intent(inout) :: dTemp_dEnthalpy(:)            ! intent(out): [dp(:)]  derivative of temperature w.r.t. enthalpy
+    real(rkind),intent(inout) :: dTemp_dTheta(:)               ! intent(out): [dp(:)]  derivative of temperature w.r.t. volumetric water content
+    real(rkind),intent(inout) :: dTemp_dPsi0(:)                ! intent(out): [dp(:)]  derivative of temperature w.r.t. total water matric potential
+
+
+    ! --------------------------------------------------------------------------------------------------------------------------------
+  ! general local variables
+  ! integer(i4b)                       :: iState                          ! index of model state variable
+  integer(i4b)                       :: iLayer                          ! index of layer within the snow+soil domain
+  integer(i4b)                       :: ixFullVector                    ! index within full state vector
+  ! integer(i4b)                       :: ixDomainType                    ! name of a given model domain
+  integer(i4b)                       :: ixControlIndex                  ! index within a given model domain
+  real(rkind)                        :: Tcrit                           ! critical soil temperature below which ice exists (K)
+  real(rkind)                        :: xTemp                           ! temporary temperature (K)
+  ! real(rkind)                        :: fLiq                            ! fraction of liquid water (-)
+  ! real(rkind)                        :: effSat                          ! effective saturation (-)
+  real(rkind)                        :: avPore                          ! available pore space (-)
+  ! logical(lgt),parameter             :: printFlag=.false.               ! flag to turn on printing
+  ! ! iterative solution for temperature
+  ! real(rkind)                        :: meltNrg                         ! energy for melt+freeze (J m-3)
+  ! real(rkind)                        :: residual                        ! residual in the energy equation (J m-3)
+  ! real(rkind)                        :: derivative                      ! derivative in the energy equation (J m-3 K-1)
+  ! real(rkind)                        :: tempInc                         ! iteration increment (K)
+  ! integer(i4b)                       :: iter                            ! iteration index
+  ! ! integer(i4b)                       :: niter                           ! number of iterations
+  ! integer(i4b),parameter             :: maxiter=100                     ! maximum number of iterations
+  ! real(rkind),parameter              :: nrgConvTol=1.e-4_rkind          ! convergence tolerance for energy (J m-3)
+  ! real(rkind),parameter              :: tempConvTol=1.e-6_rkind         ! convergence tolerance for temperature (K)
+  ! real(rkind)                        :: critDiff                        ! temperature difference from critical (K)
+  ! ! real(rkind)                        :: tempMin                         ! minimum bracket for temperature (K)
+  ! ! real(rkind)                        :: tempMax                         ! maximum bracket for temperature (K)
+  ! ! logical(lgt)                       :: bFlag                           ! flag to denote that iteration increment was constrained using bi-section
+  ! real(rkind),parameter              :: epsT=1.e-7_rkind                ! small interval above/below critical temperature (K)
+  integer(i4b) :: err, iGRU
+  iGRU = get_iGRU()
+
+    ! loop through model state variables
+  do ixControlIndex=1,nSoil
+
+
+      ! -----
+      ! - compute indices...
+      ! --------------------
+
+      ! get domain type, and index of the control volume within the domain
+      ixFullVector = ixNrgLayer(ixControlIndex+nSnow_(iGRU))
+
+      ! get the layer index
+      iLayer = ixControlIndex + nSnow_(iGRU)
+
+
+      ! compute temperature from enthalpy and water content for remaining domains 
+        ! if(enthalpyStateVec)then
+          mLayerTempTrial(iLayer) = mLayerTemp(iLayer) ! start at previous value
+          call enthalpy2T_soil(&
+                   computJac,                              & ! intent(in):    flag if computing for Jacobian update
+                   use_lookup,                             & ! intent(in):    flag to use the lookup table for soil enthalpy
+                   soil_dens_intr(ixControlIndex),         & ! intent(in):    intrinsic soil density (kg m-3)
+                   vGn_alpha(ixControlIndex),              & ! intent(in):    van Genutchen "alpha" parameter
+                   vGn_n(ixControlIndex),                  & ! intent(in):    van Genutchen "n" parameter
+                   theta_sat(ixControlIndex),              & ! intent(in):    soil porosity (-)
+                   theta_res(ixControlIndex),              & ! intent(in):    soil residual volumetric water content (-)
+                   vGn_m(ixControlIndex),                  & ! intent(in):    van Genutchen "m" parameter (-)
+                   ixControlIndex,                         & ! intent(in):    index of the control volume within the domain
+                  !  lookup_data,                            & ! intent(in):    lookup table data structure
+                   temperature(:,ixControlIndex),psiLiq_int(:,ixControlIndex),deriv2(:,ixControlIndex),&
+                   mLayerEnthalpyTrial(iLayer),            & ! intent(in):    trial vector of enthalpy of each snow+soil layer (J m-3)
+                   mLayerMatricHeadTrial(ixControlIndex),  & ! intent(in):    trial vector of total water matric potential (m)
+                   mLayerTempTrial(iLayer),                & ! intent(inout): trial vector of layer temperature (K)
+                   dTemp_dEnthalpy(iLayer),                & ! intent(inout): derivative of layer temperature with enthalpy
+                   dTemp_dTheta(iLayer),                   & ! intent(inout): derivative of layer temperature with volumetric total water content
+                   dTemp_dPsi0(ixControlIndex),            & ! intent(inout): derivative of layer temperature with total water matric potential
+                   err)                             ! intent(out):   error control
+          !  if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+        ! else
+        !   dTemp_dEnthalpy(iLayer)     = 0._rkind
+        !   dTemp_dTheta(iLayer)        = 0._rkind
+        !   dTemp_dPsi0(ixControlIndex) = 0._rkind 
+        ! endif
+
+      ! compute the critical soil temperature below which ice exists
+        Tcrit = crit_soilT( mLayerMatricHeadTrial(ixControlIndex) )
+        ! case default; err=20; message=trim(message)//'expect case to be iname_veg, iname_snow, iname_soil'; return
+
+      ! initialize temperature
+      xTemp = mLayerTempTrial(iLayer)
+
+        ! -----
+        ! - compute derivatives...
+        ! ------------------------
+
+        ! compute the derivative in total water content w.r.t. total water matric potential (m-1)
+        ! NOTE 1: valid for frozen and unfrozen conditions
+        ! NOTE 2: for case "iname_lmpLayer", dVolTot_dPsi0 = dVolLiq_dPsi
+          select case( ixStateType(ixFullVector) )
+            case(iname_lmpLayer)
+              dVolTot_dPsi0(ixControlIndex) = dTheta_dPsi(mLayerMatricHeadLiqTrial(ixControlIndex),vGn_alpha(ixControlIndex),0._rkind,1._rkind,vGn_n(ixControlIndex),vGn_m(ixControlIndex))*avPore
+              if(computJac) d2VolTot_dPsi02(ixControlIndex) = d2Theta_dPsi2(mLayerMatricHeadLiqTrial(ixControlIndex),vGn_alpha(ixControlIndex),0._rkind,1._rkind,vGn_n(ixControlIndex),vGn_m(ixControlIndex))*avPore
+            case default
+              dVolTot_dPsi0(ixControlIndex) = dTheta_dPsi(mLayerMatricHeadTrial(ixControlIndex),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              if(computJac) d2VolTot_dPsi02(ixControlIndex) = d2Theta_dPsi2(mLayerMatricHeadTrial(ixControlIndex),vGn_alpha(ixControlIndex),theta_res(ixControlIndex),theta_sat(ixControlIndex),&
+                                                vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+            end select
+
+        ! compute the derivative in liquid water content w.r.t. temperature
+        ! --> partially frozen: dependence of liquid water on temperature
+        if(xTemp<Tcrit)then
+              dFracLiqWat_dTk(iLayer) = 0._rkind !dTheta_dTk(xTemp,theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))/ mLayerVolFracWatTrial(iLayer)
+              mLayerdTheta_dTk(iLayer) = dTheta_dTk(xTemp,theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              if(computJac)then
+                mLayerd2Theta_dTk2(iLayer) = d2Theta_dTk2(xTemp,theta_res(ixControlIndex),theta_sat(ixControlIndex),vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),vGn_m(ixControlIndex))
+              endif
+            ! case default; err=20; message=trim(message)//'expect case to be iname_veg, iname_snow, iname_soil'; return
+        ! --> unfrozen: no dependence of liquid water on temperature
+        else
+            mLayerdTheta_dTk(iLayer) = 0._rkind; mLayerd2Theta_dTk2(iLayer) = 0._rkind; dFracLiqWat_dTk(iLayer) = 0._rkind
+        endif
+
+        ! -----
+        ! - update volumetric fraction of liquid water and ice...
+        ! -----------------------------------------------------------------------------------------------
+        ! ! case of energy state OR coupled solution (or adjusting the temperature)
+              ! compute volumetric fraction of liquid water and ice
+              call updateSoilPrime(&
+                              xTemp,                                  & ! intent(in):  temperature (K)
+                              mLayerMatricHeadTrial(ixControlIndex),  & ! intent(in):  total water matric potential (m)
+                              mLayerTempPrime(iLayer),                & ! intent(in):  temperature time derivative (K/s)
+                              mLayerMatricHeadPrime(ixControlIndex),  & ! intent(in):  total water matric potential time derivative (m/s)
+                              vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),theta_sat(ixControlIndex),theta_res(ixControlIndex),vGn_m(ixControlIndex), & ! intent(in): soil parameters
+                              mLayerVolFracWatTrial(iLayer),          & ! intent(in):  mass state variable = trial volumetric fraction of water (-)
+                              mLayerVolFracLiqTrial(iLayer),          & ! intent(out): trial volumetric fraction of liquid water (-)
+                              mLayerVolFracIceTrial(iLayer),          & ! intent(out): trial volumetric fraction if ice (-)
+                              mLayerVolFracWatPrime(iLayer),          & ! intent(out): volumetric fraction of total water time derivative (-)
+                              mLayerVolFracLiqPrime(iLayer),          & ! intent(out): volumetric fraction of liquid water time derivative (-)
+                              mLayerVolFracIcePrime(iLayer),          & ! intent(out): volumetric fraction of ice time derivative (-)
+                              err)                             ! intent(out): error control
+              ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+        ! -----
+        ! ------------------------
+
+
+      ! save temperature
+      mLayerTempTrial(iLayer) = xTemp
+
+      ! =======================================================================================================================================
+      ! =======================================================================================================================================
+
+      ! -----
+      ! - compute the liquid water matric potential (and necessary derivatives)...
+      ! -------------------------------------------------------------------------
+
+      ! only for soil
+        ! check liquid water
+        if(mLayerVolFracLiqTrial(iLayer) > theta_sat(ixControlIndex) )then
+          ! message=trim(message)//'liquid water greater than porosity'
+          err=20; return
+        endif
+
+          ! compute the liquid matric potential (and the derivatives w.r.t. total matric potential and temperature)
+          call liquidHeadPrime(&
+                          ! input
+                          mLayerMatricHeadTrial(ixControlIndex)     ,& ! intent(in):  total water matric potential (m)
+                          mLayerMatricHeadPrime(ixControlIndex)     ,& ! intent(in):  total water matric potential time derivative (m s-1)
+                          mLayerVolFracLiqTrial(iLayer)             ,& ! intent(in):  volumetric fraction of liquid water (-)
+                          mLayerVolFracIceTrial(iLayer)             ,& ! intent(in):  volumetric fraction of ice (-)
+                          vGn_alpha(ixControlIndex),vGn_n(ixControlIndex),theta_sat(ixControlIndex),theta_res(ixControlIndex),vGn_m(ixControlIndex) ,& ! intent(in): soil parameters
+                          dVolTot_dPsi0(ixControlIndex)             ,& ! intent(in):  derivative in the soil water characteristic (m-1)
+                          mLayerdTheta_dTk(iLayer)                  ,& ! intent(in):  derivative in volumetric total water w.r.t. temperature (K-1)
+                          mLayerVolFracLiqPrime(iLayer)             ,& ! intent(in):  volumetric fraction of liquid water time derivative (-)
+                          mLayerVolFracIcePrime(iLayer)             ,& ! intent(in):  volumetric fraction of ice time derivative (-)
+                          ! output
+                          mLayerMatricHeadLiqTrial(ixControlIndex)  ,& ! intent(out): liquid water matric potential (m)
+                          mLayerMatricHeadLiqPrime(ixControlIndex)  ,& ! intent(out): liquid water matric potential time derivative (m s-1)
+                          dPsiLiq_dPsi0(ixControlIndex)             ,& ! intent(out): derivative in the liquid water matric potential w.r.t. the total water matric potential (-)
+                          dPsiLiq_dTemp(ixControlIndex)             ,& ! intent(out): derivative in the liquid water matric potential w.r.t. temperature (m K-1)
+                          err)                                ! intent(out): error control
+          ! if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+
+
+
+    end do ! looping through state variables
+  end subroutine
+
+
 
 ! **********************************************************************************************************
 ! private subroutine xTempSolve: compute residual and derivative for temperature

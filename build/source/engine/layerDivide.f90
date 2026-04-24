@@ -188,7 +188,7 @@ contains
 
     call layerDivide_kernel<<<blocks,threads>>>(nGRU,prog_data%mLayerTemp,prog_data%mLayerVolFracIce, prog_data%mLayerVolFracLiq, prog_data%mLayerVolFracWat, &
   prog_data%mLayerEnthalpy, prog_data%mLayerDepth, prog_data%mLayerHeight, prog_data%iLayerHeight, &
-  indx_data%nLayers_d, &
+  indx_data%nLayers, &
   diag_data%mLayerVolHtCapBulk, diag_data%mLayerCm, diag_data%mLayerThermalC, diag_data%iLayerThermalC, &
     diag_data%mLayerEnthTemp, diag_data%mLayerFracLiqSnow, diag_data%mLayerThetaResid, diag_data%mLayerPoreSpace, &
     diag_data%mLayerMeltFreeze, diag_data%mLayerVolFracAir, diag_data%balanceLayerNrg, diag_data%balanceLayerMass, &

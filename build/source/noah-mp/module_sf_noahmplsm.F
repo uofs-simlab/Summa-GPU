@@ -448,32 +448,32 @@ MODULE NOAHMP_RAD_PARAMETERS
     INTEGER, PARAMETER :: MSC   = 9
     INTEGER, PARAMETER :: MBAND = 2
 
-    REAL(rkind) :: ALBSAT(MSC,MBAND)   !saturated soil albedos: 1=vis, 2=nir
-    REAL(rkind) :: ALBDRY(MSC,MBAND)   !dry soil albedos: 1=vis, 2=nir
+    ! REAL(rkind) :: ALBSAT(MSC,MBAND)   !saturated soil albedos: 1=vis, 2=nir
+    ! REAL(rkind) :: ALBDRY(MSC,MBAND)   !dry soil albedos: 1=vis, 2=nir
     REAL(rkind) :: ALBICE(MBAND)       !albedo land ice: 1=vis, 2=nir
-    REAL(rkind) :: ALBLAK(MBAND)       !albedo frozen lakes: 1=vis, 2=nir
-    REAL(rkind) :: OMEGAS(MBAND)       !two-stream parameter omega for snow
-    REAL(rkind) :: BETADS              !two-stream parameter betad for snow
-    REAL(rkind) :: BETAIS              !two-stream parameter betad for snow
+    ! REAL(rkind) :: ALBLAK(MBAND)       !albedo frozen lakes: 1=vis, 2=nir
+    ! REAL(rkind) :: OMEGAS(MBAND)       !two-stream parameter omega for snow
+    ! REAL(rkind) :: BETADS              !two-stream parameter betad for snow
+    ! REAL(rkind) :: BETAIS              !two-stream parameter betad for snow
     REAL(rkind) :: EG(2)               !emissivity
 
 ! saturated soil albedos: 1=vis, 2=nir
-    DATA(ALBSAT(I,1),I=1,8)/0.15,0.11,0.10,0.09,0.08,0.07,0.06,0.05/
-    DATA(ALBSAT(I,2),I=1,8)/0.30,0.22,0.20,0.18,0.16,0.14,0.12,0.10/
+    ! DATA(ALBSAT(I,1),I=1,8)/0.15,0.11,0.10,0.09,0.08,0.07,0.06,0.05/
+    ! DATA(ALBSAT(I,2),I=1,8)/0.30,0.22,0.20,0.18,0.16,0.14,0.12,0.10/
 
 ! dry soil albedos: 1=vis, 2=nir
-    DATA(ALBDRY(I,1),I=1,8)/0.27,0.22,0.20,0.18,0.16,0.14,0.12,0.10/
-    DATA(ALBDRY(I,2),I=1,8)/0.54,0.44,0.40,0.36,0.32,0.28,0.24,0.20/
+    ! DATA(ALBDRY(I,1),I=1,8)/0.27,0.22,0.20,0.18,0.16,0.14,0.12,0.10/
+    ! DATA(ALBDRY(I,2),I=1,8)/0.54,0.44,0.40,0.36,0.32,0.28,0.24,0.20/
 
 ! albedo land ice: 1=vis, 2=nir
     DATA (ALBICE(I),I=1,MBAND) /0.80, 0.55/
 
 ! albedo frozen lakes: 1=vis, 2=nir
-    DATA (ALBLAK(I),I=1,MBAND) /0.60, 0.40/
+    ! DATA (ALBLAK(I),I=1,MBAND) /0.60, 0.40/
 
 ! omega,betad,betai for snow
-    DATA (OMEGAS(I),I=1,MBAND) /0.8, 0.4/
-    DATA BETADS, BETAIS /0.5, 0.5/
+    ! DATA (OMEGAS(I),I=1,MBAND) /0.8, 0.4/
+    ! DATA BETADS, BETAIS /0.5, 0.5/
 
 ! emissivity ground surface
       DATA EG /0.97, 0.98/ ! 1-soil;2-lake
@@ -1551,9 +1551,9 @@ contains
 ! ==================================================================================================
   ! ==================================================================================================
 ! ----------------------------------------------------------------------
-  attributes(device) SUBROUTINE STOMATA (VEGTYP  ,MPE     ,APAR    ,FOLN    ,ILOC    , JLOC, & !in
-                      TV      ,EI0     ,EA      ,SFCTMP  ,SFCPRS  , & !in
-                      O2      ,CO2     ,IGS     ,BTRAN   ,RB      , & !in
+  attributes(device) SUBROUTINE STOMATA (VEGTYP_  ,MPE     ,APAR    ,FOLN_    ,ILOC    , JLOC, & !in
+                      TV_      ,EI0_     ,EA_      ,SFCTMP_  ,SFCPRS_  , & !in
+                      O2_      ,CO2_     ,IGS_     ,BTRAN_   ,RB      , & !in
                       RS      ,PSN     ,&
                       bp,mp,c3psn,avcmx,vcmx25,ako,ko25,akc,kc25,qe25,folnmx)                              !out
 ! --------------------------------------------------------------------------------------------------
@@ -1564,22 +1564,22 @@ contains
 ! input
       INTEGER,INTENT(IN)  :: ILOC   !grid index
       INTEGER,INTENT(IN)  :: JLOC   !grid index
-      INTEGER,INTENT(IN)  :: VEGTYP !vegetation physiology type
+      INTEGER,INTENT(IN)  :: VEGTYP_(:) !vegetation physiology type
 
-      REAL(rkind), INTENT(IN)    :: IGS    !growing season index (0=off, 1=on)
+      REAL(rkind), INTENT(IN)    :: IGS_(:)    !growing season index (0=off, 1=on)
       REAL(rkind), INTENT(IN)    :: MPE    !prevents division by zero errors
 
-      REAL(rkind), INTENT(IN)    :: TV     !foliage temperature (k)
-      REAL(rkind), INTENT(IN)    :: EI0    !vapor pressure inside leaf (sat vapor press at tv) (pa)
-      REAL(rkind), INTENT(IN)    :: EA     !vapor pressure of canopy air (pa)
+      REAL(rkind), INTENT(IN)    :: TV_(:)     !foliage temperature (k)
+      REAL(rkind), INTENT(IN)    :: EI0_(:)    !vapor pressure inside leaf (sat vapor press at tv) (pa)
+      REAL(rkind), INTENT(IN)    :: EA_(:)     !vapor pressure of canopy air (pa)
       REAL(rkind), INTENT(IN)    :: APAR   !par absorbed per unit lai (w/m2)
-      REAL(rkind), INTENT(IN)    :: O2     !atmospheric o2 concentration (pa)
-      REAL(rkind), INTENT(IN)    :: CO2    !atmospheric co2 concentration (pa)
-      REAL(rkind), INTENT(IN)    :: SFCPRS !air pressure at reference height (pa)
-      REAL(rkind), INTENT(IN)    :: SFCTMP !air temperature at reference height (k)
-      REAL(rkind), INTENT(IN)    :: BTRAN  !soil water transpiration factor (0 to 1)
-      REAL(rkind), INTENT(IN)    :: FOLN   !foliage nitrogen concentration (%)
-      REAL(rkind), INTENT(IN)    :: RB     !boundary layer resistance (s/m)
+      REAL(rkind), INTENT(IN)    :: O2_(:)     !atmospheric o2 concentration (pa)
+      REAL(rkind), INTENT(IN)    :: CO2_(:)    !atmospheric co2 concentration (pa)
+      REAL(rkind), INTENT(IN)    :: SFCPRS_(:) !air pressure at reference height (pa)
+      REAL(rkind), INTENT(IN)    :: SFCTMP_(:) !air temperature at reference height (k)
+      REAL(rkind), INTENT(IN)    :: BTRAN_(:)  !soil water transpiration factor (0 to 1)
+      REAL(rkind), INTENT(IN)    :: FOLN_(:)   !foliage nitrogen concentration (%)
+      REAL(rkind), INTENT(IN),VALUE    :: RB     !boundary layer resistance (s/m)
 
 ! output
       REAL(rkind), INTENT(OUT)   :: RS     !leaf stomatal resistance (s/m)
@@ -1594,6 +1594,7 @@ contains
 ! ------------------------ local variables ----------------------------------------------------
       INTEGER :: ITER     !iteration index
       INTEGER :: NITER    !number of iterations
+      integer(i4b) :: iGRU
 
       DATA NITER /3/
       SAVE NITER
@@ -1621,10 +1622,11 @@ contains
       REAL(rkind) :: J           !electron transport (umol co2/m2/s)
       REAL(rkind) :: CEA         !constrain ea or else model blows up
       REAL(rkind) :: CF          !s m2/umol -> s/m
-
       F1(AB,BC) = AB**((BC-25.)/10.)
       F2(AB) = 1. + EXP((-2.2E05+710.*(AB+273.16))/(8.314*(AB+273.16)))
       REAL(rkind) :: T
+      iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+
 ! ---------------------------------------------------------------------------------------------
 
 ! MPC change
@@ -1634,30 +1636,30 @@ contains
 
 ! initialize RS=RSMAX and PSN=0 because will only do calculations
 ! for APAR > 0, in which case RS <= RSMAX and PSN >= 0
-         if (EI0<tiny(1.0))then
+         if (EI0_(iGRU)<tiny(1.0))then
           EI=tiny(1.0)
          else
-          EI = EI0
+          EI = EI0_(iGRU)
          endif
-         CF = SFCPRS/(8.314*SFCTMP)*1.e06
-         RS = 1./(BP(VEGTYP)*BTRAN) * CF    ! MPC change: include BTRAN multiplier
+         CF = SFCPRS_(iGRU)/(8.314*SFCTMP_(iGRU))*1.e06
+         RS = 1./(BP(VEGTYP_(iGRU))*BTRAN_(iGRU)) * CF    ! MPC change: include BTRAN multiplier
          PSN = 0.
 
          IF (APAR .LE. 0.) RETURN
 
-         FNF = MIN( FOLN/MAX(MPE,FOLNMX(VEGTYP)), 1.0 )
-         TC  = TV-TFRZ
+         FNF = MIN( FOLN_(iGRU)/MAX(MPE,FOLNMX(VEGTYP_(iGRU))), 1.0 )
+         TC  = TV_(iGRU)-TFRZ
          PPF = 4.6*APAR
-         J   = PPF*QE25(VEGTYP)
-         KC  = KC25(VEGTYP) * F1(AKC(VEGTYP),TC)
-         KO  = KO25(VEGTYP) * F1(AKO(VEGTYP),TC)
-         AWC = KC * (1.+O2/KO)
-         CP  = 0.5*KC/KO*O2*0.21
-         VCMX = VCMX25(VEGTYP) / F2(TC) * FNF * BTRAN * F1(AVCMX(VEGTYP),TC)
+         J   = PPF*QE25(VEGTYP_(iGRU))
+         KC  = KC25(VEGTYP_(iGRU)) * F1(AKC(VEGTYP_(iGRU)),TC)
+         KO  = KO25(VEGTYP_(iGRU)) * F1(AKO(VEGTYP_(iGRU)),TC)
+         AWC = KC * (1.+O2_(iGRU)/KO)
+         CP  = 0.5*KC/KO*O2_(iGRU)*0.21
+         VCMX = VCMX25(VEGTYP_(iGRU)) / F2(TC) * FNF * BTRAN_(iGRU) * F1(AVCMX(VEGTYP_(iGRU)),TC)
 
 ! first guess ci
 
-         CI = 0.7*CO2*C3PSN(VEGTYP) + 0.4*CO2*(1.-C3PSN(VEGTYP))
+         CI = 0.7*CO2_(iGRU)*C3PSN(VEGTYP_(iGRU)) + 0.4*CO2_(iGRU)*(1.-C3PSN(VEGTYP_(iGRU)))
 
 ! rb: s/m -> s m**2 / umol
 
@@ -1665,21 +1667,21 @@ contains
 
 ! constrain ea
 
-         CEA = MAX(0.25*EI*C3PSN(VEGTYP)+0.40*EI*(1.-C3PSN(VEGTYP)), MIN(EA,EI) )
+         CEA = MAX(0.25*EI*C3PSN(VEGTYP_(iGRU))+0.40*EI*(1.-C3PSN(VEGTYP_(iGRU))), MIN(EA_(iGRU),EI) )
 
 ! ci iteration
 !jref: C3PSN is equal to 1 for all veg types.
        DO ITER = 1, NITER
 
-            WJ = MAX(CI-CP,0.)*J/(CI+2.*CP)*C3PSN(VEGTYP)  + J*(1.-C3PSN(VEGTYP))
-            WC = MAX(CI-CP,0.)*VCMX/(CI+AWC)*C3PSN(VEGTYP) + VCMX*(1.-C3PSN(VEGTYP))
-            WE = 0.5*VCMX*C3PSN(VEGTYP) + 4000.*VCMX*CI/SFCPRS*(1.-C3PSN(VEGTYP))
-            PSN = MIN(WJ,WC,WE) * IGS
+            WJ = MAX(CI-CP,0.)*J/(CI+2.*CP)*C3PSN(VEGTYP_(iGRU))  + J*(1.-C3PSN(VEGTYP_(iGRU)))
+            WC = MAX(CI-CP,0.)*VCMX/(CI+AWC)*C3PSN(VEGTYP_(iGRU)) + VCMX*(1.-C3PSN(VEGTYP_(iGRU)))
+            WE = 0.5*VCMX*C3PSN(VEGTYP_(iGRU)) + 4000.*VCMX*CI/SFCPRS_(iGRU)*(1.-C3PSN(VEGTYP_(iGRU)))
+            PSN = MIN(WJ,WC,WE) * IGS_(iGRU)
 
-            CS = MAX( CO2-1.37*RLB*SFCPRS*PSN, MPE )
+            CS = MAX( CO2_(iGRU)-1.37*RLB*SFCPRS_(iGRU)*PSN, MPE )
 
-            A = MP(VEGTYP)*PSN*SFCPRS*CEA / (CS*EI) + BTRAN*BP(VEGTYP)      ! MPC change: include BTRAN multiplier for 2nd term
-            B = ( MP(VEGTYP)*PSN*SFCPRS/CS + BTRAN*BP(VEGTYP) ) * RLB - 1.  ! MPC change: include BTRAN multiplier for 2nd term in brackets
+            A = MP(VEGTYP_(iGRU))*PSN*SFCPRS_(iGRU)*CEA / (CS*EI) + BTRAN_(iGRU)*BP(VEGTYP_(iGRU))      ! MPC change: include BTRAN multiplier for 2nd term
+            B = ( MP(VEGTYP_(iGRU))*PSN*SFCPRS_(iGRU)/CS + BTRAN_(iGRU)*BP(VEGTYP_(iGRU)) ) * RLB - 1.  ! MPC change: include BTRAN multiplier for 2nd term in brackets
             C = -RLB
             IF (B .GE. 0.) THEN
                Q = -0.5*( B + SQRT(B*B-4.*A*C) )
@@ -1689,7 +1691,7 @@ contains
             R1 = Q/A
             R2 = C/Q
             RS = MAX(R1,R2)
-            CI = MAX( CS-PSN*SFCPRS*1.65*RS, 0. )
+            CI = MAX( CS-PSN*SFCPRS_(iGRU)*1.65*RS, 0. )
 
        END DO
 
@@ -1699,9 +1701,9 @@ contains
 
   END SUBROUTINE STOMATA
 ! ==================================================================================================
-  attributes(device) SUBROUTINE CANRES (PAR   ,SFCTMP,RCSOIL ,EAH   ,SFCPRS , & !in
+  attributes(device) SUBROUTINE CANRES (PAR   ,SFCTMP_,RCSOIL_ ,EAH_   ,SFCPRS_ , & !in
                      RC    ,PSN   ,ILOC   ,JLOC,&
-                     rsmin,hs,topt,rsmax,rgl  )           !out
+                     rsmin_,hs_,topt_,rsmax_,rgl_  )           !out
 
 ! --------------------------------------------------------------------------------------------------
 ! calculate canopy resistance which depends on incoming solar radiation,
@@ -1722,16 +1724,16 @@ contains
     INTEGER,                  INTENT(IN)  :: ILOC   !grid index
     INTEGER,                  INTENT(IN)  :: JLOC   !grid index
     REAL(rkind),                     INTENT(IN)  :: PAR    !par absorbed per unit sunlit lai (w/m2)
-    REAL(rkind),                     INTENT(IN)  :: SFCTMP !canopy air temperature
-    REAL(rkind),                     INTENT(IN)  :: SFCPRS !surface pressure (pa)
-    REAL(rkind),                     INTENT(IN)  :: EAH    !water vapor pressure (pa)
-    REAL(rkind),                     INTENT(IN)  :: RCSOIL !soil moisture stress factor
+    REAL(rkind),                     INTENT(IN)  :: SFCTMP_(:) !canopy air temperature
+    REAL(rkind),                     INTENT(IN)  :: SFCPRS_(:) !surface pressure (pa)
+    REAL(rkind),                     INTENT(IN)  :: EAH_(:)    !water vapor pressure (pa)
+    REAL(rkind),                     INTENT(IN)  :: RCSOIL_(:) !soil moisture stress factor
 
 !outputs
 
     REAL(rkind),                     INTENT(OUT) :: RC     !canopy resistance per unit LAI
     REAL(rkind),                     INTENT(OUT) :: PSN    !foliage photosynthesis (umolco2/m2/s)
-  real(rkind) :: rsmin,hs,topt,rsmax,rgl
+  real(rkind) :: rsmin_(:),hs_(:),topt_(:),rsmax_(:),rgl_(:)
 !local
 
     REAL(rkind)                                  :: RCQ
@@ -1741,6 +1743,8 @@ contains
     REAL(rkind)                                  :: Q2     !water vapor mixing ratio (kg/kg)
     REAL(rkind)                                  :: Q2SAT  !saturation Q2
     REAL(rkind)                                  :: DQSDT2 !d(Q2SAT)/d(T)
+    integer(i4b) :: iGRU
+    iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
 
 ! RSMIN, RSMAX, TOPT, RGL, HS are canopy stress parameters set in REDPRM
 ! ----------------------------------------------------------------------
@@ -1753,52 +1757,54 @@ contains
 
 !  compute Q2 and Q2SAT
 
-    Q2 = 0.622 *  EAH  / (SFCPRS - 0.378 * EAH) !specific humidity [kg/kg]
+    Q2 = 0.622 *  EAH_(iGRU)  / (SFCPRS_(iGRU) - 0.378 * EAH_(iGRU)) !specific humidity [kg/kg]
     Q2 = Q2 / (1.0 + Q2)                        !mixing ratio [kg/kg]
 
-    CALL CALHUM(SFCTMP, SFCPRS, Q2SAT, DQSDT2)
+    CALL CALHUM(SFCTMP_, SFCPRS_, Q2SAT, DQSDT2)
 
 ! contribution due to incoming solar radiation
 
-    FF  = 2.0 * PAR / RGL
-    RCS = (FF + RSMIN / RSMAX) / (1.0+ FF)
+    FF  = 2.0 * PAR / RGL_(iGRU)
+    RCS = (FF + RSMIN_(iGRU) / RSMAX_(iGRU)) / (1.0+ FF)
     RCS = MAX (RCS,0.0001)
 
 ! contribution due to air temperature
 
-    RCT = 1.0- 0.0016* ( (TOPT - SFCTMP)**2.0)
+    RCT = 1.0- 0.0016* ( (TOPT_(iGRU) - SFCTMP_(iGRU))**2.0)
     RCT = MAX (RCT,0.0001)
 
 ! contribution due to vapor pressure deficit
 
-    RCQ = 1.0/ (1.0+ HS * MAX(0.,Q2SAT-Q2))
+    RCQ = 1.0/ (1.0+ HS_(iGRU) * MAX(0.,Q2SAT-Q2))
     RCQ = MAX (RCQ,0.01)
 
 ! determine canopy resistance due to all factors
 
-    RC  = RSMIN / (RCS * RCT * RCQ * RCSOIL)
+    RC  = RSMIN_(iGRU) / (RCS * RCT * RCQ * RCSOIL_(iGRU))
     PSN = -999.99       ! PSN not applied for dynamic carbon
 
   END SUBROUTINE CANRES
 ! ==================================================================================================
-  attributes(device) SUBROUTINE CALHUM(SFCTMP, SFCPRS, Q2SAT, DQSDT2)
+  attributes(device) SUBROUTINE CALHUM(SFCTMP_, SFCPRS_, Q2SAT, DQSDT2)
         IMPLICIT NONE
-        REAL(rkind), INTENT(IN)       :: SFCTMP, SFCPRS
+        REAL(rkind), INTENT(IN)       :: SFCTMP_(:), SFCPRS_(:)
         REAL(rkind), INTENT(OUT)      :: Q2SAT, DQSDT2
         REAL(rkind), PARAMETER        :: A2=17.67,A3=273.15,A4=29.65, ELWV=2.501E6,         &
                                   A23M4=A2*(A3-A4), E0=0.611, RV=461.0,             &
                                   EPSILON=0.622
         REAL(rkind)                   :: ES, SFCPRSX
+        integer(i4b) :: iGRU
+        iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
 ! Q2SAT: saturated mixing ratio
-        ES = E0 * EXP ( ELWV/RV*(1./A3 - 1./SFCTMP) )
+        ES = E0 * EXP ( ELWV/RV*(1./A3 - 1./SFCTMP_(iGRU)) )
 ! convert SFCPRS from Pa to KPa
-        SFCPRSX = SFCPRS*1.E-3
+        SFCPRSX = SFCPRS_(iGRU)*1.E-3
         Q2SAT = EPSILON * ES / (SFCPRSX-ES)
 ! convert from  g/g to g/kg
         Q2SAT = Q2SAT * 1.E3
 ! Q2SAT is currently a 'mixing ratio'
 ! DQSDT2 is calculated assuming Q2SAT is a specific humidity
-        DQSDT2=(Q2SAT/(1+Q2SAT))*A23M4/(SFCTMP-A4)**2
+        DQSDT2=(Q2SAT/(1+Q2SAT))*A23M4/(SFCTMP_(iGRU)-A4)**2
 ! DG Q2SAT needs to be in g/g when returned for SFLX
         Q2SAT = Q2SAT / 1.E3
   END SUBROUTINE CALHUM

@@ -319,7 +319,6 @@ contains
      case(iLookPROG%scalarAquiferStorage); progData%scalarAquiferStorage(iGRU) = varData(ixFile,1)
      case(iLookPROG%scalarSurfaceTemp); progData%scalarSurfaceTemp(iGRU) = varData(ixFile,1)
      end select
-     print*, prog_meta(iVar)%varName, iGRU, varData(ixFile,1)
      case (iLookVarType%midSoil)
       select case (iVar)
      case(iLookPROG%spectralSnowAlbedoDiffuse); progData%spectralSnowAlbedoDiffuse(1:nSoil,iGRU) = varData(ixFile,1:nSoil)
@@ -384,7 +383,7 @@ contains
    ! save the number of layers
    indxData%nSnow(iGRU)   = gru_struc(iGRU)%hruInfo(iHRU)%nSnow
    indxData%nSoil   = gru_struc(iGRU)%hruInfo(iHRU)%nSoil
-   indxData%nLayers_d(iGRU) = gru_struc(iGRU)%hruInfo(iHRU)%nSnow + gru_struc(iGRU)%hruInfo(iHRU)%nSoil
+   indxData%nLayers(iGRU) = gru_struc(iGRU)%hruInfo(iHRU)%nSnow + gru_struc(iGRU)%hruInfo(iHRU)%nSoil
 
   end do
  end do

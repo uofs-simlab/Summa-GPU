@@ -573,7 +573,7 @@ if (size(indx_data%ixNrgOnly,1) .ne. nSubset) then
     allocate(indx_data%ixNrgOnly(nSubset,nGRU))
 end if
 
- call indexSplit_kernel<<<blocks,threads>>>(nGRU,indx_data%nLayers_d,&
+ call indexSplit_kernel<<<blocks,threads>>>(nGRU,indx_data%nLayers,&
  ixHydType,ixStateType,ixHydLayer,&
  ixCasNrg,ixVegNrg,ixVegHyd,&
  ixTopNrg,ixTopHyd,ixAqWat,&

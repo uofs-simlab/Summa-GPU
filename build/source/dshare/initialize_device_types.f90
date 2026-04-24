@@ -5,7 +5,7 @@ module initialize_device
   USE var_lookup,only:iLookDERIV       ! lookup indices for derivative data
   USE var_lookup,only:iLookFORCE       ! lookup indices for forcing data 
   USE var_lookup,only:iLookDIAG        ! lookup indices for diagnostic variable data
-  USE var_lookup,only:iLookPROG,iLookPARAM, iLookINDEX, iLookBVAR, iLookTYPE, iLookATTR
+  USE var_lookup,only:iLookPROG,iLookPARAM, iLookINDEX, iLookBVAR, iLookBPAR, iLookTYPE, iLookATTR
   ! USE globalData,only: nSpecBands                 ! number of spectral bands
 
   implicit none
@@ -23,14 +23,15 @@ module initialize_device
   public::allocate_veg_parameters,allocate_veg_table,allocate_device_indx_data,allocate_device_attr_data
   public::deallocate_device_forc_data,allocate_device_forc_data
 public::deallocate_device_indx_data,allocate_device_indx_temp
-
+public::allocate_device_bvar_stat,finalize_device_bvar_stat,get_device_bvar_stat
 public::get_device_param_data
+public::get_device_attr_data,set_device_attr_data
 public::set_device_param_data_scalar
 public::set_device_param_data
 public::get_device_type_data
-public::allocate_device_bvar_data,allocate_device_prog_data,allocate_device_diag_data
+public::allocate_device_bvar_data,allocate_device_prog_data,allocate_device_prog_data_snow,allocate_device_diag_data
 public::deallocate_device_prog_data
-public::deallocate_device_bvar_data
+public::deallocate_device_bvar_data,get_device_bvar_data
 public::deallocate_device_diag_data
 public::deallocate_device_flux_data,allocate_device_flux_data
 public::deallocate_device_param_data
@@ -43,6 +44,15 @@ public::finalize_device_bvar_data,allocate_device_forc_data
 public::finalize_device_diag_data
 public::finalize_device_flux_data
 public::allocate_device_param_data
+public::get_device_flux_data,get_device_diag_data,get_device_prog_data
+public::allocate_device_indx_data_snow,allocate_device_diag_data_snow
+public::get_device_forc_data,get_device_indx_data
+public::get_device_prog_stat,allocate_device_prog_stat
+public::get_device_indx_stat,allocate_device_indx_stat
+public::get_device_flux_stat,allocate_device_flux_stat
+public::get_device_diag_stat,allocate_device_diag_stat
+public::get_device_forc_stat,allocate_device_forc_stat
+
 
   contains
 
@@ -390,7 +400,7 @@ end do
     real(rkind) :: parVector
 
     select case(ixParam)
-    case(iLookPARAM%upperBoundHead); print*, size(mparStruct%upperBoundHead_); mparStruct%upperBoundHead_(iGRU) = parVector
+    case(iLookPARAM%upperBoundHead); mparStruct%upperBoundHead_(iGRU) = parVector
     case(iLookPARAM%lowerBoundHead); mparStruct%lowerBoundHead_(iGRU) = parVector
     case(iLookPARAM%upperBoundTheta); mparStruct%upperBoundTheta_(iGRU) = parVector
     case(iLookPARAM%lowerBoundTheta); mparStruct%lowerBoundTheta_(iGRU) = parVector
@@ -567,7 +577,7 @@ end do
     end select
   end subroutine
 
-  subroutine get_device_param_data(mparStruct, iVar, iGRU, parVector)
+    subroutine get_device_param_data(mparStruct, iVar, iGRU, parVector)
     implicit none
     type(mpar_data_device) :: mparStruct
     integer(i4b) :: iGRU, iVar
@@ -754,6 +764,457 @@ end do
     end if
   end subroutine
 
+  subroutine get_device_flux_data(fluxStruct, iVar, iGRU, parVector)
+    implicit none
+    type(flux_data_device) :: fluxStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind),allocatable :: parVector(:)
+
+
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+    ! net energy and mass fluxes for the vegetation domain
+    case(iLookFLUX%scalarCanairNetNrgFlux); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixScalarCanairNetNrgFlux,iGRU)
+    case(iLookFLUX%scalarCanopyNetNrgFlux); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixScalarCanopyNetNrgFlux,iGRU)
+    case(iLookFLUX%scalarGroundNetNrgFlux); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixScalarGroundNetNrgFlux,iGRU)
+    case(iLookFLUX%scalarCanopyNetLiqFlux); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixScalarCanopyNetLiqFlux,iGRU)
+    ! forcing
+    case(iLookFLUX%scalarRainfall); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixScalarRainfall,iGRU)
+    case(iLookFLUX%scalarSnowfall); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixScalarSnowfall,iGRU)
+    ! shortwave radiation
+    case(iLookFLUX%spectralIncomingDirect); parVector = fluxStruct%data(fluxStruct%ixspectralIncomingDirect_start:fluxStruct%ixspectralIncomingDirect_end,iGRU)
+    case(iLookFLUX%spectralIncomingDiffuse); parVector = fluxStruct%data(fluxStruct%ixspectralIncomingDiffuse_start:fluxStruct%ixspectralIncomingDiffuse_end,iGRU)
+    case(iLookFLUX%scalarCanopySunlitPAR); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopySunlitPAR,iGRU)
+    case(iLookFLUX%scalarCanopyShadedPAR); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyShadedPAR,iGRU)
+    case(iLookFLUX%spectralBelowCanopyDirect); parVector = fluxStruct%data(fluxStruct%ixspectralBelowCanopyDirect_start:fluxStruct%ixspectralBelowCanopyDirect_end,iGRU)
+    case(iLookFLUX%spectralBelowCanopyDiffuse); parVector = fluxStruct%data(fluxStruct%ixspectralBelowCanopyDiffuse_start:fluxStruct%ixspectralBelowCanopyDiffuse_end,iGRU)
+    case(iLookFLUX%scalarBelowCanopySolar); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarBelowCanopySolar,iGRU)
+    case(iLookFLUX%scalarCanopyAbsorbedSolar); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyAbsorbedSolar,iGRU)
+    case(iLookFLUX%scalarGroundAbsorbedSolar); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarGroundAbsorbedSolar,iGRU)
+    ! longwave radiation
+    case(iLookFLUX%scalarLWRadCanopy); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadCanopy,iGRU)
+    case(iLookFLUX%scalarLWRadGround); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadGround,iGRU)
+    case(iLookFLUX%scalarLWRadUbound2Canopy); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadUbound2Canopy,iGRU)
+    case(iLookFLUX%scalarLWRadUbound2Ground); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadUbound2Ground,iGRU)
+    case(iLookFLUX%scalarLWRadUbound2Ubound); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadUbound2Ubound,iGRU)
+    case(iLookFLUX%scalarLWRadCanopy2Ubound); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadCanopy2Ubound,iGRU)
+    case(iLookFLUX%scalarLWRadCanopy2Ground); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadCanopy2Ground,iGRU)
+    case(iLookFLUX%scalarLWRadCanopy2Canopy); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadCanopy2Canopy,iGRU)
+    case(iLookFLUX%scalarLWRadGround2Ubound); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadGround2Ubound,iGRU)
+    case(iLookFLUX%scalarLWRadGround2Canopy); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWRadGround2Canopy,iGRU)
+    case(iLookFLUX%scalarLWNetCanopy); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWNetCanopy,iGRU)
+    case(iLookFLUX%scalarLWNetGround); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWNetGround,iGRU)
+    case(iLookFLUX%scalarLWNetUbound); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLWNetUbound,iGRU)
+    ! turbulent heat transfer
+    case(iLookFLUX%scalarEddyDiffusCanopyTop); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarEddyDiffusCanopyTop,iGRU)
+    case(iLookFLUX%scalarFrictionVelocity); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarFrictionVelocity,iGRU)
+    case(iLookFLUX%scalarWindspdCanopyTop); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarWindspdCanopyTop,iGRU)
+    case(iLookFLUX%scalarWindspdCanopyBottom); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarWindspdCanopyBottom,iGRU)
+    case(iLookFLUX%scalarGroundResistance); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarGroundResistance,iGRU)
+    case(iLookFLUX%scalarCanopyResistance); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyResistance,iGRU)
+    case(iLookFLUX%scalarLeafResistance); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLeafResistance,iGRU)
+    case(iLookFLUX%scalarSoilResistance); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSoilResistance,iGRU)
+    case(iLookFLUX%scalarSenHeatTotal); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSenHeatTotal,iGRU)
+    case(iLookFLUX%scalarSenHeatCanopy); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSenHeatCanopy,iGRU)
+    case(iLookFLUX%scalarSenHeatGround); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSenHeatGround,iGRU)
+    case(iLookFLUX%scalarLatHeatTotal); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLatHeatTotal,iGRU)
+    case(iLookFLUX%scalarLatHeatCanopyEvap); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLatHeatCanopyEvap,iGRU)
+    case(iLookFLUX%scalarLatHeatCanopyTrans); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLatHeatCanopyTrans,iGRU)
+    case(iLookFLUX%scalarLatHeatGround); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarLatHeatGround,iGRU)
+    case(iLookFLUX%scalarCanopyAdvectiveHeatFlux); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyAdvectiveHeatFlux,iGRU)
+    case(iLookFLUX%scalarGroundAdvectiveHeatFlux); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarGroundAdvectiveHeatFlux,iGRU)
+    case(iLookFLUX%scalarCanopySublimation); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopySublimation,iGRU)
+    case(iLookFLUX%scalarSnowSublimation); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSnowSublimation,iGRU)
+    ! liquid water fluxes associated with evapotranspiration
+    case(iLookFLUX%scalarStomResistSunlit); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarStomResistSunlit,iGRU)
+    case(iLookFLUX%scalarStomResistShaded); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarStomResistShaded,iGRU)
+    case(iLookFLUX%scalarPhotosynthesisSunlit); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarPhotosynthesisSunlit,iGRU)
+    case(iLookFLUX%scalarPhotosynthesisShaded); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarPhotosynthesisShaded,iGRU)
+    case(iLookFLUX%scalarCanopyTranspiration); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyTranspiration,iGRU)
+    case(iLookFLUX%scalarCanopyEvaporation); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyEvaporation,iGRU)
+    case(iLookFLUX%scalarGroundEvaporation); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarGroundEvaporation,iGRU)
+    case(iLookFLUX%mLayerTranspire); parVector = fluxStruct%data(fluxStruct%ixmLayerTranspire_start:fluxStruct%ixmLayerTranspire_end,iGRU)
+    ! liquid and solid water fluxes through the canopy
+    case(iLookFLUX%scalarThroughfallSnow); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarThroughfallSnow,iGRU)
+    case(iLookFLUX%scalarThroughfallRain); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarThroughfallRain,iGRU)
+    case(iLookFLUX%scalarCanopySnowUnloading); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopySnowUnloading,iGRU)
+    case(iLookFLUX%scalarCanopyLiqDrainage); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyLiqDrainage,iGRU)
+    case(iLookFLUX%scalarCanopyMeltFreeze); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarCanopyMeltFreeze,iGRU)
+    ! energy fluxes and for the snow and soil domains
+    case(iLookFLUX%iLayerConductiveFlux); parVector = fluxStruct%data(fluxStruct%ixiLayerConductiveFlux_start:fluxStruct%ixiLayerConductiveFlux_end,iGRU)
+    case(iLookFLUX%iLayerAdvectiveFlux); parVector = fluxStruct%data(fluxStruct%ixiLayerAdvectiveFlux_start:fluxStruct%ixiLayerAdvectiveFlux_end,iGRU)
+    case(iLookFLUX%iLayerNrgFlux); parVector = fluxStruct%data(fluxStruct%ixiLayerNrgFlux_start:fluxStruct%ixiLayerNrgFlux_end,iGRU)
+    case(iLookFLUX%mLayerNrgFlux); parVector = fluxStruct%data(fluxStruct%ixmLayerNrgFlux_start:fluxStruct%ixmLayerNrgFlux_end,iGRU)
+    ! liquid water fluxes for the snow domain
+    case(iLookFLUX%scalarSnowDrainage); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSnowDrainage,iGRU)
+    case(iLookFLUX%iLayerLiqFluxSnow); parVector = fluxStruct%data(fluxStruct%ixiLayerLiqFluxSnow_start:fluxStruct%ixiLayerLiqFluxSnow_end,iGRU)
+    case(iLookFLUX%mLayerLiqFluxSnow); parVector = fluxStruct%data(fluxStruct%ixmLayerLiqFluxSnow_start:fluxStruct%ixmLayerLiqFluxSnow_end,iGRU)
+    ! liquid water fluxes for the soil domain
+    case(iLookFLUX%scalarRainPlusMelt); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarRainPlusMelt,iGRU)
+    case(iLookFLUX%scalarMaxInfilRate); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarMaxInfilRate,iGRU)
+    case(iLookFLUX%scalarInfiltration); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarInfiltration,iGRU)
+    case(iLookFLUX%scalarExfiltration); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarExfiltration,iGRU)
+    case(iLookFLUX%scalarSurfaceRunoff); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSurfaceRunoff,iGRU)
+    case(iLookFLUX%scalarSurfaceRunoff_IE); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSurfaceRunoff_IE,iGRU)
+    case(iLookFLUX%scalarSurfaceRunoff_SE); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSurfaceRunoff_SE,iGRU)
+    case(iLookFLUX%mLayerSatHydCondMP); parVector = fluxStruct%data(fluxStruct%ixmLayerSatHydCondMP_start:fluxStruct%ixmLayerSatHydCondMP_end,iGRU)
+    case(iLookFLUX%mLayerSatHydCond); parVector = fluxStruct%data(fluxStruct%ixmLayerSatHydCond_start:fluxStruct%ixmLayerSatHydCond_end,iGRU)
+    case(iLookFLUX%iLayerSatHydCond); parVector = fluxStruct%data(fluxStruct%ixiLayerSatHydCond_start:fluxStruct%ixiLayerSatHydCond_end,iGRU)
+    case(iLookFLUX%mLayerHydCond); parVector = fluxStruct%data(fluxStruct%ixmLayerHydCond_start:fluxStruct%ixmLayerHydCond_end,iGRU)
+    case(iLookFLUX%iLayerLiqFluxSoil); parVector = fluxStruct%data(fluxStruct%ixiLayerLiqFluxSoil_start:fluxStruct%ixiLayerLiqFluxSoil_end,iGRU)
+    case(iLookFLUX%mLayerLiqFluxSoil); parVector = fluxStruct%data(fluxStruct%ixmLayerLiqFluxSoil_start:fluxStruct%ixmLayerLiqFluxSoil_end,iGRU)
+    case(iLookFLUX%mLayerBaseflow); parVector = fluxStruct%data(fluxStruct%ixmLayerBaseflow_start:fluxStruct%ixmLayerBaseflow_end,iGRU)
+    case(iLookFLUX%mLayerColumnInflow); parVector = fluxStruct%data(fluxStruct%ixmLayerColumnInflow_start:fluxStruct%ixmLayerColumnInflow_end,iGRU)
+    case(iLookFLUX%mLayerColumnOutflow); parVector = fluxStruct%data(fluxStruct%ixmLayerColumnOutflow_start:fluxStruct%ixmLayerColumnOutflow_end,iGRU)
+    case(iLookFLUX%scalarSoilBaseflow); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSoilBaseflow,iGRU)
+    case(iLookFLUX%scalarSoilDrainage); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarSoilDrainage,iGRU)
+    case(iLookFLUX%scalarAquiferRecharge); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarAquiferRecharge,iGRU)
+    case(iLookFLUX%scalarAquiferTranspire); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarAquiferTranspire,iGRU)
+    case(iLookFLUX%scalarAquiferBaseflow); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarAquiferBaseflow,iGRU)
+    ! derived variables
+    case(iLookFLUX%scalarTotalET); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarTotalET,iGRU)
+    case(iLookFLUX%scalarTotalRunoff); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarTotalRunoff,iGRU)
+    case(iLookFLUX%scalarNetRadiation); allocate(parVector(1)); parVector = fluxStruct%data(fluxStruct%ixscalarNetRadiation,iGRU)
+
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999_rkind
+    end if
+  end subroutine
+
+  subroutine get_device_forc_data(forcStruct,iVar,iGRU,parVector)
+    implicit none
+    type(forc_data_device) :: forcStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind),allocatable :: parVector(:)
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+    case(iLookFORCE%time); allocate(parVector(1)); parVector = forcStruct%time_h
+    case(iLookFORCE%pptrate); allocate(parVector(1)); parVector = forcStruct%pptrate(iGRU)
+    case(iLookFORCE%SWRadAtm); allocate(parVector(1)); parVector = forcStruct%SWRadAtm(iGRU)
+    case(iLookFORCE%LWRadAtm); allocate(parVector(1)); parVector = forcStruct%LWRadAtm(iGRU)
+    case(iLookFORCE%airtemp); allocate(parVector(1)); parVector = forcStruct%airtemp(iGRU)
+    case(iLookFORCE%windspd); allocate(parVector(1)); parVector = forcStruct%windspd(iGRU)
+    case(iLookFORCE%airpres); allocate(parVector(1)); parVector = forcStruct%airpres(iGRU)
+    case(iLookFORCE%spechum); allocate(parVector(1)); parVector = forcStruct%spechum(iGRU)
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999_rkind
+    end if
+
+  end subroutine
+  subroutine get_device_indx_data(indxStruct,iVar,iGRU,parVector)
+    implicit none
+    type(indx_data_device) :: indxStruct
+    integer(i4b) :: iGRU, iVar
+    integer(i4b),allocatable :: parVector(:)
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+    case(iLookINDEX%nSnow); allocate(parVector(1)); parVector = indxStruct%nSnow(iGRU)
+    case(iLookINDEX%nSoil); allocate(parVector(1)); parVector = indxStruct%nSoil
+    case(iLookINDEX%nLayers); allocate(parVector(1)); parVector = indxStruct%nLayers(iGRU)
+    case(iLookINDEX%layerType); parVector = indxStruct%layerType(:,iGRU)
+    case(iLookINDEX%nCasNrg); allocate(parVector(1)); parVector = indxStruct%nCasNrg(iGRU)
+    case(iLookINDEX%nVegNrg); allocate(parVector(1)); parVector = indxStruct%nVegNrg(iGRU)
+    case(iLookINDEX%nVegMass); allocate(parVector(1)); parVector = indxStruct%nVegMass(iGRU)
+    case(iLookINDEX%nVegState); allocate(parVector(1)); parVector = indxStruct%nVegState(iGRU)
+    case(iLookINDEX%nNrgState); allocate(parVector(1)); parVector = indxStruct%nNrgState(iGRU)
+    case(iLookINDEX%nWatState); allocate(parVector(1)); parVector = indxStruct%nWatState(iGRU)
+    case(iLookINDEX%nMatState); allocate(parVector(1)); parVector = indxStruct%nMatState(iGRU)
+    case(iLookINDEX%nMassState); allocate(parVector(1)); parVector = indxStruct%nMassState(iGRU)
+    case(iLookINDEX%nState); allocate(parVector(1)); parVector = indxStruct%nState(iGRU)
+    ! case(iLookINDEX%nSnowSoilNrg); allocate(parVector(1)); parVector = indxStruct%nSnowSoilNrg(iGRU)
+    ! case(iLookINDEX%nSnowOnlyNrg); allocate(parVector(1)); parVector = indxStruct%nSnowOnlyNrg(iGRU)
+    ! case(iLookINDEX%nSoilOnlyNrg); allocate(parVector(1)); parVector = indxStruct%nSoilOnlyNrg(iGRU)
+    ! case(iLookINDEX%nSnowSoilHyd); allocate(parVector(1)); parVector = indxStruct%nSnowSoilHyd(iGRU)
+    ! case(iLookINDEX%nSnowOnlyHyd); allocate(parVector(1)); parVector = indxStruct%nSnowOnlyHyd(iGRU)
+    ! case(iLookINDEX%nSoilOnlyHyd); allocate(parVector(1)); parVector = indxStruct%nSoilOnlyHyd(iGRU)
+    case(iLookINDEX%ixControlVolume); parVector = indxStruct%ixControlVolume(:,iGRU)
+    case(iLookINDEX%ixDomainType); parVector = indxStruct%ixDomainType(:,iGRU)
+    case(iLookINDEX%ixStateType); parVector = indxStruct%ixStateType(:,iGRU)
+    case(iLookINDEX%ixHydType); parVector = indxStruct%ixHydType(:,iGRU)
+    ! case(iLookINDEX%ixDomainType_subset); parVector = indxStruct%ixDomainType_subset(:,iGRU)
+    ! case(iLookINDEX%ixStateType_subset); parVector = indxStruct%ixStateType_subset(:,iGRU)
+    ! case(iLookINDEX%ixMapFull2Subset); parVector = indxStruct%ixMapFull2Subset(:,iGRU)
+    ! case(iLookINDEX%ixMapSubset2Full); parVector = indxStruct%ixMapSubset2Full(:,iGRU)
+    case(iLookINDEX%ixCasNrg); allocate(parVector(1)); parVector = indxStruct%ixCasNrg(iGRU)
+    case(iLookINDEX%ixVegNrg); allocate(parVector(1)); parVector = indxStruct%ixVegNrg(iGRU)
+    case(iLookINDEX%ixVegHyd); allocate(parVector(1)); parVector = indxStruct%ixVegHyd(iGRU)
+    case(iLookINDEX%ixTopNrg); allocate(parVector(1)); parVector = indxStruct%ixTopNrg(iGRU)
+    case(iLookINDEX%ixTopHyd); allocate(parVector(1)); parVector = indxStruct%ixTopHyd(iGRU)
+    case(iLookINDEX%ixAqWat); allocate(parVector(1)); parVector = indxStruct%ixAqWat(iGRU)
+    case(iLookINDEX%ixNrgOnly); parVector = indxStruct%ixNrgOnly(:,iGRU)
+    ! case(iLookINDEX%ixHydOnly); parVector = indxStruct%ixHydOnly(:,iGRU)
+    ! case(iLookINDEX%ixMatOnly); parVector = indxStruct%ixMatOnly(:,iGRU)
+    ! case(iLookINDEX%ixMassOnly); parVector = indxStruct%ixMassOnly(:,iGRU)
+    case(iLookINDEX%ixSnowSoilNrg); parVector = indxStruct%ixSnowSoilNrg(:,iGRU)
+    case(iLookINDEX%ixSnowOnlyNrg); parVector = indxStruct%ixSnowOnlyNrg(:,iGRU)
+    case(iLookINDEX%ixSoilOnlyNrg); parVector = indxStruct%ixSoilOnlyNrg(:,iGRU)
+    case(iLookINDEX%ixSnowSoilHyd); parVector = indxStruct%ixSnowSoilHyd(:,iGRU)
+    case(iLookINDEX%ixSnowOnlyHyd); parVector = indxStruct%ixSnowOnlyHyd(:,iGRU)
+    case(iLookINDEX%ixSoilOnlyHyd); parVector = indxStruct%ixSoilOnlyHyd(:,iGRU)
+    case(iLookINDEX%ixNrgCanair); allocate(parVector(1)); parVector = indxStruct%ixNrgCanair(iGRU)
+    case(iLookINDEX%ixNrgCanopy); allocate(parVector(1)); parVector = indxStruct%ixNrgCanopy(iGRU)
+    case(iLookINDEX%ixHydCanopy); allocate(parVector(1)); parVector = indxStruct%ixHydCanopy(iGRU)
+    case(iLookINDEX%ixNrgLayer); parVector = indxStruct%ixNrgLayer(:,iGRU)
+    case(iLookINDEX%ixHydLayer); parVector = indxStruct%ixHydLayer(:,iGRU)
+    case(iLookINDEX%ixWatAquifer); allocate(parVector(1)); parVector = indxStruct%ixWatAquifer(iGRU)
+    ! case(iLookINDEX%ixVolFracWat); parVector = indxStruct%ixVolFracWat(:,iGRU)
+    ! case(iLookINDEX%ixMatricHead); parVector = indxStruct%ixMatricHead(:,iGRU)
+    case(iLookINDEX%ixAllState); parVector = indxStruct%ixAllState(:,iGRU)
+    case(iLookINDEX%ixSoilState); parVector = indxStruct%ixSoilState(:,iGRU)
+    case(iLookINDEX%ixLayerState); parVector = indxStruct%ixLayerState(:,iGRU)
+    ! case(iLookINDEX%ixLayerActive); parVector = indxStruct%ixLayerActive(:,iGRU)
+    case(iLookINDEX%numberFluxCalc); allocate(parVector(1)); parVector = indxStruct%numberFluxCalc
+    case(iLookINDEX%numberStateSplit); allocate(parVector(1)); parVector = indxStruct%numberStateSplit
+    case(iLookINDEX%numberDomainSplitNrg); allocate(parVector(1)); parVector = indxStruct%numberDomainSplitNrg
+    case(iLookINDEX%numberDomainSplitMass); allocate(parVector(1)); parVector = indxStruct%numberDomainSplitMass
+    case(iLookINDEX%numberScalarSolutions); allocate(parVector(1)); parVector = indxStruct%numberScalarSolutions
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999
+    end if
+
+  end subroutine
+
+  subroutine get_device_diag_data(diagStruct, iVar, iGRU, parVector)
+    implicit none
+    type(diag_data_device) :: diagStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind),allocatable :: parVector(:)
+
+
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+    ! local properties
+    case(iLookDIAG%scalarCanopyDepth); allocate(parVector(1)); parVector = diagStruct%scalarCanopyDepth(iGRU)
+    case(iLookDIAG%scalarBulkVolHeatCapVeg); allocate(parVector(1)); parVector = diagStruct%scalarBulkVolHeatCapVeg(iGRU)
+    case(iLookDIAG%scalarCanopyCm); allocate(parVector(1)); parVector = diagStruct%scalarCanopyCm(iGRU)
+    case(iLookDIAG%scalarCanopyEmissivity); allocate(parVector(1)); parVector = diagStruct%scalarCanopyEmissivity(iGRU)
+    case(iLookDIAG%scalarRootZoneTemp); allocate(parVector(1)); parVector = diagStruct%scalarRootZoneTemp(iGRU)
+    case(iLookDIAG%scalarLAI); allocate(parVector(1)); parVector = diagStruct%scalarLAI(iGRU)
+    case(iLookDIAG%scalarSAI); allocate(parVector(1)); parVector = diagStruct%scalarSAI(iGRU)
+    case(iLookDIAG%scalarExposedLAI); allocate(parVector(1)); parVector = diagStruct%scalarExposedLAI(iGRU)
+    case(iLookDIAG%scalarExposedSAI); allocate(parVector(1)); parVector = diagStruct%scalarExposedSAI(iGRU)
+    case(iLookDIAG%scalarAdjMeasHeight); allocate(parVector(1)); parVector = diagStruct%scalarAdjMeasHeight(iGRU)
+    case(iLookDIAG%scalarCanopyIceMax); allocate(parVector(1)); parVector = diagStruct%scalarCanopyIceMax(iGRU)
+    case(iLookDIAG%scalarCanopyLiqMax); allocate(parVector(1)); parVector = diagStruct%scalarCanopyLiqMax(iGRU)
+    case(iLookDIAG%scalarGrowingSeasonIndex); allocate(parVector(1)); parVector = diagStruct%scalarGrowingSeasonIndex(iGRU)
+    case(iLookDIAG%scalarVolHtCap_air); allocate(parVector(1)); parVector = diagStruct%scalarVolHtCap_air(iGRU)
+    case(iLookDIAG%scalarVolHtCap_ice); allocate(parVector(1)); parVector = diagStruct%scalarVolHtCap_ice(iGRU)
+    case(iLookDIAG%scalarVolHtCap_soil); allocate(parVector(1)); parVector = diagStruct%scalarVolHtCap_soil(iGRU)
+    case(iLookDIAG%scalarVolHtCap_water); allocate(parVector(1)); parVector = diagStruct%scalarVolHtCap_water(iGRU)
+    case(iLookDIAG%mLayerVolHtCapBulk); parVector = diagStruct%mLayerVolHtCapBulk(:,iGRU)
+    case(iLookDIAG%mLayerCm); parVector = diagStruct%mLayerCm(:,iGRU)
+    case(iLookDIAG%scalarLambda_drysoil); allocate(parVector(1)); parVector = diagStruct%scalarLambda_drysoil(iGRU)
+    case(iLookDIAG%scalarLambda_wetsoil); allocate(parVector(1)); parVector = diagStruct%scalarLambda_wetsoil(iGRU)
+    case(iLookDIAG%mLayerThermalC); parVector = diagStruct%mLayerThermalC(:,iGRU)
+    case(iLookDIAG%iLayerThermalC); parVector = diagStruct%iLayerThermalC(:,iGRU)
+    ! enthalpy
+    case(iLookDIAG%scalarCanopyEnthTemp); allocate(parVector(1)); parVector = diagStruct%scalarCanopyEnthTemp(iGRU)
+    case(iLookDIAG%mLayerEnthTemp); parVector = diagStruct%mLayerEnthTemp(:,iGRU)
+    case(iLookDIAG%scalarTotalSoilEnthalpy); allocate(parVector(1)); parVector = diagStruct%scalarTotalSoilEnthalpy(iGRU)
+    case(iLookDIAG%scalarTotalSnowEnthalpy); allocate(parVector(1)); parVector = diagStruct%scalarTotalSnowEnthalpy(iGRU)
+    ! forcing
+    case(iLookDIAG%scalarVPair); allocate(parVector(1)); parVector = diagStruct%scalarVPair(iGRU)
+    case(iLookDIAG%scalarVP_CanopyAir); allocate(parVector(1)); parVector = diagStruct%scalarVP_CanopyAir(iGRU)
+    case(iLookDIAG%scalarTwetbulb); allocate(parVector(1)); parVector = diagStruct%scalarTwetbulb(iGRU)
+    case(iLookDIAG%scalarSnowfallTemp); allocate(parVector(1)); parVector = diagStruct%scalarSnowfallTemp(iGRU)
+    case(iLookDIAG%scalarNewSnowDensity); allocate(parVector(1)); parVector = diagStruct%scalarNewSnowDensity(iGRU)
+    case(iLookDIAG%scalarO2air); allocate(parVector(1)); parVector = diagStruct%scalarO2air(iGRU)
+    case(iLookDIAG%scalarCO2air); allocate(parVector(1)); parVector = diagStruct%scalarCO2air(iGRU)
+    case(iLookDIAG%windspd_x); allocate(parVector(1)); parVector = diagStruct%windspd_x(iGRU)
+    case(iLookDIAG%windspd_y); allocate(parVector(1)); parVector = diagStruct%windspd_y(iGRU)
+    ! shortwave radiation
+    case(iLookDIAG%scalarCosZenith); allocate(parVector(1)); parVector = diagStruct%scalarCosZenith(iGRU)
+    case(iLookDIAG%scalarFractionDirect); allocate(parVector(1)); parVector = diagStruct%scalarFractionDirect(iGRU)
+    case(iLookDIAG%scalarCanopySunlitFraction); allocate(parVector(1)); parVector = diagStruct%scalarCanopySunlitFraction(iGRU)
+    case(iLookDIAG%scalarCanopySunlitLAI); allocate(parVector(1)); parVector = diagStruct%scalarCanopySunlitLAI(iGRU)
+    case(iLookDIAG%scalarCanopyShadedLAI); allocate(parVector(1)); parVector = diagStruct%scalarCanopyShadedLAI(iGRU)
+    case(iLookDIAG%spectralAlbGndDirect); parVector = diagStruct%spectralAlbGndDirect(:,iGRU)
+    case(iLookDIAG%spectralAlbGndDiffuse); parVector = diagStruct%spectralAlbGndDiffuse(:,iGRU)
+    case(iLookDIAG%scalarGroundAlbedo); allocate(parVector(1)); parVector = diagStruct%scalarGroundAlbedo(iGRU)
+    ! turbulent heat transfer
+    case(iLookDIAG%scalarLatHeatSubVapCanopy); allocate(parVector(1)); parVector = diagStruct%scalarLatHeatSubVapCanopy(iGRU)
+    case(iLookDIAG%scalarLatHeatSubVapGround); allocate(parVector(1)); parVector = diagStruct%scalarLatHeatSubVapGround(iGRU)
+    case(iLookDIAG%scalarSatVP_CanopyTemp); allocate(parVector(1)); parVector = diagStruct%scalarSatVP_CanopyTemp(iGRU)
+    case(iLookDIAG%scalarSatVP_GroundTemp); allocate(parVector(1)); parVector = diagStruct%scalarSatVP_GroundTemp(iGRU)
+    case(iLookDIAG%scalarZ0Canopy); allocate(parVector(1)); parVector = diagStruct%scalarZ0Canopy(iGRU)
+    case(iLookDIAG%scalarWindReductionFactor); allocate(parVector(1)); parVector = diagStruct%scalarWindReductionFactor(iGRU)
+    case(iLookDIAG%scalarZeroPlaneDisplacement); allocate(parVector(1)); parVector = diagStruct%scalarZeroPlaneDisplacement(iGRU)
+    case(iLookDIAG%scalarRiBulkCanopy); allocate(parVector(1)); parVector = diagStruct%scalarRiBulkCanopy(iGRU)
+    case(iLookDIAG%scalarRiBulkGround); allocate(parVector(1)); parVector = diagStruct%scalarRiBulkGround(iGRU)
+    case(iLookDIAG%scalarCanopyStabilityCorrection); allocate(parVector(1)); parVector = diagStruct%scalarCanopyStabilityCorrection(iGRU)
+    case(iLookDIAG%scalarGroundStabilityCorrection); allocate(parVector(1)); parVector = diagStruct%scalarGroundStabilityCorrection(iGRU)
+  ! evapotranspiration
+    case(iLookDIAG%scalarIntercellularCO2Sunlit); allocate(parVector(1)); parVector = diagStruct%scalarIntercellularCO2Sunlit(iGRU)
+    case(iLookDIAG%scalarIntercellularCO2Shaded); allocate(parVector(1)); parVector = diagStruct%scalarIntercellularCO2Shaded(iGRU)
+    case(iLookDIAG%scalarTranspireLim); allocate(parVector(1)); parVector = diagStruct%scalarTranspireLim(iGRU)
+    case(iLookDIAG%scalarTranspireLimAqfr); allocate(parVector(1)); parVector = diagStruct%scalarTranspireLimAqfr(iGRU)
+    case(iLookDIAG%scalarFoliageNitrogenFactor); allocate(parVector(1)); parVector = diagStruct%scalarFoliageNitrogenFactor(iGRU)
+    case(iLookDIAG%scalarSoilRelHumidity); allocate(parVector(1)); parVector = diagStruct%scalarSoilRelHumidity(iGRU)
+    case(iLookDIAG%mLayerTranspireLim); parVector = diagStruct%mLayerTranspireLim(:,iGRU)
+    case(iLookDIAG%mLayerRootDensity); parVector = diagStruct%mLayerRootDensity(:,iGRU)
+    case(iLookDIAG%scalarAquiferRootFrac); allocate(parVector(1)); parVector = diagStruct%scalarAquiferRootFrac(iGRU)
+  ! canopy hydrology
+    case(iLookDIAG%scalarFracLiqVeg); allocate(parVector(1)); parVector = diagStruct%scalarFracLiqVeg(iGRU)
+    case(iLookDIAG%scalarCanopyWetFraction); allocate(parVector(1)); parVector = diagStruct%scalarCanopyWetFraction(iGRU)
+  ! snow hydrology
+    case(iLookDIAG%scalarSnowAge); allocate(parVector(1)); parVector = diagStruct%scalarSnowAge(iGRU)
+    case(iLookDIAG%scalarGroundSnowFraction); allocate(parVector(1)); parVector = diagStruct%scalarGroundSnowFraction(iGRU)
+    case(iLookDIAG%spectralSnowAlbedoDirect); parVector = diagStruct%spectralSnowAlbedoDirect(:,iGRU)
+    case(iLookDIAG%mLayerFracLiqSnow); parVector = diagStruct%mLayerFracLiqSnow(:,iGRU)
+    case(iLookDIAG%mLayerThetaResid); parVector = diagStruct%mLayerThetaResid(:,iGRU)
+    case(iLookDIAG%mLayerPoreSpace); parVector = diagStruct%mLayerPoreSpace(:,iGRU)
+    case(iLookDIAG%mLayerMeltFreeze); parVector = diagStruct%mLayerMeltFreeze(:,iGRU)
+  ! soil hydrology
+    case(iLookDIAG%scalarInfilArea); allocate(parVector(1)); parVector = diagStruct%scalarInfilArea(iGRU)
+    case(iLookDIAG%scalarFrozenArea); allocate(parVector(1)); parVector = diagStruct%scalarFrozenArea(iGRU)
+    case(iLookDIAG%scalarSoilControl); allocate(parVector(1)); parVector = diagStruct%scalarSoilControl(iGRU)
+    case(iLookDIAG%mLayerVolFracAir); parVector = diagStruct%mLayerVolFracAir(:,iGRU)
+    case(iLookDIAG%mLayerTcrit); parVector = diagStruct%mLayerTcrit(:,iGRU)
+    case(iLookDIAG%mLayerCompress); parVector = diagStruct%mLayerCompress(:,iGRU)
+    case(iLookDIAG%scalarSoilCompress); allocate(parVector(1)); parVector = diagStruct%scalarSoilCompress(iGRU)
+    case(iLookDIAG%mLayerMatricHeadLiq); parVector = diagStruct%mLayerMatricHeadLiq(:,iGRU)
+    case(iLookDIAG%scalarTotalSoilLiq); allocate(parVector(1)); parVector = diagStruct%scalarTotalSoilLiq(iGRU)
+    case(iLookDIAG%scalarTotalSoilIce); allocate(parVector(1)); parVector = diagStruct%scalarTotalSoilIce(iGRU)
+    case(iLookDIAG%scalarTotalSoilWat); allocate(parVector(1)); parVector = diagStruct%scalarTotalSoilWat(iGRU)
+  ! variable shortcuts
+    case(iLookDIAG%scalarVGn_m); parVector = diagStruct%scalarVGn_m(:,iGRU)
+    case(iLookDIAG%scalarKappa); allocate(parVector(1)); parVector = diagStruct%scalarKappa(iGRU)
+    case(iLookDIAG%scalarVolLatHt_fus); allocate(parVector(1)); parVector = diagStruct%scalarVolLatHt_fus(iGRU)
+  ! timing information
+    case(iLookDIAG%numFluxCalls); allocate(parVector(1)); parVector = diagStruct%numFluxCalls
+    case(iLookDIAG%wallClockTime); allocate(parVector(1)); parVector = diagStruct%wallClockTime
+    case(iLookDIAG%meanStepSize); allocate(parVector(1)); parVector = diagStruct%meanStepSize
+  ! balances
+    case(iLookDIAG%balanceCasNrg); allocate(parVector(1)); parVector = diagStruct%balanceCasNrg(iGRU)
+    case(iLookDIAG%balanceVegNrg); allocate(parVector(1)); parVector = diagStruct%balanceVegNrg(iGRU)
+    case(iLookDIAG%balanceLayerNrg); parVector = diagStruct%balanceLayerNrg(:,iGRU)
+    case(iLookDIAG%balanceSnowNrg); allocate(parVector(1)); parVector = diagStruct%balanceSnowNrg(iGRU)
+    case(iLookDIAG%balanceSoilNrg); allocate(parVector(1)); parVector = diagStruct%balanceSoilNrg(iGRU)
+    case(iLookDIAG%balanceVegMass); allocate(parVector(1)); parVector = diagStruct%balanceVegMass(iGRU)
+    case(iLookDIAG%balanceLayerMass); parVector = diagStruct%balanceLayerMass(:,iGRU)
+    case(iLookDIAG%balanceSnowMass); allocate(parVector(1)); parVector = diagStruct%balanceSnowMass(iGRU)
+    case(iLookDIAG%balanceSoilMass); allocate(parVector(1)); parVector = diagStruct%balanceSoilMass(iGRU)
+    case(iLookDIAG%balanceAqMass); allocate(parVector(1)); parVector = diagStruct%balanceAqMass(iGRU)
+  ! sundials integrator stats
+    case(iLookDIAG%numSteps); allocate(parVector(1)); parVector = diagStruct%numSteps
+    case(iLookDIAG%numResEvals); allocate(parVector(1)); parVector = diagStruct%numResEvals
+    case(iLookDIAG%numLinSolvSetups); allocate(parVector(1)); parVector = diagStruct%numLinSolvSetups
+    case(iLookDIAG%numErrTestFails); allocate(parVector(1)); parVector = diagStruct%numErrTestFails
+    case(iLookDIAG%kLast); allocate(parVector(1)); parVector = diagStruct%kLast
+    case(iLookDIAG%kCur); allocate(parVector(1)); parVector = diagStruct%kCur
+    case(iLookDIAG%hInitUsed); allocate(parVector(1)); parVector = diagStruct%hInitUsed
+    case(iLookDIAG%hLast); allocate(parVector(1)); parVector = diagStruct%hLast
+    case(iLookDIAG%hCur); allocate(parVector(1)); parVector = diagStruct%hCur
+    case(iLookDIAG%tCur); allocate(parVector(1)); parVector = diagStruct%tCur
+
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999_rkind
+    end if
+  end subroutine
+
+    subroutine get_device_prog_data(progStruct, iVar, iGRU, parVector)
+    implicit none
+    type(prog_data_device) :: progStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind),allocatable :: parVector(:)
+
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+        ! define variables for time stepping
+    case(iLookPROG%dt_init); allocate(parVector(1)); parVector = progStruct%dt_init
+  ! state variables for vegetation
+    case(iLookPROG%scalarCanopyIce); allocate(parVector(1)); parVector = progStruct%scalarCanopyIce(iGRU)
+    case(iLookPROG%scalarCanopyLiq); allocate(parVector(1)); parVector = progStruct%scalarCanopyLiq(iGRU)
+    case(iLookPROG%scalarCanopyWat); allocate(parVector(1)); parVector = progStruct%scalarCanopyWat(iGRU)
+    case(iLookPROG%scalarCanairTemp); allocate(parVector(1)); parVector = progStruct%scalarCanairTemp(iGRU)
+    case(iLookPROG%scalarCanopyTemp); allocate(parVector(1)); parVector = progStruct%scalarCanopyTemp(iGRU)
+  ! state variables for snow
+    case(iLookPROG%spectralSnowAlbedoDiffuse); parVector = progStruct%spectralSnowAlbedoDiffuse(:,iGRU)
+    case(iLookPROG%scalarSnowAlbedo); allocate(parVector(1)); parVector = progStruct%scalarSnowAlbedo(iGRU)
+    case(iLookPROG%scalarSnowDepth); allocate(parVector(1)); parVector = progStruct%scalarSnowDepth(iGRU)
+    case(iLookPROG%scalarSWE); allocate(parVector(1)); parVector = progStruct%scalarSWE(iGRU)
+    case(iLookPROG%scalarSfcMeltPond); allocate(parVector(1)); parVector = progStruct%scalarSfcMeltPond(iGRU)
+  ! define state variables for the snow+soil domain
+    case(iLookPROG%mLayerTemp); parVector = progStruct%mLayerTemp(:,iGRU)
+    case(iLookPROG%mLayerVolFracIce); parVector = progStruct%mLayerVolFracIce(:,iGRU)
+    case(iLookPROG%mLayerVolFracLiq); parVector = progStruct%mLayerVolFracLiq(:,iGRU)
+    case(iLookPROG%mLayerVolFracWat); parVector = progStruct%mLayerVolFracWat(:,iGRU)
+    case(iLookPROG%mLayerMatricHead); parVector = progStruct%mLayerMatricHead(:,iGRU)
+  ! enthalpy
+    case(iLookPROG%scalarCanairEnthalpy); allocate(parVector(1)); parVector = progStruct%scalarCanairEnthalpy(iGRU)
+    case(iLookPROG%scalarCanopyEnthalpy); allocate(parVector(1)); parVector = progStruct%scalarCanopyEnthalpy(iGRU)
+    case(iLookPROG%mLayerEnthalpy); parVector = progStruct%mLayerEnthalpy(:,iGRU)
+  ! other state variables
+    case(iLookPROG%scalarAquiferStorage); allocate(parVector(1)); parVector = progStruct%scalarAquiferStorage(iGRU)
+    case(iLookPROG%scalarSurfaceTemp); allocate(parVector(1)); parVector = progStruct%scalarSurfaceTemp(iGRU)
+  ! define coordinate variables
+    case(iLookPROG%mLayerDepth); parVector = progStruct%mLayerDepth(:,iGRU)
+    case(iLookPROG%mLayerHeight); parVector = progStruct%mLayerHeight(:,iGRU)
+    case(iLookPROG%iLayerHeight); parVector = progStruct%iLayerHeight(:,iGRU)
+
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999_rkind
+    end if
+  end subroutine
+
+
+
+    subroutine get_device_bvar_data(bvarStruct, iVar, iGRU, parVector)
+    implicit none
+    type(bvar_data_device) :: bvarStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind),allocatable :: parVector(:)
+
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+    case(iLookBVAR%basin__totalArea); allocate(parVector(1)); parVector = bvarStruct%basin__totalArea(iGRU)
+    case(iLookBVAR%basin__SurfaceRunoff); allocate(parVector(1)); parVector = bvarStruct%basin__SurfaceRunoff(iGRU)
+    case(iLookBVAR%basin__ColumnOutflow); allocate(parVector(1)); parVector = bvarStruct%basin__ColumnOutflow(iGRU)
+    case(iLookBVAR%basin__AquiferStorage); allocate(parVector(1)); parVector = bvarStruct%basin__AquiferStorage(iGRU)
+    case(iLookBVAR%basin__AquiferRecharge); allocate(parVector(1)); parVector = bvarStruct%basin__AquiferRecharge(iGRU)
+    case(iLookBVAR%basin__AquiferBaseflow); allocate(parVector(1)); parVector = bvarStruct%basin__AquiferBaseflow(iGRU)
+    case(iLookBVAR%basin__AquiferTranspire); allocate(parVector(1)); parVector = bvarStruct%basin__AquiferTranspire(iGRU)
+    case(iLookBVAR%basin__TotalRunoff); allocate(parVector(1)); parVector = bvarStruct%basin__TotalRunoff(iGRU)
+    case(iLookBVAR%basin__SoilDrainage); allocate(parVector(1)); parVector = bvarStruct%basin__SoilDrainage(iGRU)
+    case(iLookBVAR%routingRunoffFuture); parVector = bvarStruct%routingRunoffFuture(:,iGRU)
+    case(iLookBVAR%routingFractionFuture); parVector = bvarStruct%routingFractionFuture(:,iGRU)
+    case(iLookBVAR%averageInstantRunoff); allocate(parVector(1)); parVector = bvarStruct%averageInstantRunoff(iGRU)
+    case(iLookBVAR%averageRoutedRunoff); allocate(parVector(1)); parVector = bvarStruct%averageRoutedRunoff(iGRU)
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999_rkind
+    end if
+  end subroutine
+    subroutine get_device_bvar_stat(bvarStruct, iVar, nGRU,iFreq, parVector)
+    implicit none
+    type(bvar_stat_device) :: bvarStruct
+    integer(i4b) :: nGRU, iVar,iFreq
+    real(rkind),allocatable :: parVector(:)
+
+    if (allocated(parVector)) deallocate(parVector)
+    select case(iVar)
+    case(iLookBVAR%basin__totalArea); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__totalArea(iFreq,:)
+    case(iLookBVAR%basin__SurfaceRunoff); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__SurfaceRunoff(iFreq,:)
+    case(iLookBVAR%basin__ColumnOutflow); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__ColumnOutflow(iFreq,:)
+    case(iLookBVAR%basin__AquiferStorage); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__AquiferStorage(iFreq,:)
+    case(iLookBVAR%basin__AquiferRecharge); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__AquiferRecharge(iFreq,:)
+    case(iLookBVAR%basin__AquiferBaseflow); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__AquiferBaseflow(iFreq,:)
+    case(iLookBVAR%basin__AquiferTranspire); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__AquiferTranspire(iFreq,:)
+    case(iLookBVAR%basin__TotalRunoff); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__TotalRunoff(iFreq,:)
+    case(iLookBVAR%basin__SoilDrainage); allocate(parVector(nGRU)); parVector = bvarStruct%stat_basin__SoilDrainage(iFreq,:)
+    case(iLookBVAR%averageInstantRunoff); allocate(parVector(nGRU)); parVector = bvarStruct%stat_averageInstantRunoff(iFreq,:)
+    case(iLookBVAR%averageRoutedRunoff); allocate(parVector(nGRU)); parVector = bvarStruct%stat_averageRoutedRunoff(iFreq,:)
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(nGRU)); parVector = -9999_rkind
+    end if
+  end subroutine
+
 
   subroutine set_device_param_data(mparStruct, iGRU, ixParam, parVector)
     implicit none
@@ -776,6 +1237,90 @@ end do
     end select
   end subroutine
 
+
+
+  subroutine allocate_device_bvar_stat(bvarStat_d,nGRU)
+    USE globalData,only:statBvar_meta             ! child metadata for stats
+    USE var_lookup,only:maxvarFreq             ! allocation dimension (output frequency)
+    implicit none
+    type(bvar_stat_device) :: bvarStat_d
+    ! type(gru_doubleVec) :: bvarStat
+
+    integer(i4b) :: nGRU, iGRU, iVar, pVar
+    integer :: err
+
+    err = cudaDeviceSynchronize()
+    allocate(bvarStat_d%stat_basin__SurfaceRunoff(maxvarfreq*2,nGRU))
+     allocate(bvarStat_d%stat_basin__ColumnOutflow(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__AquiferStorage(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__AquiferRecharge(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__AquiferBaseflow(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__AquiferTranspire(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__TotalRunoff(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__SoilDrainage(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_basin__totalArea(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_averageInstantRunoff(maxvarFreq*2,nGRU))
+ allocate(bvarStat_d%stat_averageRoutedRunoff(maxvarFreq*2,nGRU))
+ do iVar=1,size(statBvar_meta)
+  pVar = statBvar_meta(iVar)%ixParent
+  select case(pVar)
+    case(iLookBVAR%basin__SurfaceRunoff); bvarStat_d%statIndex_basin__SurfaceRunoff = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__ColumnOutflow); bvarStat_d%statIndex_basin__ColumnOutflow = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__AquiferStorage); bvarStat_d%statIndex_basin__AquiferStorage = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__AquiferRecharge); bvarStat_d%statIndex_basin__AquiferRecharge = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__AquiferBaseflow); bvarStat_d%statIndex_basin__AquiferBaseflow = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__AquiferTranspire); bvarStat_d%statIndex_basin__AquiferTranspire = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__TotalRunoff); bvarStat_d%statIndex_basin__TotalRunoff = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__SoilDrainage); bvarStat_d%statIndex_basin__SoilDrainage = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%basin__totalArea); bvarStat_d%statIndex_basin__totalArea = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%averageInstantRunoff); bvarStat_d%statIndex_averageInstantRunoff = statBvar_meta(iVar)%statIndex
+    case(iLookBVAR%averageRoutedRunoff); bvarStat_d%statIndex_averageRoutedRunoff = statBvar_meta(iVar)%statIndex
+    end select
+  end do
+  if (.not.allocated(bvarStat_d%statIndex_basin__SurfaceRunoff)) allocate(bvarStat_d%statIndex_basin__SurfaceRunoff(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__ColumnOutflow)) allocate(bvarStat_d%statIndex_basin__ColumnOutflow(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__AquiferStorage)) allocate(bvarStat_d%statIndex_basin__AquiferStorage(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__AquiferRecharge)) allocate(bvarStat_d%statIndex_basin__AquiferRecharge(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__AquiferBaseflow)) allocate(bvarStat_d%statIndex_basin__AquiferBaseflow(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__AquiferTranspire)) allocate(bvarStat_d%statIndex_basin__AquiferTranspire(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__TotalRunoff)) allocate(bvarStat_d%statIndex_basin__TotalRunoff(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__SoilDrainage)) allocate(bvarStat_d%statIndex_basin__SoilDrainage(1))
+if (.not.allocated(bvarStat_d%statIndex_basin__totalArea)) allocate(bvarStat_d%statIndex_basin__totalArea(1))
+if (.not.allocated(bvarStat_d%statIndex_averageInstantRunoff)) allocate(bvarStat_d%statIndex_averageInstantRunoff(1))
+if (.not.allocated(bvarStat_d%statIndex_averageRoutedRunoff)) allocate(bvarStat_d%statIndex_averageRoutedRunoff(1))
+
+  end subroutine
+
+  subroutine finalize_device_bvar_stat(bvarStat_d, bvarStat)
+    USE globalData,only:statBvar_meta             ! child metadata for stats
+
+    type(bvar_stat_device) :: bvarStat_d
+    type(gru_doubleVec) :: bvarStat
+
+    integer(i4b) :: nGRU, iGRU, iVar, pVar
+    nGRU = size(bvarStat%gru)
+
+    do iGRU=1,nGRU
+      do iVar=1,size(bvarStat%gru(iGRU)%var)
+    pVar = statBvar_meta(iVar)%ixParent
+    if (allocated(bvarStat%gru(iGRU)%var(iVar)%dat)) then
+      select case (pVar)
+      case(iLookBVAR%basin__SurfaceRunoff); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__SurfaceRunoff(:,iGRU)
+      case(iLookBVAR%basin__ColumnOutflow); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__ColumnOutflow(:,iGRU)
+      case(iLookBVAR%basin__AquiferStorage); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__AquiferStorage(:,iGRU)
+      case(iLookBVAR%basin__AquiferRecharge); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__AquiferRecharge(:,iGRU)
+      case(iLookBVAR%basin__AquiferBaseflow); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__AquiferBaseflow(:,iGRU)
+      case(iLookBVAR%basin__AquiferTranspire); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__AquiferTranspire(:,iGRU)
+      case(iLookBVAR%basin__TotalRunoff); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__TotalRunoff(:,iGRU)
+      case(iLookBVAR%basin__SoilDrainage); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__SoilDrainage(:,iGRU)
+      case(iLookBVAR%basin__totalArea); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_basin__totalArea(:,iGRU)
+      case(iLookBVAR%averageInstantRunoff); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_averageInstantRunoff(:,iGRU)
+      case(iLookBVAR%averageRoutedRunoff); bvarStat%gru(iGRU)%var(iVar)%dat = bvarStat_d%stat_averageRoutedRunoff(:,iGRU)
+      end select
+    end if
+    end do
+ end do
+end subroutine
 
   subroutine deallocate_device_param_data(mpar_data_device)
     type(mpar_data_device), intent(inout) :: mpar_data_device
@@ -863,184 +1408,121 @@ end do
   end subroutine deallocate_device_param_data
 
 
-  subroutine allocate_device_indx_data(indx_data_device, indx_data, nSoil,nGRU)
+  subroutine allocate_device_indx_data_snow(indx_data_device, nSoil,nGRU)
     use globalData,only:maxSnowLayers,integerMissing
     implicit none
     type(indx_data_device), intent(inout) :: indx_data_device
-    type(gru_hru_intVec),intent(in) :: indx_data              ! indices defining model states and layers
     integer(i4b), intent(in) :: nSoil,nGRU
-    integer(i4b) :: iGRU
       
     integer(i4b) :: nSnow, nLayers,nState,maxSize
     nSnow = maxSnowLayers+1
     nLayers = nSoil + maxSnowLayers+1
     nState = 4+2*nLayers
-
-    allocate(indx_data_device%nSnow(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nSnow(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnow)%dat(1)
-    end do
-    indx_data_device%nSoil = indx_data%gru(1)%hru(1)%var(iLookINDEX%nSoil)%dat(1)
-    allocate(indx_data_device%nLayers_d(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nLayers_d(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nLayers)%dat(1)
-    end do
-  allocate(indx_data_device%nState(nGRU))
-  do iGRU=1,nGRU
-  indx_data_device%nState(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nState)%dat(1)
-  end do
   
-indx_data_device%numberDomainSplitMass = indx_data%gru(1)%hru(1)%var(iLookINDEX%numberDomainSplitMass)%dat(1)
-indx_data_device%numberDomainSplitNrg = indx_data%gru(1)%hru(1)%var(iLookINDEX%numberDomainSplitNrg)%dat(1)
-indx_data_device%numberScalarSolutions = indx_data%gru(1)%hru(1)%var(iLookINDEX%numberScalarSolutions)%dat(1)
-indx_data_device%numberStateSplit = indx_data%gru(1)%hru(1)%var(iLookINDEX%numberStateSplit)%dat(1)
     allocate(indx_data_device%ixNrgLayer(nLayers,nGRU))
     allocate(indx_data_device%ixHydLayer(nLayers,nGRU))
-    ! indx_data_device%maxSnow = nSnow
 
-    ! indx_data_device%ixCasNrg = indx_data%var(iLookINDEX%ixCasNrg)%dat(1)
-    ! indx_data_device%ixVegNrg = indx_data%var(iLookINDEX%ixVegNrg)%dat(1)
-    ! indx_data_device%ixVegHyd = indx_data%var(iLookINDEX%ixVegHyd)%dat(1)
-    ! indx_data_device%ixAqWat = indx_data%var(iLookINDEX%ixAqWat)%dat(1)
-    allocate(indx_data_device%ixCasNrg(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixCasNrg(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixCasNrg)%dat(1)
-    end do
-    allocate(indx_data_device%ixVegNrg(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixVegNrg(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixVegNrg)%dat(1)
-    end do
-    allocate(indx_data_device%ixVegHyd(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixVegHyd(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixVegHyd)%dat(1)
-    end do
-    allocate(indx_data_device%ixAqWat(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixAqWat(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixAqWat)%dat(1)
-    end do
-    ! indx_data_device%ixTopNrg = indx_data%var(iLookINDEX%ixTopNrg)%dat(1)
-    ! indx_data_device%ixTopHyd = indx_data%var(iLookINDEX%ixTopHyd)%dat(1)
-    allocate(indx_data_device%ixTopNrg(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixTopNrg(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixTopNrg)%dat(1)
-    end do
-    allocate(indx_data_device%ixTopHyd(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixTopHyd(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixTopHyd)%dat(1)
-    end do
     allocate(indx_data_device%ixSnowSoilNrg(nLayers,nGRU))
     allocate(indx_data_device%ixSnowSoilHyd(nLayers,nGRU))
     allocate(indx_data_device%ixHydType(nLayers,nGRU))
     allocate(indx_data_device%ixStateType(nState,nGRU))
+    allocate(indx_data_device%ixControlVolume(nState,nGRU))
+    allocate(indx_data_device%layerType(nLayers,nGRU))
+    allocate(indx_data_device%ixSnowOnlyHyd(nSnow,nGRU))
+    allocate(indx_data_device%ixSnowOnlyNrg(nSnow,nGRU))
+        
+
+    maxSize = 0
+    if (maxSize.ne.0) allocate(indx_data_device%ixNrgOnly(maxSize,nGRU))
+    allocate(indx_data_device%ixDomainType(nState,nGRU))
+      indx_data_device%ixStateType = integerMissing
+      indx_data_device%ixControlVolume = integerMissing
+      indx_data_device%layerType = integerMissing
+
+      indx_data_device%ixHydType = integerMissing
+      indx_data_device%ixNrgLayer = integerMissing
+      indx_data_device%ixHydLayer = integerMissing
+      indx_data_device%ixSnowSoilHyd = integerMissing
+      indx_data_device%ixSnowSoilNrg = integerMissing
+      indx_data_device%ixSnowOnlyHyd = integerMissing
+      indx_data_device%ixSnowOnlyNrg = integerMissing
+      indx_data_device%ixDomainType = integerMissing
+      if (allocated(indx_data_device%ixNrgOnly)) indx_data_device%ixNrgOnly = integerMissing
+  
+  end subroutine allocate_device_indx_data_snow
+
+    subroutine allocate_device_indx_data(indx_data_device, nSoil,nGRU)
+    use globalData,only:maxSnowLayers,integerMissing
+    implicit none
+    type(indx_data_device), intent(inout) :: indx_data_device
+    integer(i4b), intent(in) :: nSoil,nGRU
+          allocate(indx_data_device%nSnow(nGRU))
+              allocate(indx_data_device%ixSoilState(nSoil,nGRU))
+
+    indx_data_device%nSnow = integerMissing
+    indx_data_device%nSoil = integerMissing
+    allocate(indx_data_device%nLayers(nGRU))
+    indx_data_device%nLayers = integerMissing
+  allocate(indx_data_device%nState(nGRU))
+  indx_data_device%nState = integerMissing
+  indx_data_device%numberDomainSplitMass = integerMissing
+indx_data_device%numberDomainSplitNrg = integerMissing
+indx_data_device%numberScalarSolutions = integerMissing
+indx_data_device%numberStateSplit = integerMissing
+    indx_data_device%numberFluxCalc = integerMissing
+
+    allocate(indx_data_device%ixCasNrg(nGRU))
+    indx_data_device%ixCasNrg = integerMissing
+    allocate(indx_data_device%ixVegNrg(nGRU))
+    indx_data_device%ixVegNrg = integerMissing
+    allocate(indx_data_device%ixVegHyd(nGRU))
+    indx_data_device%ixVegHyd = integerMissing
+    allocate(indx_data_device%ixAqWat(nGRU))
+    indx_data_device%ixAqWat = integerMissing
+    allocate(indx_data_device%ixTopNrg(nGRU))
+    indx_data_device%ixTopNrg = integerMissing
+    allocate(indx_data_device%ixTopHyd(nGRU))
+    indx_data_device%ixTopHyd = integerMissing
+
     allocate(indx_data_device%ixHydCanopy(nGRU))
     allocate(indx_data_device%ixNrgCanopy(nGRU))
     allocate(indx_data_device%ixNrgCanair(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixNrgCanair(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgCanair)%dat(1)
-    end do
-    allocate(indx_data_device%ixControlVolume(nState,nGRU))
-    allocate(indx_data_device%layerType(nLayers,nGRU))
-    allocate(indx_data_device%ixSoilOnlyHyd(nSoil,nGRU))
-    allocate(indx_data_device%ixSnowOnlyHyd(nSnow,nGRU))
+        allocate(indx_data_device%ixSoilOnlyHyd(nSoil,nGRU))
     allocate(indx_data_device%ixSoilOnlyNrg(nSoil,nGRU))
-    allocate(indx_data_device%ixSnowOnlyNrg(nSnow,nGRU))
+
+          indx_data_device%ixHydCanopy = integerMissing
+          indx_data_device%ixNrgCanopy = integerMissing
+
+    indx_data_device%ixNrgCanair = integerMissing
+        indx_data_device%ixSoilOnlyHyd = integerMissing
+        indx_data_device%ixSoilOnlyNrg = integerMissing
+            indx_data_device%ixSoilState = integerMissing
+
+
     allocate(indx_data_device%nCasNrg(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nCasNrg(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nCasNrg)%dat(1)
-    end do
+    indx_data_device%nCasNrg = integerMissing
     allocate(indx_data_device%nVegNrg(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nVegNrg(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nVegNrg)%dat(1)
-    end do
+    indx_data_device%nVegNrg = integerMissing
     allocate(indx_data_device%nVegMass(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nVegMass(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nVegMass)%dat(1)
-    end do
+    indx_data_device%nVegMass = integerMissing
     allocate(indx_data_device%nVegState(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nVegState(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nVegState)%dat(1)
-    end do
+    indx_data_device%nVegState = integerMissing
     allocate(indx_data_device%nNrgState(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nNrgState(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nNrgState)%dat(1)
-    end do
+    indx_data_device%nNrgState = integerMissing
     allocate(indx_data_device%nWatState(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nWatState(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nWatState)%dat(1)
-    end do
+    indx_data_device%nWatState = integerMissing
     allocate(indx_data_device%nMatState(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nMatState(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nMatState)%dat(1)
-    end do
+    indx_data_device%nMatState = integerMissing
     allocate(indx_data_device%nMassState(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%nMassState(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nMassState)%dat(1)
-    end do
+    indx_data_device%nMassState = integerMissing
     allocate(indx_data_device%ixWatAquifer(nGRU))
-    do iGRU=1,nGRU
-    indx_data_device%ixWatAquifer(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixWatAquifer)%dat(1)
-    end do
-        
-    allocate(indx_data_device%ixSoilState(nSoil,nGRU))
+    indx_data_device%ixWatAquifer = integerMissing
 
-    indx_data_device%numberFluxCalc = indx_data%gru(1)%hru(1)%var(iLookINDEX%numberFluxCalc)%dat(1)
-    maxSize = 0
-    do iGRU=1,nGRU
-      maxSize = max(size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgOnly)%dat), maxSize)
-    end do
-    if (maxSize.ne.0) allocate(indx_data_device%ixNrgOnly(maxSize,nGRU))
-    allocate(indx_data_device%ixDomainType(nState,nGRU))
-    do iGRU=1,nGRU
-    nLayers = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nLayers)%dat(1)
-    nSnow = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnow)%dat(1)
-    nState = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nState)%dat(1)
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType)%dat).ne.0) indx_data_device%ixStateType(1:nState,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixStateType)%dat
-      if (allocated(indx_data_device%ixHydCanopy)) indx_data_device%ixHydCanopy(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydCanopy)%dat(1)
-      if (allocated(indx_data_device%ixNrgCanopy)) indx_data_device%ixNrgCanopy(iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgCanopy)%dat(1)
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixControlVolume)%dat).ne.0) indx_data_device%ixControlVolume(1:nState,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixControlVolume)%dat
-      indx_data_device%layerType(1:nLayers,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%layerType)%dat(1:nLayers)
-
-      indx_data_device%ixHydType(1:nLayers,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydType)%dat(1:nLayers)
-      if (allocated(indx_data_device%ixNrgLayer)) indx_data_device%ixNrgLayer(1:nLayers,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgLayer)%dat(1:nLayers)
-      if (allocated(indx_data_device%ixHydLayer)) indx_data_device%ixHydLayer(1:nLayers,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydLayer)%dat(1:nLayers)
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilHyd)%dat).ne.0) then
-        indx_data_device%ixSnowSoilHyd(1:nLayers,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilHyd)%dat(1:nLayers)
-      else
-        indx_data_device%ixSnowSoilHyd(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilNrg)%dat).ne.0) then
-        indx_data_device%ixSnowSoilNrg(1:nLayers,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilNrg)%dat(1:nLayers)
-      else
-        indx_data_device%ixSnowSoilNrg(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSoilOnlyHyd)%dat).ne.0) then
-        indx_data_device%ixSoilOnlyHyd(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSoilOnlyHyd)%dat
-      else
-        indx_data_device%ixSoilOnlyHyd(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowOnlyHyd)%dat).ne.0) then
-        indx_data_device%ixSnowOnlyHyd(1:nSnow,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowOnlyHyd)%dat(1:nSnow)
-      else
-        indx_data_device%ixSnowOnlyHyd(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSoilOnlyNrg)%dat).ne.0) then
-        indx_data_device%ixSoilOnlyNrg(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSoilOnlyNrg)%dat
-      else
-        indx_data_device%ixSoilOnlyNrg(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowOnlyNrg)%dat).ne.0) then
-        indx_data_device%ixSnowOnlyNrg(1:nSnow,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowOnlyNrg)%dat(1:nSnow)
-      else
-        indx_data_device%ixSnowOnlyNrg(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixDomainType)%dat).ne.0) indx_data_device%ixDomainType(1:nState,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixDomainType)%dat
-      maxSize = size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgOnly)%dat)
-      if (maxSize.ne.0) indx_data_device%ixNrgOnly(1:maxSize,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixNrgOnly)%dat
-      if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSoilState)%dat).ne.0) indx_data_device%ixSoilState(:,iGRU) = indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSoilState)%dat
-
-    end do
   
   end subroutine allocate_device_indx_data
+
+
+
   subroutine allocate_device_indx_temp(indx_data_device, indx_data,nSoil,nGRU)
     use globalData,only:maxSnowLayers
     implicit none
@@ -1055,7 +1537,7 @@ indx_data_device%numberStateSplit = indx_data%gru(1)%hru(1)%var(iLookINDEX%numbe
     nState = 4+2*nLayers
 
     allocate(indx_data_device%nSnow(nGRU))
-    allocate(indx_data_device%nLayers_d(nGRU))
+    allocate(indx_data_device%nLayers(nGRU))
   allocate(indx_data_device%nState(nGRU))
   
     allocate(indx_data_device%ixNrgLayer(nLayers,nGRU))
@@ -1102,104 +1584,6 @@ indx_data_device%numberStateSplit = indx_data%gru(1)%hru(1)%var(iLookINDEX%numbe
     allocate(indx_data_device%ixDomainType(nState,nGRU))
   
   end subroutine allocate_device_indx_temp
-  subroutine initialize_device_indx_data(indx_data_device, indx_data, nSoil,nGRU)
-    use globalData,only:maxSnowLayers,integerMissing
-    implicit none
-    type(indx_data_device), intent(inout) :: indx_data_device
-    type(var_ilength),intent(in) :: indx_data              ! indices defining model states and layers
-    integer(i4b), intent(in) :: nSoil,nGRU
-    integer(i4b) :: iGRU
-      
-    integer(i4b) :: nSnow, nLayers,nState
-    nSnow = maxSnowLayers+1
-    nLayers = nSoil + maxSnowLayers+1
-
-    indx_data_device%nCasNrg = indx_data%var(iLookINDEX%nCasNrg)%dat(1)
-indx_data_device%nVegNrg = indx_data%var(iLookINDEX%nVegNrg)%dat(1)
-indx_data_device%nVegMass = indx_data%var(iLookINDEX%nVegMass)%dat(1)
-indx_data_device%nVegState = indx_data%var(iLookINDEX%nVegState)%dat(1)
-indx_data_device%nNrgState = indx_data%var(iLookINDEX%nNrgState)%dat(1)
-indx_data_device%nWatState = indx_data%var(iLookINDEX%nWatState)%dat(1)
-indx_data_device%nMatState = indx_data%var(iLookINDEX%nMatState)%dat(1)
-indx_data_device%nMassState = indx_data%var(iLookINDEX%nMassState)%dat(1)
-indx_data_device%ixWatAquifer = indx_data%var(iLookINDEX%ixWatAquifer)%dat(1)
-    indx_data_device%nSnow = indx_data%var(iLookINDEX%nSnow)%dat(1)
-    indx_data_device%nSoil = indx_data%var(iLookINDEX%nSoil)%dat(1)
-    indx_data_device%nLayers_d = indx_data%var(iLookINDEX%nLayers)%dat(1)
-  indx_data_device%nState = indx_data%var(iLookINDEX%nState)%dat(1)
-  
-indx_data_device%numberDomainSplitMass = indx_data%var(iLookINDEX%numberDomainSplitMass)%dat(1)
-indx_data_device%numberDomainSplitNrg = indx_data%var(iLookINDEX%numberDomainSplitNrg)%dat(1)
-indx_data_device%numberScalarSolutions = indx_data%var(iLookINDEX%numberScalarSolutions)%dat(1)
-indx_data_device%numberStateSplit = indx_data%var(iLookINDEX%numberStateSplit)%dat(1)
-    ! indx_data_device%maxSnow = nSnow
-
-    ! indx_data_device%ixCasNrg = indx_data%var(iLookINDEX%ixCasNrg)%dat(1)
-    ! indx_data_device%ixVegNrg = indx_data%var(iLookINDEX%ixVegNrg)%dat(1)
-    ! indx_data_device%ixVegHyd = indx_data%var(iLookINDEX%ixVegHyd)%dat(1)
-    ! indx_data_device%ixAqWat = indx_data%var(iLookINDEX%ixAqWat)%dat(1)
-    indx_data_device%ixCasNrg = indx_data%var(iLookINDEX%ixCasNrg)%dat(1)
-    indx_data_device%ixVegNrg = indx_data%var(iLookINDEX%ixVegNrg)%dat(1)
-    indx_data_device%ixVegHyd = indx_data%var(iLookINDEX%ixVegHyd)%dat(1)
-    indx_data_device%ixAqWat = indx_data%var(iLookINDEX%ixAqWat)%dat(1)
-    ! indx_data_device%ixTopNrg = indx_data%var(iLookINDEX%ixTopNrg)%dat(1)
-    ! indx_data_device%ixTopHyd = indx_data%var(iLookINDEX%ixTopHyd)%dat(1)
-    indx_data_device%ixTopNrg = indx_data%var(iLookINDEX%ixTopNrg)%dat(1)
-    indx_data_device%ixTopHyd = indx_data%var(iLookINDEX%ixTopHyd)%dat(1)
-    indx_data_device%ixNrgCanair = indx_data%var(iLookINDEX%ixNrgCanair)%dat(1)
-        
-
-    indx_data_device%numberFluxCalc = indx_data%var(iLookINDEX%numberFluxCalc)%dat(1)
-    nLayers = indx_data%var(iLookINDEX%nLayers)%dat(1)
-    nSnow = indx_data%var(iLookINDEX%nSnow)%dat(1)
-    nState = indx_data%var(iLookINDEX%nState)%dat(1)
-    do iGRU=1,nGRU
-      if (size(indx_data%var(iLookINDEX%ixStateType)%dat).ne.0) indx_data_device%ixStateType(1:nState,iGRU) = indx_data%var(iLookINDEX%ixStateType)%dat
-      if (allocated(indx_data_device%ixHydCanopy)) indx_data_device%ixHydCanopy(iGRU) = indx_data%var(iLookINDEX%ixHydCanopy)%dat(1)
-      if (allocated(indx_data_device%ixNrgCanopy)) indx_data_device%ixNrgCanopy(iGRU) = indx_data%var(iLookINDEX%ixNrgCanopy)%dat(1)
-      if (allocated(indx_data_device%ixControlVolume)) indx_data_device%ixControlVolume(1:nState,iGRU) = indx_data%var(iLookINDEX%ixControlVolume)%dat
-      indx_data_device%layerType(1:nLayers,iGRU) = indx_data%var(iLookINDEX%layerType)%dat(1:nLayers)
-
-      indx_data_device%ixHydType(1:nLayers,iGRU) = indx_data%var(iLookINDEX%ixHydType)%dat(1:nLayers)
-      if (allocated(indx_data_device%ixNrgLayer)) indx_data_device%ixNrgLayer(1:nLayers,iGRU) = indx_data%var(iLookINDEX%ixNrgLayer)%dat(1:nLayers)
-      if (allocated(indx_data_device%ixHydLayer)) indx_data_device%ixHydLayer(1:nLayers,iGRU) = indx_data%var(iLookINDEX%ixHydLayer)%dat(1:nLayers)
-      if (size(indx_data%var(iLookINDEX%ixSnowSoilHyd)%dat).ne.0) then
-        indx_data_device%ixSnowSoilHyd(1:nLayers,iGRU) = indx_data%var(iLookINDEX%ixSnowSoilHyd)%dat(1:nLayers)
-      else
-        indx_data_device%ixSnowSoilHyd(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%var(iLookINDEX%ixSnowSoilNrg)%dat).ne.0) then
-        indx_data_device%ixSnowSoilNrg(1:nLayers,iGRU) = indx_data%var(iLookINDEX%ixSnowSoilNrg)%dat(1:nLayers)
-      else
-        indx_data_device%ixSnowSoilNrg(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%var(iLookINDEX%ixSoilOnlyHyd)%dat).ne.0) then
-        indx_data_device%ixSoilOnlyHyd(:,iGRU) = indx_data%var(iLookINDEX%ixSoilOnlyHyd)%dat
-      else
-        indx_data_device%ixSoilOnlyHyd(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%var(iLookINDEX%ixSnowOnlyHyd)%dat).ne.0) then
-        indx_data_device%ixSnowOnlyHyd(1:nSnow,iGRU) = indx_data%var(iLookINDEX%ixSnowOnlyHyd)%dat(1:nSnow)
-      else
-        indx_data_device%ixSnowOnlyHyd(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%var(iLookINDEX%ixSoilOnlyNrg)%dat).ne.0) then
-        indx_data_device%ixSoilOnlyNrg(:,iGRU) = indx_data%var(iLookINDEX%ixSoilOnlyNrg)%dat
-      else
-        indx_data_device%ixSoilOnlyNrg(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%var(iLookINDEX%ixSnowOnlyNrg)%dat).ne.0) then
-        indx_data_device%ixSnowOnlyNrg(1:nSnow,iGRU) = indx_data%var(iLookINDEX%ixSnowOnlyNrg)%dat(1:nSnow)
-      else
-        indx_data_device%ixSnowOnlyNrg(:,iGRU) = integerMissing
-      endif
-      if (size(indx_data%var(iLookINDEX%ixDomainType)%dat).ne.0) indx_data_device%ixDomainType(1:nState,iGRU) = indx_data%var(iLookINDEX%ixDomainType)%dat
-      if (allocated(indx_data_device%ixNrgOnly)) indx_data_device%ixNrgOnly(:,iGRU) = indx_data%var(iLookINDEX%ixNrgOnly)%dat
-      if (size(indx_data%var(iLookINDEX%ixSoilState)%dat).ne.0) indx_data_device%ixSoilState(:,iGRU) = indx_data%var(iLookINDEX%ixSoilState)%dat
-
-    end do
-  
-  end subroutine 
 
   subroutine finalize_device_indx_data(indx_data_device, indx_data)
     implicit none
@@ -1210,7 +1594,7 @@ indx_data_device%numberStateSplit = indx_data%var(iLookINDEX%numberStateSplit)%d
     nGRU = size(indx_data%gru)
 
     do iGRU=1,nGRU
-        nLayers = indx_data_device%nLayers_d(iGRU)
+        nLayers = indx_data_device%nLayers(iGRU)
     nSnow = indx_data_device%nSnow(iGRU)
     nState = indx_data_device%nState(iGRU)
 
@@ -1241,7 +1625,7 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixWatAquifer)%dat(1) = indx_data_devic
       indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixHydLayer)%dat = indx_data_device%ixHydLayer(1:nLayers,iGRU)
     end if
     indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSoil)%dat(1) = indx_data_device%nSoil
-    indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nLayers)%dat(1) = indx_data_device%nLayers_d(iGRU)
+    indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nLayers)%dat(1) = indx_data_device%nLayers(iGRU)
     if (allocated(indx_data_device%nSnow)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnow)%dat(1) = indx_data_device%nSnow(iGRU)
     if (allocated(indx_data_device%ixCasNrg)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixCasNrg)%dat(1) = indx_data_device%ixCasNrg(iGRU)
     if (allocated(indx_data_device%ixVegNrg)) indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixVegNrg)%dat(1) = indx_data_device%ixVegNrg(iGRU)
@@ -1258,8 +1642,8 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixWatAquifer)%dat(1) = indx_data_devic
       if (size(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilHyd)%dat).ne.nLayers) deallocate(indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilHyd)%dat)
       indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%ixSnowSoilHyd)%dat = indx_data_device%ixSnowSoilHyd(1:nLayers,iGRU)
     end if
-    indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnowSoilNrg)%dat(1) = indx_data_device%nLayers_d(iGRU)
-    indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnowSoilHyd)%dat(1) = indx_data_device%nLayers_d(iGRU)
+    indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnowSoilNrg)%dat(1) = indx_data_device%nLayers(iGRU)
+    indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnowSoilHyd)%dat(1) = indx_data_device%nLayers(iGRU)
     indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnowOnlyNrg)%dat(1) = indx_data_device%nSnow(iGRU)
     indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSnowOnlyHyd)%dat(1) = indx_data_device%nSnow(iGRU)
     indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%nSoilOnlyNrg)%dat(1) = indx_data_device%nSoil
@@ -1332,17 +1716,12 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%numberStateSplit)%dat(1) = indx_data_d
   end subroutine deallocate_device_indx_data
       
 
-  subroutine allocate_device_prog_data(prog_data_device, prog_data, nGRU, nSoil)
-    USE globalData,only:maxSnowLayers                           ! maximum number of snow layers
-
+  subroutine allocate_device_prog_data(prog_data_device, nGRU, nSoil)
+    use globalData,only:realMissing
     implicit none
     type(prog_data_device), intent(inout) :: prog_data_device
-    type(gru_hru_doubleVec),intent(in) :: prog_data
     integer(i4b),intent(in) :: nGRU,nSoil
 
-    integer(i4b) :: nLayers
-    integer(i4b) :: iGRU
-    nLayers = nSoil + maxSnowLayers+1
     ! state variables for vegetation
     allocate(prog_data_device%scalarCanopyIce(nGRU))                 ! get_ixVarType('scalarv')
     allocate(prog_data_device%scalarCanopyLiq(nGRU))                 ! get_ixVarType('scalarv')
@@ -1355,97 +1734,62 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%numberStateSplit)%dat(1) = indx_data_d
     allocate(prog_data_device%scalarSnowDepth(nGRU))                 ! get_ixVarType('scalarv')
     allocate(prog_data_device%scalarSWE(nGRU))                       ! get_ixVarType('scalarv')
     allocate(prog_data_device%scalarSfcMeltPond(nGRU))               ! get_ixVarType('scalarv')
-    ! define state variables for the snow+soil domain
-    allocate(prog_data_device%mLayerTemp(nLayers,nGRU))                    ! get_ixVarType('midToto')
-    allocate(prog_data_device%mLayerVolFracIce(nLayers,nGRU))              ! get_ixVarType('midToto')
-    allocate(prog_data_device%mLayerVolFracLiq(nLayers,nGRU))              ! get_ixVarType('midToto')
-    allocate(prog_data_device%mLayerVolFracWat(nLayers,nGRU))              ! get_ixVarType('midToto')
     allocate(prog_data_device%mLayerMatricHead(nSoil,nGRU))              ! get_ixVarType('midSoil')
     ! enthalpy
     allocate(prog_data_device%scalarCanairEnthalpy(nGRU))            ! get_ixVarType('scalarv')
     allocate(prog_data_device%scalarCanopyEnthalpy(nGRU))            ! get_ixVarType('scalarv')
-    allocate(prog_data_device%mLayerEnthalpy(nLayers,nGRU))                ! get_ixVarType('midToto')
     ! other state variables
     allocate(prog_data_device%scalarAquiferStorage(nGRU))            ! get_ixVarType('scalarv')
     allocate(prog_data_device%scalarSurfaceTemp(nGRU))               ! get_ixVarType('scalarv')
-    ! define coordinate variables
-    allocate(prog_data_device%mLayerDepth(nLayers,nGRU))                   ! get_ixVarType('midToto')
-    allocate(prog_data_device%mLayerHeight(0:nLayers,nGRU))                  ! get_ixVarType('ifcToto')
-    allocate(prog_data_device%iLayerHeight(0:nLayers,nGRU))                  ! get_ixVarType('ifcToto')
-    do iGRU=1,nGRU
+      prog_data_device%spectralSnowAlbedoDiffuse = realMissing
+      prog_data_device%mLayerMatricHead = realMissing
+    prog_data_device%scalarCanopyIce = realMissing
+    prog_data_device%scalarCanopyLiq = realMissing
+    prog_data_device%scalarCanopyWat = realMissing
+    prog_data_device%scalarCanairTemp = realMissing
+    prog_data_device%scalarCanopyTemp = realMissing
+    prog_data_device%scalarSnowAlbedo = realMissing
+    prog_data_device%scalarSnowDepth = realMissing
+    prog_data_device%scalarSWE = realMissing
+    prog_data_device%scalarSfcMeltPond = realMissing
+    prog_data_device%scalarCanairEnthalpy = realMissing
+    prog_data_device%scalarCanopyEnthalpy = realMissing
+    prog_data_device%scalarAquiferStorage = realMissing
+    prog_data_device%scalarSurfaceTemp = realMissing
 
-      print*, iGRU
-    nLayers = size(prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerTemp)%dat)
-      prog_data_device%spectralSnowAlbedoDiffuse(1:nSpecBands,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%spectralSnowAlbedoDiffuse)%dat(1:nSpecBands)
-      prog_data_device%mLayerTemp(1:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerTemp)%dat(1:nLayers)
-      prog_data_device%mLayerVolFracIce(1:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerVolFracIce)%dat(1:nLayers)
-      prog_data_device%mLayerVolFracLiq(1:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerVolFracLiq)%dat(1:nLayers)
-      prog_data_device%mLayerVolFracWat(1:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerVolFracWat)%dat(1:nLayers)
-      prog_data_device%mLayerMatricHead(1:nSoil,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerMatricHead)%dat(1:nSoil)
-      prog_data_device%mLayerEnthalpy(1:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerEnthalpy)%dat(1:nLayers)
-      prog_data_device%mLayerDepth(1:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerDepth)%dat(1:nLayers)
-      prog_data_device%mLayerHeight(0:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerHeight)%dat(0:nLayers)
-      prog_data_device%iLayerHeight(0:nLayers,iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%iLayerHeight)%dat(0:nLayers)
-    prog_data_device%scalarCanopyIce(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanopyIce)%dat(1)
-    prog_data_device%scalarCanopyLiq(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanopyLiq)%dat(1)
-    prog_data_device%scalarCanopyWat(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanopyWat)%dat(1)
-    prog_data_device%scalarCanairTemp(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanairTemp)%dat(1)
-    prog_data_device%scalarCanopyTemp(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanopyTemp)%dat(1)
-    prog_data_device%scalarSnowAlbedo(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarSnowAlbedo)%dat(1)
-    prog_data_device%scalarSnowDepth(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarSnowDepth)%dat(1)
-    prog_data_device%scalarSWE(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarSWE)%dat(1)
-    prog_data_device%scalarSfcMeltPond(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarSfcMeltPond)%dat(1)
-    prog_data_device%scalarCanairEnthalpy(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanairEnthalpy)%dat(1)
-    prog_data_device%scalarCanopyEnthalpy(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarCanopyEnthalpy)%dat(1)
-    prog_data_device%scalarAquiferStorage(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarAquiferStorage)%dat(1)
-    prog_data_device%scalarSurfaceTemp(iGRU) = prog_data%gru(iGRU)%hru(1)%var(iLookPROG%scalarSurfaceTemp)%dat(1)
-
-    enddo
-    prog_data_device%dt_init = prog_data%gru(1)%hru(1)%var(iLookPROG%dt_init)%dat(1)
+    prog_data_device%dt_init = realMissing
 
   end subroutine allocate_device_prog_data  
-    subroutine initialize_device_prog_data(prog_data_device, prog_data, nGRU, nSoil)
-    USE globalData,only:maxSnowLayers                           ! maximum number of snow layers
 
+    subroutine allocate_device_prog_data_snow(prog_data_device, nGRU, nSoil)
+    USE globalData,only:maxSnowLayers                           ! maximum number of snow layers
+    USE globalData,only:realMissing            ! missing real number
     implicit none
     type(prog_data_device), intent(inout) :: prog_data_device
-    type(var_dlength),intent(in) :: prog_data
     integer(i4b),intent(in) :: nGRU,nSoil
 
     integer(i4b) :: nLayers
-    integer(i4b) :: iGRU
     nLayers = nSoil + maxSnowLayers+1
+    allocate(prog_data_device%mLayerTemp(nLayers,nGRU))
+    allocate(prog_data_device%mLayerVolFracIce(nLayers,nGRU))
+    allocate(prog_data_device%mLayerVolFracLiq(nLayers,nGRU))
+    allocate(prog_data_device%mLayerVolFracWat(nLayers,nGRU))
+    allocate(prog_data_device%mLayerEnthalpy(nLayers,nGRU))
+    allocate(prog_data_device%mLayerDepth(nLayers,nGRU))
+    allocate(prog_data_device%mLayerHeight(0:nLayers,nGRU))
+    allocate(prog_data_device%iLayerHeight(0:nLayers,nGRU))
 
-    nLayers = size(prog_data%var(iLookPROG%mLayerTemp)%dat)
-    do iGRU=1,nGRU
-      prog_data_device%spectralSnowAlbedoDiffuse(1:nSpecBands,iGRU) = prog_data%var(iLookPROG%spectralSnowAlbedoDiffuse)%dat(1:nSpecBands)
-      prog_data_device%mLayerTemp(1:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerTemp)%dat(1:nLayers)
-      prog_data_device%mLayerVolFracIce(1:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerVolFracIce)%dat(1:nLayers)
-      prog_data_device%mLayerVolFracLiq(1:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerVolFracLiq)%dat(1:nLayers)
-      prog_data_device%mLayerVolFracWat(1:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerVolFracWat)%dat(1:nLayers)
-      prog_data_device%mLayerMatricHead(1:nSoil,iGRU) = prog_data%var(iLookPROG%mLayerMatricHead)%dat(1:nSoil)
-      prog_data_device%mLayerEnthalpy(1:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerEnthalpy)%dat(1:nLayers)
-      prog_data_device%mLayerDepth(1:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerDepth)%dat(1:nLayers)
-      prog_data_device%mLayerHeight(0:nLayers,iGRU) = prog_data%var(iLookPROG%mLayerHeight)%dat(0:nLayers)
-      prog_data_device%iLayerHeight(0:nLayers,iGRU) = prog_data%var(iLookPROG%iLayerHeight)%dat(0:nLayers)
+    prog_data_device%mLayerTemp = realMissing
+    prog_data_device%mLayerVolFracIce = realMissing
+    prog_data_device%mLayerVolFracLiq = realMissing
+    prog_data_device%mLayerVolFracWat = realMissing
+    prog_data_device%mLayerEnthalpy = realMissing
+    prog_data_device%mLayerDepth = realMissing
+    prog_data_device%mLayerHeight = realMissing
+    prog_data_device%iLayerHeight = realMissing
 
-    enddo
-    prog_data_device%dt_init = prog_data%var(iLookPROG%dt_init)%dat(1)
-    prog_data_device%scalarCanopyIce = prog_data%var(iLookPROG%scalarCanopyIce)%dat(1)
-    prog_data_device%scalarCanopyLiq = prog_data%var(iLookPROG%scalarCanopyLiq)%dat(1)
-    prog_data_device%scalarCanopyWat = prog_data%var(iLookPROG%scalarCanopyWat)%dat(1)
-    prog_data_device%scalarCanairTemp = prog_data%var(iLookPROG%scalarCanairTemp)%dat(1)
-    prog_data_device%scalarCanopyTemp = prog_data%var(iLookPROG%scalarCanopyTemp)%dat(1)
-    prog_data_device%scalarSnowAlbedo = prog_data%var(iLookPROG%scalarSnowAlbedo)%dat(1)
-    prog_data_device%scalarSnowDepth = prog_data%var(iLookPROG%scalarSnowDepth)%dat(1)
-    prog_data_device%scalarSWE = prog_data%var(iLookPROG%scalarSWE)%dat(1)
-    prog_data_device%scalarSfcMeltPond = prog_data%var(iLookPROG%scalarSfcMeltPond)%dat(1)
-    prog_data_device%scalarCanairEnthalpy = prog_data%var(iLookPROG%scalarCanairEnthalpy)%dat(1)
-    prog_data_device%scalarCanopyEnthalpy = prog_data%var(iLookPROG%scalarCanopyEnthalpy)%dat(1)
-    prog_data_device%scalarAquiferStorage = prog_data%var(iLookPROG%scalarAquiferStorage)%dat(1)
-    prog_data_device%scalarSurfaceTemp = prog_data%var(iLookPROG%scalarSurfaceTemp)%dat(1)
+  end subroutine allocate_device_prog_data_snow  
 
-  end subroutine   
 
   subroutine allocate_device_prog_temp(prog_data_device, nGRU, nSoil)
     USE globalData,only:maxSnowLayers                           ! maximum number of snow layers
@@ -1517,7 +1861,6 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%numberStateSplit)%dat(1) = indx_data_d
     prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerEnthalpy)%dat = prog_data_device%mLayerEnthalpy(1:nLayers,iGRU)
     if (size(prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerDepth)%dat).ne.nLayers) deallocate(prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerDepth)%dat)
     prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerDepth)%dat = prog_data_device%mLayerDepth(1:nLayers,iGRU)
-    print*, nLayers, prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerDepth)%dat
     if (size(prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerHeight)%dat).ne.nLayers+1) then
       deallocate(prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerHeight)%dat)
       allocate(prog_data%gru(iGRU)%hru(1)%var(iLookPROG%mLayerHeight)%dat(0:nLayers))
@@ -1580,11 +1923,11 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%numberStateSplit)%dat(1) = indx_data_d
   end subroutine deallocate_device_prog_data
       
 
-  subroutine allocate_device_flux_data(flux_data_device, flux_data,nSoil,nGRU)
+  subroutine allocate_device_flux_data(flux_data_device,nSoil,nGRU)
     USE globalData,only:maxSnowLayers                           ! maximum number of snow layers
+    use globalData,only:realMissing
 
     type(flux_data_device), intent(inout) :: flux_data_device
-    type(gru_hru_doubleVec), intent(in) :: flux_data
     integer(i4b),intent(in) :: nSoil,nGRU
 
     integer(i4b) :: iGRU, iLayer
@@ -1637,122 +1980,7 @@ indx_data%gru(iGRU)%hru(1)%var(iLookINDEX%numberStateSplit)%dat(1) = indx_data_d
 
 
     allocate(flux_data_device%data(flux_data_device%numFluxData,nGRU))
-    do iGRU=1,nGRU
-    nLayers = size(flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerNrgFlux)%dat)
-    nSnow = size(flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerLiqFluxSnow)%dat)
-      flux_data_device%data(flux_data_device%ixScalarCanairNetNrgFlux,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanairNetNrgFlux)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyNetNrgFlux,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyNetNrgFlux)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarGroundNetNrgFlux,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarGroundNetNrgFlux)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyNetLiqFlux,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyNetLiqFlux)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarRainfall,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarRainfall)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarSnowfall,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSnowfall)%dat(1)
-      flux_data_device%data(flux_data_device%ixSpectralIncomingDirect_start:flux_data_device%ixSpectralIncomingDirect_end,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%spectralIncomingDirect)%dat
-      flux_data_device%data(flux_data_device%ixSpectralIncomingDiffuse_start:flux_data_device%ixSpectralIncomingDiffuse_end,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%spectralIncomingDiffuse)%dat
-      flux_data_device%data(flux_data_device%ixScalarCanopySunlitPAR,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopySunlitPAR)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyShadedPAR,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyShadedPAR)%dat(1)
-      flux_data_device%data(flux_data_device%ixSpectralBelowCanopyDirect_start:flux_data_device%ixSpectralBelowCanopyDirect_end,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%spectralBelowCanopyDirect)%dat
-      flux_data_device%data(flux_data_device%ixSpectralBelowCanopyDiffuse_start:flux_data_device%ixSpectralBelowCanopyDiffuse_end,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%spectralBelowCanopyDiffuse)%dat
-      flux_data_device%data(flux_data_device%ixScalarBelowCanopySolar,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarBelowCanopySolar)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyAbsorbedSolar,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyAbsorbedSolar)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarGroundAbsorbedSolar,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarGroundAbsorbedSolar)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadCanopy,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadCanopy)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadGround,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadGround)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadUbound2Canopy,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadUbound2Canopy)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadUbound2Ground,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadUbound2Ground)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadUbound2Ubound,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadUbound2Ubound)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadCanopy2Ubound,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadCanopy2Ubound)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadCanopy2Ground,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadCanopy2Ground)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadCanopy2Canopy,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadCanopy2Canopy)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadGround2Ubound,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadGround2Ubound)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWRadGround2Canopy,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWRadGround2Canopy)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWNetCanopy,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWNetCanopy)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWNetGround,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWNetGround)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLWNetUbound,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLWNetUbound)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarEddyDiffusCanopyTop,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarEddyDiffusCanopyTop)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarFrictionVelocity,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarFrictionVelocity)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarWindspdCanopyTop,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarWindspdCanopyTop)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarWindspdCanopyBottom,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarWindspdCanopyBottom)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarGroundResistance,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarGroundResistance)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyResistance,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyResistance)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLeafResistance,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLeafResistance)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarSoilResistance,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSoilResistance)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarSenHeatTotal,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSenHeatTotal)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarSenHeatCanopy,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSenHeatCanopy)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarSenHeatGround,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSenHeatGround)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLatHeatTotal,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLatHeatTotal)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLatHeatCanopyEvap,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLatHeatCanopyEvap)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLatHeatCanopyTrans,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLatHeatCanopyTrans)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarLatHeatGround,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarLatHeatGround)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyAdvectiveHeatFlux,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyAdvectiveHeatFlux)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarGroundAdvectiveHeatFlux,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarGroundAdvectiveHeatFlux)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopySublimation,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopySublimation)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarSnowSublimation,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSnowSublimation)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarStomResistSunlit,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarStomResistSunlit)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarStomResistShaded,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarStomResistShaded)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarPhotosynthesisSunlit,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarPhotosynthesisSunlit)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarPhotosynthesisShaded,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarPhotosynthesisShaded)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyTranspiration,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyTranspiration)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyEvaporation,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyEvaporation)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarGroundEvaporation,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarGroundEvaporation)%dat(1)
-      flux_data_device%data(flux_data_device%ixMLayerTranspire_start:flux_data_device%ixMLayerTranspire_end,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerTranspire)%dat
-      flux_data_device%data(flux_data_device%ixScalarThroughfallSnow,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarThroughfallSnow)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarThroughfallRain,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarThroughfallRain)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopySnowUnloading,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopySnowUnloading)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyLiqDrainage,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyLiqDrainage)%dat(1)
-      flux_data_device%data(flux_data_device%ixScalarCanopyMeltFreeze,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarCanopyMeltFreeze)%dat(1)
-do iLayer=0,nLayers
-  flux_data_device%data(flux_data_device%ixILayerConductiveFlux_start+iLayer,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%iLayerConductiveFlux)%dat(iLayer)
-  flux_data_device%data(flux_data_device%ixILayerAdvectiveFlux_start+iLayer,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%iLayerAdvectiveFlux)%dat(iLayer)
-  flux_data_device%data(flux_data_device%ixILayerNrgFlux_start+iLayer,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%iLayerNrgFlux)%dat(iLayer)
-end do
-do iLayer=1,nLayers
-  flux_data_device%data(flux_data_device%ixMLayerNrgFlux_start+iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerNrgFlux)%dat(iLayer)
-end do
-flux_data_device%data(flux_data_device%ixScalarSnowDrainage,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSnowDrainage)%dat(1)
-do iLayer=0,nSnow
-  flux_data_device%data(flux_data_device%ixILayerLiqFluxSnow_start + iLayer,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%iLayerLiqFluxSnow)%dat(iLayer)
-end do
-do iLayer=1,nSnow
-  flux_data_device%data(flux_data_device%ixMLayerLiqFluxSnow_start+iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerLiqFluxSnow)%dat(iLayer)
-end do
-
-flux_data_device%data(flux_data_device%ixScalarRainPlusMelt,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarRainPlusMelt)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarMaxInfilRate,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarMaxInfilRate)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarInfiltration,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarInfiltration)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarExfiltration,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarExfiltration)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarSurfaceRunoff,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSurfaceRunoff)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarSurfaceRunoff_IE,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSurfaceRunoff_IE)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarSurfaceRunoff_SE,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSurfaceRunoff_SE)%dat(1)
-
-do iLayer=1,nSoil
-  flux_data_device%data(flux_data_device%ixMLayerSatHydCondMP_start+iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerSatHydCondMP)%dat(iLayer)
-  flux_data_device%data(flux_data_device%ixMLayerSatHydCond_start+iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerSatHydCond)%dat(iLayer)
-end do
-do iLayer=0,nSoil
-  flux_data_device%data(flux_data_device%ixILayerSatHydCond_start+iLayer,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%iLayerSatHydCond)%dat(iLayer)
-end do
-do iLayer=1,nSoil
-flux_data_device%data(flux_data_device%ixmLayerHydCond_start + iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerHydCond)%dat(iLayer)
-end do
-do iLayer=0,nSoil
-flux_data_device%data(flux_data_device%ixiLayerLiqFluxSoil_start + iLayer,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%iLayerLiqFluxSoil)%dat(iLayer)
-end do
-do iLayer=1,nSoil
-flux_data_device%data(flux_data_device%ixmLayerLiqFluxSoil_start + iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerLiqFluxSoil)%dat(iLayer)
-flux_data_device%data(flux_data_device%ixmLayerBaseflow_start + iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerBaseflow)%dat(iLayer)
-flux_data_device%data(flux_data_device%ixmLayerColumnInflow_start + iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerColumnInflow)%dat(iLayer)
-flux_data_device%data(flux_data_device%ixmLayerColumnOutflow_start + iLayer-1,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%mLayerColumnOutflow)%dat(iLayer)
-end do
-flux_data_device%data(flux_data_device%ixScalarSoilBaseflow,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSoilBaseflow)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarSoilDrainage,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarSoilDrainage)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarAquiferRecharge,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarAquiferRecharge)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarAquiferTranspire,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarAquiferTranspire)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarAquiferBaseflow,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarAquiferBaseflow)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarTotalET,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarTotalET)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarTotalRunoff,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarTotalRunoff)%dat(1)
-flux_data_device%data(flux_data_device%ixScalarNetRadiation,iGRU) = flux_data%gru(iGRU)%hru(1)%var(iLookFLUX%scalarNetRadiation)%dat(1)
-    end do
-
+    flux_data_device%data = realMissing
   end subroutine allocate_device_flux_data
 
   subroutine allocate_device_flux_Mask(flux_data_device,nSoil,nGRU)
@@ -2965,11 +3193,10 @@ flux_data%var(iLookFLUX%scalarNetRadiation)%dat(1) = flux_data_device%data(flux_
     deallocate(deriv_data_device%scalarThroughfallRainDeriv)
   end subroutine deallocate_device_deriv_data
 
-  subroutine allocate_device_diag_data(diag_data_device,diag_data, nGRU, nSoil)
-    use globalData,only:maxSnowLayers
+  subroutine allocate_device_diag_data_snow(diag_data_device, nGRU, nSoil)
+    use globalData,only:maxSnowLayers,realMissing
     implicit none
     type(diag_data_device), intent(inout) :: diag_data_device
-    type(gru_hru_doubleVec),intent(in) :: diag_data
     integer(i4b),intent(in) :: nGRU,nSoil
 
     integer(i4b) :: nLayers, nSnow
@@ -2977,6 +3204,44 @@ flux_data%var(iLookFLUX%scalarNetRadiation)%dat(1) = flux_data_device%data(flux_
 
     nLayers = nSoil + maxSnowLayers+1
     nSnow = maxSnowLayers+1
+
+    allocate(diag_data_device%mLayerVolHtCapBulk(nLayers,nGRU))
+    allocate(diag_data_device%mLayerCm(nLayers,nGRU))
+    allocate(diag_data_device%mLayerThermalC(nLayers,nGRU))
+    allocate(diag_data_device%iLayerThermalC(0:nLayers,nGRU))
+    allocate(diag_data_device%mLayerEnthTemp(nLayers,nGRU))
+    allocate(diag_data_device%mLayerFracLiqSnow(nSnow,nGRU))
+    allocate(diag_data_device%mLayerThetaResid(nSnow,nGRU))
+    allocate(diag_data_device%mLayerPoreSpace(nSnow,nGRU))
+    allocate(diag_data_device%mLayerMeltFreeze(nLayers,nGRU))
+    allocate(diag_data_device%mLayerVolFracAir(nLayers,nGRU))
+    allocate(diag_data_device%balanceLayerNrg(nLayers,nGRU))
+    allocate(diag_data_device%balanceLayerMass(nLayers,nGRU))
+
+      diag_data_device%mLayerVolHtCapBulk = realMissing
+      diag_data_device%mLayerCm = realMissing
+      diag_data_device%mLayerThermalC = realMissing
+      diag_data_device%iLayerThermalC = realMissing
+      diag_data_device%mLayerEnthTemp = realMissing
+  diag_data_device%mLayerFracLiqSnow = realMissing
+  diag_data_device%mLayerThetaResid = realMissing
+  diag_data_device%mLayerPoreSpace = realMissing
+  diag_data_device%mLayerMeltFreeze = realMissing
+
+    diag_data_device%mLayerVolFracAir = realMissing
+      diag_data_device%balanceLayerNrg = realMissing
+      diag_data_device%balanceLayerMass = realMissing
+
+  end subroutine allocate_device_diag_data_snow
+
+
+    subroutine allocate_device_diag_data(diag_data_device, nGRU, nSoil)
+      use globalData,only:realMissing
+    implicit none
+    type(diag_data_device), intent(inout) :: diag_data_device
+    integer(i4b),intent(in) :: nGRU,nSoil
+
+
 
     allocate(diag_data_device%scalarCanopyDepth(nGRU))
     allocate(diag_data_device%scalarBulkVolHeatCapVeg(nGRU))
@@ -2995,14 +3260,9 @@ flux_data%var(iLookFLUX%scalarNetRadiation)%dat(1) = flux_data_device%data(flux_
     allocate(diag_data_device%scalarVolHtCap_ice(nGRU))
     allocate(diag_data_device%scalarVolHtCap_soil(nGRU))
     allocate(diag_data_device%scalarVolHtCap_water(nGRU))
-    allocate(diag_data_device%mLayerVolHtCapBulk(nLayers,nGRU))
-    allocate(diag_data_device%mLayerCm(nLayers,nGRU))
     allocate(diag_data_device%scalarLambda_drysoil(nGRU))
     allocate(diag_data_device%scalarLambda_wetsoil(nGRU))
-    allocate(diag_data_device%mLayerThermalC(nLayers,nGRU))
-    allocate(diag_data_device%iLayerThermalC(0:nLayers,nGRU))
     allocate(diag_data_device%scalarCanopyEnthTemp(nGRU))
-    allocate(diag_data_device%mLayerEnthTemp(nLayers,nGRU))
     allocate(diag_data_device%scalarTotalSoilEnthalpy(nGRU))
     allocate(diag_data_device%scalarTotalSnowEnthalpy(nGRU))
     allocate(diag_data_device%scalarVPair(nGRU))
@@ -3047,14 +3307,9 @@ flux_data%var(iLookFLUX%scalarNetRadiation)%dat(1) = flux_data_device%data(flux_
     allocate(diag_data_device%scalarSnowAge(nGRU))
     allocate(diag_data_device%scalarGroundSnowFraction(nGRU))
     allocate(diag_data_device%spectralSnowAlbedoDirect(nSpecBands,nGRU))
-    allocate(diag_data_device%mLayerFracLiqSnow(nSnow,nGRU))
-    allocate(diag_data_device%mLayerThetaResid(nSnow,nGRU))
-    allocate(diag_data_device%mLayerPoreSpace(nSnow,nGRU))
-    allocate(diag_data_device%mLayerMeltFreeze(nLayers,nGRU))
     allocate(diag_data_device%scalarInfilArea(nGRU))
     allocate(diag_data_device%scalarFrozenArea(nGRU))
     allocate(diag_data_device%scalarSoilControl(nGRU))
-    allocate(diag_data_device%mLayerVolFracAir(nLayers,nGRU))
     allocate(diag_data_device%mLayerTcrit(nSoil,nGRU))
     allocate(diag_data_device%mLayerCompress(nSoil,nGRU))
     allocate(diag_data_device%scalarSoilCompress(nGRU))
@@ -3069,300 +3324,122 @@ flux_data%var(iLookFLUX%scalarNetRadiation)%dat(1) = flux_data_device%data(flux_
 
     allocate(diag_data_device%balanceCasNrg(nGRU))
     allocate(diag_data_device%balanceVegNrg(nGRU))
-    allocate(diag_data_device%balanceLayerNrg(nLayers,nGRU))
     allocate(diag_data_device%balanceSnowNrg(nGRU))
     allocate(diag_data_device%balanceSoilNrg(nGRU))
     allocate(diag_data_device%balanceVegMass(nGRU))
-    allocate(diag_data_device%balanceLayerMass(nLayers,nGRU))
     allocate(diag_data_device%balanceSnowMass(nGRU))
     allocate(diag_data_device%balanceSoilMass(nGRU))
     allocate(diag_data_device%balanceAqMass(nGRU))
 
-    do iGRU=1,nGRU
-    nLayers = size(diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerEnthTemp)%dat)
-    nSnow = size(diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerFracLiqSnow)%dat)
+    diag_data_device%scalarCanopyDepth = realMissing
+    diag_data_device%scalarBulkVolHeatCapVeg = realMissing
+    diag_data_device%scalarCanopyCm = realMissing
+    diag_data_device%scalarCanopyEmissivity = realMissing
+    diag_data_device%scalarRootZoneTemp = realMissing
+    diag_data_device%scalarLAI = realMissing
+    diag_data_device%scalarSAI = realMissing
+    diag_data_device%scalarExposedLAI = realMissing
+    diag_data_device%scalarExposedSAI = realMissing
+    diag_data_device%scalarAdjMeasHeight = realMissing
+    diag_data_device%scalarCanopyIceMax = realMissing
+    diag_data_device%scalarCanopyLiqMax = realMissing
+    diag_data_device%scalarGrowingSeasonIndex = realMissing
+    diag_data_device%scalarVolHtCap_air = realMissing
+    diag_data_device%scalarVolHtCap_ice = realMissing
+    diag_data_device%scalarVolHtCap_soil = realMissing
+    diag_data_device%scalarVolHtCap_water = realMissing
+    diag_data_device%scalarLambda_drysoil = realMissing
+    diag_data_device%scalarLambda_wetsoil = realMissing
+    diag_data_device%scalarCanopyEnthTemp = realMissing
+    diag_data_device%scalarTotalSoilEnthalpy = realMissing
+    diag_data_device%scalarTotalSnowEnthalpy = realMissing
+    diag_data_device%scalarVPair = realMissing
+    diag_data_device%scalarVP_CanopyAir = realMissing
+    diag_data_device%scalarTwetbulb = realMissing
+    diag_data_device%scalarSnowfallTemp = realMissing
+    diag_data_device%scalarNewSnowDensity = realMissing
+    diag_data_device%scalarO2air = realMissing
+    diag_data_device%scalarCO2air = realMissing
+    diag_data_device%windspd_x = realMissing
+    diag_data_device%windspd_y = realMissing
+    diag_data_device%scalarCosZenith = realMissing
+    diag_data_device%scalarFractionDirect = realMissing
+    diag_data_device%scalarCanopySunlitFraction = realMissing
+    diag_data_device%scalarCanopySunlitLAI = realMissing
+    diag_data_device%scalarCanopyShadedLAI = realMissing
+      diag_data_device%spectralAlbGndDirect = realMissing
+      diag_data_device%spectralAlbGndDiffuse = realMissing
+    diag_data_device%scalarGroundAlbedo = realMissing
+    diag_data_device%scalarLatHeatSubVapCanopy = realMissing
+    diag_data_device%scalarLatHeatSubVapGround = realMissing
+    diag_data_device%scalarSatVP_CanopyTemp = realMissing
+    diag_data_device%scalarSatVP_GroundTemp = realMissing
+    diag_data_device%scalarZ0Canopy = realMissing
+    diag_data_device%scalarWindReductionFactor = realMissing
+    diag_data_device%scalarZeroPlaneDisplacement = realMissing
+    diag_data_device%scalarRiBulkCanopy = realMissing
+    diag_data_device%scalarRiBulkGround = realMissing
+    diag_data_device%scalarCanopyStabilityCorrection = realMissing
+    diag_data_device%scalarGroundStabilityCorrection = realMissing
 
-    diag_data_device%scalarCanopyDepth(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyDepth)%dat(1)
-    diag_data_device%scalarBulkVolHeatCapVeg(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarBulkVolHeatCapVeg)%dat(1)
-    diag_data_device%scalarCanopyCm(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyCm)%dat(1)
-    diag_data_device%scalarCanopyEmissivity(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyEmissivity)%dat(1)
-    diag_data_device%scalarRootZoneTemp(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarRootZoneTemp)%dat(1)
-    diag_data_device%scalarLAI(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarLAI)%dat(1)
-    diag_data_device%scalarSAI(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSAI)%dat(1)
-    diag_data_device%scalarExposedLAI(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarExposedLAI)%dat(1)
-    diag_data_device%scalarExposedSAI(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarExposedSAI)%dat(1)
-    diag_data_device%scalarAdjMeasHeight(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarAdjMeasHeight)%dat(1)
-    diag_data_device%scalarCanopyIceMax(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyIceMax)%dat(1)
-    diag_data_device%scalarCanopyLiqMax(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyLiqMax)%dat(1)
-    diag_data_device%scalarGrowingSeasonIndex(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarGrowingSeasonIndex)%dat(1)
-    diag_data_device%scalarVolHtCap_air(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVolHtCap_air)%dat(1)
-    diag_data_device%scalarVolHtCap_ice(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVolHtCap_ice)%dat(1)
-    diag_data_device%scalarVolHtCap_soil(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVolHtCap_soil)%dat(1)
-    diag_data_device%scalarVolHtCap_water(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVolHtCap_water)%dat(1)
-      diag_data_device%mLayerVolHtCapBulk(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerVolHtCapBulk)%dat(1:nLayers)
-      diag_data_device%mLayerCm(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerCm)%dat(1:nLayers)
-    diag_data_device%scalarLambda_drysoil(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarLambda_drysoil)%dat(1)
-    diag_data_device%scalarLambda_wetsoil(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarLambda_wetsoil)%dat(1)
-      diag_data_device%mLayerThermalC(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerThermalC)%dat(1:nLayers)
-      diag_data_device%iLayerThermalC(0:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%iLayerThermalC)%dat(0:nLayers)
-    diag_data_device%scalarCanopyEnthTemp(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyEnthTemp)%dat(1)
-      diag_data_device%mLayerEnthTemp(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerEnthTemp)%dat(1:nLayers)
-    diag_data_device%scalarTotalSoilEnthalpy(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTotalSoilEnthalpy)%dat(1)
-    diag_data_device%scalarTotalSnowEnthalpy(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTotalSnowEnthalpy)%dat(1)
-    diag_data_device%scalarVPair(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVPair)%dat(1)
-    diag_data_device%scalarVP_CanopyAir(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVP_CanopyAir)%dat(1)
-    diag_data_device%scalarTwetbulb(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTwetbulb)%dat(1)
-    diag_data_device%scalarSnowfallTemp(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSnowfallTemp)%dat(1)
-    diag_data_device%scalarNewSnowDensity(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarNewSnowDensity)%dat(1)
-    diag_data_device%scalarO2air(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarO2air)%dat(1)
-    diag_data_device%scalarCO2air(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCO2air)%dat(1)
-    diag_data_device%windspd_x(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%windspd_x)%dat(1)
-    diag_data_device%windspd_y(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%windspd_y)%dat(1)
-    diag_data_device%scalarCosZenith(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCosZenith)%dat(1)
-    diag_data_device%scalarFractionDirect(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarFractionDirect)%dat(1)
-    diag_data_device%scalarCanopySunlitFraction(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopySunlitFraction)%dat(1)
-    diag_data_device%scalarCanopySunlitLAI(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopySunlitLAI)%dat(1)
-    diag_data_device%scalarCanopyShadedLAI(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyShadedLAI)%dat(1)
-      diag_data_device%spectralAlbGndDirect(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%spectralAlbGndDirect)%dat
-      diag_data_device%spectralAlbGndDiffuse(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%spectralAlbGndDiffuse)%dat
-    diag_data_device%scalarGroundAlbedo(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarGroundAlbedo)%dat(1)
-    diag_data_device%scalarLatHeatSubVapCanopy(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarLatHeatSubVapCanopy)%dat(1)
-    diag_data_device%scalarLatHeatSubVapGround(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarLatHeatSubVapGround)%dat(1)
-    diag_data_device%scalarSatVP_CanopyTemp(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSatVP_CanopyTemp)%dat(1)
-    diag_data_device%scalarSatVP_GroundTemp(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSatVP_GroundTemp)%dat(1)
-    diag_data_device%scalarZ0Canopy(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarZ0Canopy)%dat(1)
-    diag_data_device%scalarWindReductionFactor(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarWindReductionFactor)%dat(1)
-    diag_data_device%scalarZeroPlaneDisplacement(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarZeroPlaneDisplacement)%dat(1)
-    diag_data_device%scalarRiBulkCanopy(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarRiBulkCanopy)%dat(1)
-    diag_data_device%scalarRiBulkGround(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarRiBulkGround)%dat(1)
-    diag_data_device%scalarCanopyStabilityCorrection(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyStabilityCorrection)%dat(1)
-    diag_data_device%scalarGroundStabilityCorrection(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarGroundStabilityCorrection)%dat(1)
+    diag_data_device%scalarIntercellularCO2Sunlit = realMissing
+    diag_data_device%scalarIntercellularCO2Shaded = realMissing
+    diag_data_device%scalarTranspireLim = realMissing
+    diag_data_device%scalarTranspireLimAqfr = realMissing
+    diag_data_device%scalarFoliageNitrogenFactor = realMissing
+    diag_data_device%scalarSoilRelHumidity = realMissing
+      diag_data_device%mLayerTranspireLim = realMissing
+      diag_data_device%mLayerRootDensity = realMissing
+    diag_data_device%scalarAquiferRootFrac = realMissing
+    diag_data_device%scalarFracLiqVeg = realMissing
+    diag_data_device%scalarCanopyWetFraction = realMissing
 
-    diag_data_device%scalarIntercellularCO2Sunlit(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarIntercellularCO2Sunlit)%dat(1)
-    diag_data_device%scalarIntercellularCO2Shaded(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarIntercellularCO2Shaded)%dat(1)
-    diag_data_device%scalarTranspireLim(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTranspireLim)%dat(1)
-    diag_data_device%scalarTranspireLimAqfr(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTranspireLimAqfr)%dat(1)
-    diag_data_device%scalarFoliageNitrogenFactor(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarFoliageNitrogenFactor)%dat(1)
-    diag_data_device%scalarSoilRelHumidity(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSoilRelHumidity)%dat(1)
-      diag_data_device%mLayerTranspireLim(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerTranspireLim)%dat
-      diag_data_device%mLayerRootDensity(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerRootDensity)%dat
-    diag_data_device%scalarAquiferRootFrac(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarAquiferRootFrac)%dat(1)
-    diag_data_device%scalarFracLiqVeg(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarFracLiqVeg)%dat(1)
-    diag_data_device%scalarCanopyWetFraction(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarCanopyWetFraction)%dat(1)
-
-    diag_data_device%scalarSnowAge(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSnowAge)%dat(1)
-diag_data_device%scalarGroundSnowFraction(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarGroundSnowFraction)%dat(1)
-  diag_data_device%spectralSnowAlbedoDirect(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%spectralSnowAlbedoDirect)%dat
-  if (nSnow.ne.0) diag_data_device%mLayerFracLiqSnow(1:nSnow,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerFracLiqSnow)%dat(1:nSnow)
-  if(nSnow.ne.0) diag_data_device%mLayerThetaResid(1:nSnow,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerThetaResid)%dat(1:nSnow)
-  if(nSnow.ne.0) diag_data_device%mLayerPoreSpace(1:nSnow,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerPoreSpace)%dat(1:nSnow)
-  diag_data_device%mLayerMeltFreeze(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerMeltFreeze)%dat(1:nLayers)
+    diag_data_device%scalarSnowAge = realMissing
+diag_data_device%scalarGroundSnowFraction = realMissing
+  diag_data_device%spectralSnowAlbedoDirect = realMissing
 
   
-  diag_data_device%scalarInfilArea(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarInfilArea)%dat(1)
-  diag_data_device%scalarFrozenArea(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarFrozenArea)%dat(1)
-  diag_data_device%scalarSoilControl(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSoilControl)%dat(1)
-    diag_data_device%mLayerVolFracAir(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerVolFracAir)%dat(1:nLayers)
-  diag_data_device%mLayerTcrit(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerTcrit)%dat
-  diag_data_device%mLayerCompress(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerCompress)%dat
-  diag_data_device%scalarSoilCompress(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarSoilCompress)%dat(1)
-  diag_data_device%mLayerMatricHeadLiq(:,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%mLayerMatricHeadLiq)%dat
-  diag_data_device%scalarTotalSoilLiq(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTotalSoilLiq)%dat(1)
-  diag_data_device%scalarTotalSoilIce(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTotalSoilIce)%dat(1)
-  diag_data_device%scalarTotalSoilWat(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarTotalSoilWat)%dat(1)
-      diag_data_device%scalarVGn_m(1:nSoil,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVGn_m)%dat(1:nSoil)
+  diag_data_device%scalarInfilArea = realMissing
+  diag_data_device%scalarFrozenArea = realMissing
+  diag_data_device%scalarSoilControl = realMissing
+  diag_data_device%mLayerTcrit = realMissing
+  diag_data_device%mLayerCompress = realMissing
+  diag_data_device%scalarSoilCompress = realMissing
+  diag_data_device%mLayerMatricHeadLiq = realMissing
+  diag_data_device%scalarTotalSoilLiq = realMissing
+  diag_data_device%scalarTotalSoilIce = realMissing
+  diag_data_device%scalarTotalSoilWat = realMissing
+      diag_data_device%scalarVGn_m = realMissing
 
-    diag_data_device%scalarKappa(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarKappa)%dat(1)
-    diag_data_device%scalarVolLatHt_fus(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%scalarVolLatHt_fus)%dat(1)
+    diag_data_device%scalarKappa = realMissing
+    diag_data_device%scalarVolLatHt_fus = realMissing
 
-    diag_data_device%numFluxCalls = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%numFluxCalls)%dat(1)
-    diag_data_device%wallClockTime = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%wallClockTime)%dat(1)
-    diag_data_device%meanStepSize = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%meanStepSize)%dat(1)
+    diag_data_device%numFluxCalls = realMissing
+    diag_data_device%wallClockTime = realMissing
+    diag_data_device%meanStepSize = realMissing
 
 
-    diag_data_device%balanceCasNrg(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceCasNrg)%dat(1)
-    diag_data_device%balanceVegNrg(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceVegNrg)%dat(1)
-      diag_data_device%balanceLayerNrg(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceLayerNrg)%dat(1:nLayers)
-    diag_data_device%balanceSnowNrg(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceSnowNrg)%dat(1)
-    diag_data_device%balanceSoilNrg(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceSoilNrg)%dat(1)
-    diag_data_device%balanceVegMass(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceVegMass)%dat(1)
-      diag_data_device%balanceLayerMass(1:nLayers,iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceLayerMass)%dat(1:nLayers)
-    diag_data_device%balanceSnowMass(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceSnowMass)%dat(1)
-    diag_data_device%balanceSoilMass(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceSoilMass)%dat(1)
-    diag_data_device%balanceAqMass(iGRU) = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%balanceAqMass)%dat(1)
+    diag_data_device%balanceCasNrg = realMissing
+    diag_data_device%balanceVegNrg = realMissing
+    diag_data_device%balanceSnowNrg = realMissing
+    diag_data_device%balanceSoilNrg = realMissing
+    diag_data_device%balanceVegMass = realMissing
+    diag_data_device%balanceSnowMass = realMissing
+    diag_data_device%balanceSoilMass = realMissing
+    diag_data_device%balanceAqMass = realMissing
 
-    diag_data_device%numSteps = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%numSteps)%dat(1)
-    diag_data_device%numResEvals = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%numResEvals)%dat(1)
-    diag_data_device%numLinSolvSetups = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%numLinSolvSetups)%dat(1)
-    diag_data_device%numErrTestFails = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%numErrTestFails)%dat(1)
-    diag_data_device%kLast = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%kLast)%dat(1)
-    diag_data_device%kCur = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%kCur)%dat(1)
-    diag_data_device%hInitUsed = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%hInitUsed)%dat(1)
-    diag_data_device%hLast = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%hLast)%dat(1)
-    diag_data_device%hCur = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%hCur)%dat(1)
-    diag_data_device%tCur = diag_data%gru(iGRU)%hru(1)%var(iLookDIAG%tCur)%dat(1)
-  end do
+    diag_data_device%numSteps = realMissing
+    diag_data_device%numResEvals = realMissing
+    diag_data_device%numLinSolvSetups = realMissing
+    diag_data_device%numErrTestFails = realMissing
+    diag_data_device%kLast = realMissing
+    diag_data_device%kCur = realMissing
+    diag_data_device%hInitUsed = realMissing
+    diag_data_device%hLast = realMissing
+    diag_data_device%hCur = realMissing
+    diag_data_device%tCur = realMissing
   end subroutine allocate_device_diag_data
-    subroutine initialize_device_diag_data(diag_data_device,diag_data, nGRU, nSoil)
-    use globalData,only:maxSnowLayers
-    implicit none
-    type(diag_data_device), intent(inout) :: diag_data_device
-    type(var_dlength),intent(in) :: diag_data
-    integer(i4b),intent(in) :: nGRU,nSoil
 
-    integer(i4b) :: nLayers, nSnow
-    integer(i4b) :: iGRU
-
-    nLayers = nSoil + maxSnowLayers+1
-    nSnow = maxSnowLayers+1
-
-
-    nLayers = size(diag_data%var(iLookDIAG%mLayerEnthTemp)%dat)
-    nSnow = size(diag_data%var(iLookDIAG%mLayerFracLiqSnow)%dat)
-
-    diag_data_device%scalarCanopyDepth = diag_data%var(iLookDIAG%scalarCanopyDepth)%dat(1)
-    diag_data_device%scalarBulkVolHeatCapVeg = diag_data%var(iLookDIAG%scalarBulkVolHeatCapVeg)%dat(1)
-    diag_data_device%scalarCanopyCm = diag_data%var(iLookDIAG%scalarCanopyCm)%dat(1)
-    diag_data_device%scalarCanopyEmissivity = diag_data%var(iLookDIAG%scalarCanopyEmissivity)%dat(1)
-    diag_data_device%scalarRootZoneTemp = diag_data%var(iLookDIAG%scalarRootZoneTemp)%dat(1)
-    diag_data_device%scalarLAI = diag_data%var(iLookDIAG%scalarLAI)%dat(1)
-    diag_data_device%scalarSAI = diag_data%var(iLookDIAG%scalarSAI)%dat(1)
-    diag_data_device%scalarExposedLAI = diag_data%var(iLookDIAG%scalarExposedLAI)%dat(1)
-    diag_data_device%scalarExposedSAI = diag_data%var(iLookDIAG%scalarExposedSAI)%dat(1)
-    diag_data_device%scalarAdjMeasHeight = diag_data%var(iLookDIAG%scalarAdjMeasHeight)%dat(1)
-    diag_data_device%scalarCanopyIceMax = diag_data%var(iLookDIAG%scalarCanopyIceMax)%dat(1)
-    diag_data_device%scalarCanopyLiqMax = diag_data%var(iLookDIAG%scalarCanopyLiqMax)%dat(1)
-    diag_data_device%scalarGrowingSeasonIndex = diag_data%var(iLookDIAG%scalarGrowingSeasonIndex)%dat(1)
-    diag_data_device%scalarVolHtCap_air = diag_data%var(iLookDIAG%scalarVolHtCap_air)%dat(1)
-    diag_data_device%scalarVolHtCap_ice = diag_data%var(iLookDIAG%scalarVolHtCap_ice)%dat(1)
-    diag_data_device%scalarVolHtCap_soil = diag_data%var(iLookDIAG%scalarVolHtCap_soil)%dat(1)
-    diag_data_device%scalarVolHtCap_water = diag_data%var(iLookDIAG%scalarVolHtCap_water)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%mLayerVolHtCapBulk(1:nLayers,iGRU) = diag_data%var(iLookDIAG%mLayerVolHtCapBulk)%dat(1:nLayers)
-      diag_data_device%mLayerCm(1:nLayers,iGRU) = diag_data%var(iLookDIAG%mLayerCm)%dat(1:nLayers)
-    end do
-    diag_data_device%scalarLambda_drysoil = diag_data%var(iLookDIAG%scalarLambda_drysoil)%dat(1)
-    diag_data_device%scalarLambda_wetsoil = diag_data%var(iLookDIAG%scalarLambda_wetsoil)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%mLayerThermalC(1:nLayers,iGRU) = diag_data%var(iLookDIAG%mLayerThermalC)%dat(1:nLayers)
-      diag_data_device%iLayerThermalC(0:nLayers,iGRU) = diag_data%var(iLookDIAG%iLayerThermalC)%dat(0:nLayers)
-    end do
-    diag_data_device%scalarCanopyEnthTemp = diag_data%var(iLookDIAG%scalarCanopyEnthTemp)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%mLayerEnthTemp(1:nLayers,iGRU) = diag_data%var(iLookDIAG%mLayerEnthTemp)%dat(1:nLayers)
-    end do
-    diag_data_device%scalarTotalSoilEnthalpy = diag_data%var(iLookDIAG%scalarTotalSoilEnthalpy)%dat(1)
-    diag_data_device%scalarTotalSnowEnthalpy = diag_data%var(iLookDIAG%scalarTotalSnowEnthalpy)%dat(1)
-    diag_data_device%scalarVPair = diag_data%var(iLookDIAG%scalarVPair)%dat(1)
-    diag_data_device%scalarVP_CanopyAir = diag_data%var(iLookDIAG%scalarVP_CanopyAir)%dat(1)
-    diag_data_device%scalarTwetbulb = diag_data%var(iLookDIAG%scalarTwetbulb)%dat(1)
-    diag_data_device%scalarSnowfallTemp = diag_data%var(iLookDIAG%scalarSnowfallTemp)%dat(1)
-    diag_data_device%scalarNewSnowDensity = diag_data%var(iLookDIAG%scalarNewSnowDensity)%dat(1)
-    diag_data_device%scalarO2air = diag_data%var(iLookDIAG%scalarO2air)%dat(1)
-    diag_data_device%scalarCO2air = diag_data%var(iLookDIAG%scalarCO2air)%dat(1)
-    diag_data_device%windspd_x = diag_data%var(iLookDIAG%windspd_x)%dat(1)
-    diag_data_device%windspd_y = diag_data%var(iLookDIAG%windspd_y)%dat(1)
-    diag_data_device%scalarCosZenith = diag_data%var(iLookDIAG%scalarCosZenith)%dat(1)
-    diag_data_device%scalarFractionDirect = diag_data%var(iLookDIAG%scalarFractionDirect)%dat(1)
-    diag_data_device%scalarCanopySunlitFraction = diag_data%var(iLookDIAG%scalarCanopySunlitFraction)%dat(1)
-    diag_data_device%scalarCanopySunlitLAI = diag_data%var(iLookDIAG%scalarCanopySunlitLAI)%dat(1)
-    diag_data_device%scalarCanopyShadedLAI = diag_data%var(iLookDIAG%scalarCanopyShadedLAI)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%spectralAlbGndDirect(:,iGRU) = diag_data%var(iLookDIAG%spectralAlbGndDirect)%dat
-      diag_data_device%spectralAlbGndDiffuse(:,iGRU) = diag_data%var(iLookDIAG%spectralAlbGndDiffuse)%dat
-    end do
-    diag_data_device%scalarGroundAlbedo = diag_data%var(iLookDIAG%scalarGroundAlbedo)%dat(1)
-    diag_data_device%scalarLatHeatSubVapCanopy = diag_data%var(iLookDIAG%scalarLatHeatSubVapCanopy)%dat(1)
-    diag_data_device%scalarLatHeatSubVapGround = diag_data%var(iLookDIAG%scalarLatHeatSubVapGround)%dat(1)
-    diag_data_device%scalarSatVP_CanopyTemp = diag_data%var(iLookDIAG%scalarSatVP_CanopyTemp)%dat(1)
-    diag_data_device%scalarSatVP_GroundTemp = diag_data%var(iLookDIAG%scalarSatVP_GroundTemp)%dat(1)
-    diag_data_device%scalarZ0Canopy = diag_data%var(iLookDIAG%scalarZ0Canopy)%dat(1)
-    diag_data_device%scalarWindReductionFactor = diag_data%var(iLookDIAG%scalarWindReductionFactor)%dat(1)
-    diag_data_device%scalarZeroPlaneDisplacement = diag_data%var(iLookDIAG%scalarZeroPlaneDisplacement)%dat(1)
-    diag_data_device%scalarRiBulkCanopy = diag_data%var(iLookDIAG%scalarRiBulkCanopy)%dat(1)
-    diag_data_device%scalarRiBulkGround = diag_data%var(iLookDIAG%scalarRiBulkGround)%dat(1)
-    diag_data_device%scalarCanopyStabilityCorrection = diag_data%var(iLookDIAG%scalarCanopyStabilityCorrection)%dat(1)
-    diag_data_device%scalarGroundStabilityCorrection = diag_data%var(iLookDIAG%scalarGroundStabilityCorrection)%dat(1)
-
-    diag_data_device%scalarIntercellularCO2Sunlit = diag_data%var(iLookDIAG%scalarIntercellularCO2Sunlit)%dat(1)
-    diag_data_device%scalarIntercellularCO2Shaded = diag_data%var(iLookDIAG%scalarIntercellularCO2Shaded)%dat(1)
-    diag_data_device%scalarTranspireLim = diag_data%var(iLookDIAG%scalarTranspireLim)%dat(1)
-    diag_data_device%scalarTranspireLimAqfr = diag_data%var(iLookDIAG%scalarTranspireLimAqfr)%dat(1)
-    diag_data_device%scalarFoliageNitrogenFactor = diag_data%var(iLookDIAG%scalarFoliageNitrogenFactor)%dat(1)
-    diag_data_device%scalarSoilRelHumidity = diag_data%var(iLookDIAG%scalarSoilRelHumidity)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%mLayerTranspireLim(:,iGRU) = diag_data%var(iLookDIAG%mLayerTranspireLim)%dat
-      diag_data_device%mLayerRootDensity(:,iGRU) = diag_data%var(iLookDIAG%mLayerRootDensity)%dat
-    end do
-    diag_data_device%scalarAquiferRootFrac = diag_data%var(iLookDIAG%scalarAquiferRootFrac)%dat(1)
-    diag_data_device%scalarFracLiqVeg = diag_data%var(iLookDIAG%scalarFracLiqVeg)%dat(1)
-    diag_data_device%scalarCanopyWetFraction = diag_data%var(iLookDIAG%scalarCanopyWetFraction)%dat(1)
-
-    diag_data_device%scalarSnowAge = diag_data%var(iLookDIAG%scalarSnowAge)%dat(1)
-diag_data_device%scalarGroundSnowFraction = diag_data%var(iLookDIAG%scalarGroundSnowFraction)%dat(1)
-do iGRU=1,nGRU
-  diag_data_device%spectralSnowAlbedoDirect(:,iGRU) = diag_data%var(iLookDIAG%spectralSnowAlbedoDirect)%dat
-  if (nSnow.ne.0) diag_data_device%mLayerFracLiqSnow(1:nSnow,iGRU) = diag_data%var(iLookDIAG%mLayerFracLiqSnow)%dat(1:nSnow)
-  if(nSnow.ne.0) diag_data_device%mLayerThetaResid(1:nSnow,iGRU) = diag_data%var(iLookDIAG%mLayerThetaResid)%dat(1:nSnow)
-  if(nSnow.ne.0) diag_data_device%mLayerPoreSpace(1:nSnow,iGRU) = diag_data%var(iLookDIAG%mLayerPoreSpace)%dat(1:nSnow)
-  diag_data_device%mLayerMeltFreeze(1:nLayers,iGRU) = diag_data%var(iLookDIAG%mLayerMeltFreeze)%dat(1:nLayers)
-
-  
-end do
-  diag_data_device%scalarInfilArea = diag_data%var(iLookDIAG%scalarInfilArea)%dat(1)
-  diag_data_device%scalarFrozenArea = diag_data%var(iLookDIAG%scalarFrozenArea)%dat(1)
-  diag_data_device%scalarSoilControl = diag_data%var(iLookDIAG%scalarSoilControl)%dat(1)
-  do iGRU=1,nGRU
-    diag_data_device%mLayerVolFracAir(1:nLayers,iGRU) = diag_data%var(iLookDIAG%mLayerVolFracAir)%dat(1:nLayers)
-  diag_data_device%mLayerTcrit(:,iGRU) = diag_data%var(iLookDIAG%mLayerTcrit)%dat
-  diag_data_device%mLayerCompress(:,iGRU) = diag_data%var(iLookDIAG%mLayerCompress)%dat
-  end do
-  diag_data_device%scalarSoilCompress = diag_data%var(iLookDIAG%scalarSoilCompress)%dat(1)
-  do iGRU=1,nGRU
-  diag_data_device%mLayerMatricHeadLiq(:,iGRU) = diag_data%var(iLookDIAG%mLayerMatricHeadLiq)%dat
-  end do
-  diag_data_device%scalarTotalSoilLiq = diag_data%var(iLookDIAG%scalarTotalSoilLiq)%dat(1)
-  diag_data_device%scalarTotalSoilIce = diag_data%var(iLookDIAG%scalarTotalSoilIce)%dat(1)
-  diag_data_device%scalarTotalSoilWat = diag_data%var(iLookDIAG%scalarTotalSoilWat)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%scalarVGn_m(1:nSoil,iGRU) = diag_data%var(iLookDIAG%scalarVGn_m)%dat(1:nSoil)
-
-    end do
-
-    diag_data_device%scalarKappa = diag_data%var(iLookDIAG%scalarKappa)%dat(1)
-    diag_data_device%scalarVolLatHt_fus = diag_data%var(iLookDIAG%scalarVolLatHt_fus)%dat(1)
-
-    diag_data_device%numFluxCalls = diag_data%var(iLookDIAG%numFluxCalls)%dat(1)
-    diag_data_device%wallClockTime = diag_data%var(iLookDIAG%wallClockTime)%dat(1)
-    diag_data_device%meanStepSize = diag_data%var(iLookDIAG%meanStepSize)%dat(1)
-
-
-    diag_data_device%balanceCasNrg = diag_data%var(iLookDIAG%balanceCasNrg)%dat(1)
-    diag_data_device%balanceVegNrg = diag_data%var(iLookDIAG%balanceVegNrg)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%balanceLayerNrg(1:nLayers,iGRU) = diag_data%var(iLookDIAG%balanceLayerNrg)%dat(1:nLayers)
-    end do
-    diag_data_device%balanceSnowNrg = diag_data%var(iLookDIAG%balanceSnowNrg)%dat(1)
-    diag_data_device%balanceSoilNrg = diag_data%var(iLookDIAG%balanceSoilNrg)%dat(1)
-    diag_data_device%balanceVegMass = diag_data%var(iLookDIAG%balanceVegMass)%dat(1)
-    do iGRU=1,nGRU
-      diag_data_device%balanceLayerMass(1:nLayers,iGRU) = diag_data%var(iLookDIAG%balanceLayerMass)%dat(1:nLayers)
-    end do
-    diag_data_device%balanceSnowMass = diag_data%var(iLookDIAG%balanceSnowMass)%dat(1)
-    diag_data_device%balanceSoilMass = diag_data%var(iLookDIAG%balanceSoilMass)%dat(1)
-    diag_data_device%balanceAqMass = diag_data%var(iLookDIAG%balanceAqMass)%dat(1)
-
-    diag_data_device%numSteps = diag_data%var(iLookDIAG%numSteps)%dat(1)
-    diag_data_device%numResEvals = diag_data%var(iLookDIAG%numResEvals)%dat(1)
-    diag_data_device%numLinSolvSetups = diag_data%var(iLookDIAG%numLinSolvSetups)%dat(1)
-    diag_data_device%numErrTestFails = diag_data%var(iLookDIAG%numErrTestFails)%dat(1)
-    diag_data_device%kLast = diag_data%var(iLookDIAG%kLast)%dat(1)
-    diag_data_device%kCur = diag_data%var(iLookDIAG%kCur)%dat(1)
-    diag_data_device%hInitUsed = diag_data%var(iLookDIAG%hInitUsed)%dat(1)
-    diag_data_device%hLast = diag_data%var(iLookDIAG%hLast)%dat(1)
-    diag_data_device%hCur = diag_data%var(iLookDIAG%hCur)%dat(1)
-    diag_data_device%tCur = diag_data%var(iLookDIAG%tCur)%dat(1)
-  end subroutine initialize_device_diag_data
 
       subroutine allocate_device_diag_temp(diag_data_device, nGRU, nSoil)
     use globalData,only:maxSnowLayers
@@ -3762,14 +3839,15 @@ end if
     deallocate(diag_data_device%balanceAqMass)
        
   end subroutine deallocate_device_diag_data
-      
 
-  subroutine allocate_device_bvar_data(bvar_data_device, bvar_data,nGRU)
+  subroutine allocate_device_bvar_data(bvar_data_device,nGRU)
+    use globalData,only:nTimeDelay
+    USE globalData,only:bvar_meta                     ! metadata structures
+
     implicit none
     type(bvar_data_device),intent(inout) :: bvar_data_device
-    type(gru_doubleVec),intent(in) :: bvar_data
     integer(i4b),intent(in) :: nGRU
-    integer(i4b) :: iGRU
+    integer(i4b) :: iGRU,iVar
 
     allocate(bvar_data_device%basin__AquiferStorage(nGRU))
     allocate(bvar_data_device%basin__SurfaceRunoff(nGRU))
@@ -3780,25 +3858,11 @@ allocate(bvar_data_device%basin__AquiferTranspire(nGRU))
 allocate(bvar_data_device%basin__TotalRunoff(nGRU))
 allocate(bvar_data_device%basin__SoilDrainage(nGRU))
 allocate(bvar_data_device%basin__totalArea(nGRU))
-allocate(bvar_data_device%routingRunoffFuture(size(bvar_data%gru(1)%var(iLookBVAR%routingRunoffFuture)%dat),nGRU))
-allocate(bvar_data_device%routingFractionFuture(size(bvar_data%gru(1)%var(iLookBVAR%routingFractionFuture)%dat),nGRU))
+allocate(bvar_data_device%routingRunoffFuture(nTimeDelay,nGRU))
+allocate(bvar_data_device%routingFractionFuture(nTimeDelay,nGRU))
 allocate(bvar_data_device%averageInstantRunoff(nGRU))
 allocate(bvar_data_device%averageRoutedRunoff(nGRU))
-do iGRU=1,nGRU
-    bvar_data_device%basin__SurfaceRunoff(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__SurfaceRunoff)%dat(1)
-    bvar_data_device%basin__AquiferStorage(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__AquiferStorage)%dat(1)
-bvar_data_device%basin__ColumnOutflow(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__ColumnOutflow)%dat(1)
-bvar_data_device%basin__AquiferRecharge(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__AquiferRecharge)%dat(1)
-bvar_data_device%basin__AquiferBaseflow(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__AquiferBaseflow)%dat(1)
-bvar_data_device%basin__AquiferTranspire(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__AquiferTranspire)%dat(1)
-bvar_data_device%basin__TotalRunoff(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__TotalRunoff)%dat(1)
-bvar_data_device%basin__SoilDrainage(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__SoilDrainage)%dat(1)
-bvar_data_device%basin__totalArea(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%basin__totalArea)%dat(1)
-  bvar_data_device%routingRunoffFuture(:,iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%routingRunoffFuture)%dat
-  bvar_data_device%routingFractionFuture(:,iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%routingFractionFuture)%dat
-  bvar_data_device%averageInstantRunoff(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%averageInstantRunoff)%dat(1)
-  bvar_data_device%averageRoutedRunoff(iGRU) = bvar_data%gru(iGRU)%var(iLookBVAR%averageRoutedRunoff)%dat(1)
-end do
+
   end subroutine allocate_device_bvar_data
 
   subroutine finalize_device_bvar_data(bvar_data_device, bvar_data)
@@ -3817,8 +3881,8 @@ bvar_data%gru(iGRU)%var(iLookBVAR%basin__AquiferTranspire)%dat(1) = bvar_data_de
 bvar_data%gru(iGRU)%var(iLookBVAR%basin__TotalRunoff)%dat(1) = bvar_data_device%basin__TotalRunoff(iGRU)
 bvar_data%gru(iGRU)%var(iLookBVAR%basin__SoilDrainage)%dat(1) = bvar_data_device%basin__SoilDrainage(iGRU)
 bvar_data%gru(iGRU)%var(iLookBVAR%basin__totalArea)%dat(1) = bvar_data_device%basin__totalArea(iGRU)
-  bvar_data%gru(iGRU)%var(iLookBVAR%routingRunoffFuture)%dat = bvar_data_device%routingRunoffFuture(:,iGRU)
-  bvar_data%gru(iGRU)%var(iLookBVAR%routingFractionFuture)%dat = bvar_data_device%routingFractionFuture(:,iGRU)
+  ! bvar_data%gru(iGRU)%var(iLookBVAR%routingRunoffFuture)%dat = bvar_data_device%routingRunoffFuture(:,iGRU)
+  ! bvar_data%gru(iGRU)%var(iLookBVAR%routingFractionFuture)%dat = bvar_data_device%routingFractionFuture(:,iGRU)
 bvar_data%gru(iGRU)%var(iLookBVAR%averageInstantRunoff)%dat(1) = bvar_data_device%averageInstantRunoff(iGRU)
 bvar_data%gru(iGRU)%var(iLookBVAR%averageRoutedRunoff)%dat(1) = bvar_data_device%averageRoutedRunoff(iGRU)
     end do
@@ -3830,30 +3894,27 @@ bvar_data%gru(iGRU)%var(iLookBVAR%averageRoutedRunoff)%dat(1) = bvar_data_device
     deallocate(bvar_data_device%basin__AquiferStorage)
   end subroutine deallocate_device_bvar_data
 
-  subroutine allocate_device_forc_data(forc_data_device, forc_data,nGRU)
+  subroutine allocate_device_forc_data(forc_data_device,nGRU)
+    use globalData,only:realMissing
     type(forc_data_device),intent(inout) :: forc_data_device
-    type(gru_hru_double),intent(in) :: forc_data
-    integer(i4b) :: nGRU,iGRU
+    integer(i4b) :: nGRU
 
-    allocate(forc_data_device%time(nGRU))
     allocate(forc_data_device%pptrate(nGRU))
     allocate(forc_data_device%SWRadAtm(nGRU))
-    allocate(forc_data_device%LWRadAtm_d(nGRU))
-    allocate(forc_data_device%airtemp_d(nGRU))
-    allocate(forc_data_device%windspd_d(nGRU))
-    allocate(forc_data_device%airpres_d(nGRU))
+    allocate(forc_data_device%LWRadAtm(nGRU))
+    allocate(forc_data_device%airtemp(nGRU))
+    allocate(forc_data_device%windspd(nGRU))
+    allocate(forc_data_device%airpres(nGRU))
     allocate(forc_data_device%spechum(nGRU))
 
-    do iGRU=1,nGRU
-      forc_data_device%time(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%time)
-      forc_data_device%pptrate(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%pptrate)
-      forc_data_device%SWRadAtm(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%SWRadAtm)
-      forc_data_device%LWRadAtm_d(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%LWRadAtm)
-      forc_data_device%airtemp_d(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%airtemp)
-      forc_data_device%windspd_d(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%windspd)
-      forc_data_device%airpres_d(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%airpres)
-      forc_data_device%spechum(iGRU) = forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%spechum)
-    end do
+      forc_data_device%time_h = realMissing
+      forc_data_device%pptrate = realMissing
+      forc_data_device%SWRadAtm = realMissing
+      forc_data_device%LWRadAtm = realMissing
+      forc_data_device%airtemp = realMissing
+      forc_data_device%windspd = realMissing
+      forc_data_device%airpres = realMissing
+      forc_data_device%spechum = realMissing
 
   end subroutine allocate_device_forc_data
           
@@ -3865,13 +3926,13 @@ bvar_data%gru(iGRU)%var(iLookBVAR%averageRoutedRunoff)%dat(1) = bvar_data_device
     nGRU = size(forc_data%gru)
 
     do iGRU=1,nGRU
-      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%time) = forc_data_device%time(iGRU)
+      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%time) = forc_data_device%time_h
       forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%pptrate) = forc_data_device%pptrate(iGRU)
       forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%SWRadAtm) = forc_data_device%SWRadAtm(iGRU)
-      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%LWRadAtm) = forc_data_device%LWRadAtm_d(iGRU)
-      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%airtemp) = forc_data_device%airtemp_d(iGRU)
-      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%windspd) = forc_data_device%windspd_d(iGRU)
-      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%airpres) = forc_data_device%airpres_d(iGRU)
+      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%LWRadAtm) = forc_data_device%LWRadAtm(iGRU)
+      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%airtemp) = forc_data_device%airtemp(iGRU)
+      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%windspd) = forc_data_device%windspd(iGRU)
+      forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%airpres) = forc_data_device%airpres(iGRU)
       forc_data%gru(iGRU)%hru(1)%var(iLookFORCE%spechum) = forc_data_device%spechum(iGRU)
     end do
 
@@ -3880,13 +3941,12 @@ bvar_data%gru(iGRU)%var(iLookBVAR%averageRoutedRunoff)%dat(1) = bvar_data_device
   subroutine deallocate_device_forc_data(forc_data_device)
     type(forc_data_device),intent(inout) :: forc_data_device
 
-    deallocate(forc_data_device%time)
     deallocate(forc_data_device%pptrate)
     deallocate(forc_data_device%SWRadAtm)
-    deallocate(forc_data_device%LWRadAtm_d)
-    deallocate(forc_data_device%airtemp_d)
-    deallocate(forc_data_device%windspd_d)
-    deallocate(forc_data_device%airpres_d)
+    deallocate(forc_data_device%LWRadAtm)
+    deallocate(forc_data_device%airtemp)
+    deallocate(forc_data_device%windspd)
+    deallocate(forc_data_device%airpres)
     deallocate(forc_data_device%spechum)
   end subroutine deallocate_device_forc_data
     
@@ -4002,6 +4062,7 @@ bvar_data%gru(iGRU)%var(iLookBVAR%averageRoutedRunoff)%dat(1) = bvar_data_device
 subroutine allocate_veg_table(veg_param_tables)
   use module_sf_noahlsm
   type(veg_param_tables) :: veg_param_tables
+
   veg_param_tables%rgltbl = rgltbl
   veg_param_tables%rstbl = rstbl
   veg_param_tables%hstbl = hstbl
@@ -4012,7 +4073,7 @@ end subroutine
   subroutine allocate_veg_parameters(veg_param,nGRU)
     use NOAHMP_VEG_PARAMETERS
     use noahmp_globals
-    use NOAHMP_RAD_PARAMETERS
+    use NOAHMP_RAD_PARAMETERS,only:MBAND,msc
     implicit none
     type(veg_parameters) :: veg_param
     integer(i4b) :: nGRU
@@ -4030,25 +4091,20 @@ end subroutine
     veg_param%qe25 = qe25
     veg_param%folnmx = folnmx
     allocate(veg_param%rgl_d(nGRU))
-    ! veg_param%rgl_d = rgl
     allocate(veg_param%rsmin_d(nGRU))
-    ! veg_param%rsmin_d = rsmin
     allocate(veg_param%rsmax_d(nGRU))
-    ! veg_param%rsmax = rsmax
     allocate(veg_param%topt_d(nGRU))
-    ! veg_param%topt = topt
     allocate(veg_param%hs_d(nGRU))
-    ! veg_param%hs_d = hs
     veg_param%rhol = rhol
     veg_param%rhos = rhos
     veg_param%taul = taul
     veg_param%taus = taus
     veg_param%opt_alb = opt_alb
-    veg_param%omegas = omegas
+    veg_param%omegas = (/0.8, 0.4/)
     veg_param%opt_rad = opt_rad
     veg_param%tfrz = tfrz
-    veg_param%betais = betais
-    veg_param%betads = betads
+    veg_param%betais = 0.5
+    veg_param%betads = 0.5
     veg_param%xl = xl
     allocate(veg_param%hvt_(size(hvt),nGRU))
     allocate(veg_param%hvb_(size(hvb),nGRU))
@@ -4059,9 +4115,13 @@ end subroutine
     end do
     veg_param%rc = rc
     veg_param%swemx = swemx
-    veg_param%albsat = albsat
-    veg_param%albdry = albdry
-    veg_param%alblak = alblak
+    allocate(veg_param%albsat(msc,mband))
+    veg_param%albsat(:,1)=(/0.15,0.11,0.10,0.09,0.08,0.07,0.06,0.05/)
+    veg_param%albsat(:,2)=(/0.30,0.22,0.20,0.18,0.16,0.14,0.12,0.10/)
+    allocate(veg_param%albdry(msc,mband))
+    veg_param%albdry(:,1) = (/0.27,0.22,0.20,0.18,0.16,0.14,0.12,0.10/)
+    veg_param%albdry(:,2) = (/0.54,0.44,0.40,0.36,0.32,0.28,0.24,0.20/)
+    veg_param%alblak=(/0.60, 0.40/)
     veg_param%isbarren = isbarren
     veg_param%ISSNOW = ISSNOW
     veg_param%ISWATER = ISWATER
@@ -4096,9 +4156,50 @@ end subroutine
       attr_data_device%contourLength(iGRU) = attr_data%gru(iGRU)%hru(1)%var(iLookATTR%contourLength)
       attr_data_device%HRUarea(iGRU) = attr_data%gru(iGRU)%hru(1)%var(iLookATTR%HRUarea)
       attr_data_device%mHeight(iGRU) = attr_data%gru(iGRU)%hru(1)%var(iLookATTR%mHeight)
-      print*, iGRU, attr_data%gru(iGRU)%hru(1)%var(iLookATTR%mHeight)
       attr_data_device%aspect(iGRU) = attr_data%gru(iGRU)%hru(1)%var(iLookATTR%aspect)
     end do
+  end subroutine
+
+  subroutine get_device_attr_data(attrStruct, iVar, iGRU, parVector)
+    implicit none
+    type(attr_data_device) :: attrStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind),allocatable :: parVector(:)
+
+    if (allocated(parVector)) deallocate(parVector)
+    allocate(parVector(1))
+    parVector = -9999_rkind
+    select case(iVar)
+      case(iLookATTR%latitude); parVector = attrStruct%latitude(iGRU)
+      case(iLookATTR%longitude); parVector = attrStruct%longitude(iGRU)
+      case(iLookATTR%elevation); parVector = attrStruct%elevation(iGRU)
+      case(iLookATTR%tan_slope); parVector = attrStruct%tan_slope(iGRU)
+      case(iLookATTR%contourLength); parVector = attrStruct%contourLength(iGRU)
+      case(iLookATTR%HRUarea); parVector = attrStruct%HRUarea(iGRU)
+      case(iLookATTR%mHeight); parVector = attrStruct%mHeight(iGRU)
+      case(iLookATTR%aspect); parVector = attrStruct%aspect(iGRU)
+    end select
+    if (.not.allocated(parVector)) then
+      allocate(parVector(1)); parVector = -9999_rkind
+    end if
+  end subroutine
+
+  subroutine set_device_attr_data(attrStruct, iVar, iGRU, parVector)
+    implicit none
+    type(attr_data_device) :: attrStruct
+    integer(i4b) :: iGRU, iVar
+    real(rkind) :: parVector
+
+    select case(iVar)
+      case(iLookATTR%latitude); attrStruct%latitude(iGRU) = parVector
+      case(iLookATTR%longitude); attrStruct%longitude(iGRU) = parVector
+      case(iLookATTR%elevation); attrStruct%elevation(iGRU) = parVector
+      case(iLookATTR%tan_slope); attrStruct%tan_slope(iGRU) = parVector
+      case(iLookATTR%contourLength); attrStruct%contourLength(iGRU) = parVector
+      case(iLookATTR%HRUarea); attrStruct%HRUarea(iGRU) = parVector
+      case(iLookATTR%mHeight); attrStruct%mHeight(iGRU) = parVector
+      case(iLookATTR%aspect); attrStruct%aspect(iGRU) = parVector
+    end select
   end subroutine
 
   subroutine deallocate_device_attr_data(attr_data_device)
@@ -4137,5 +4238,1205 @@ end subroutine
     integer(i4b) :: get_iGRU
     get_iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
   end function
+
+
+
+    subroutine get_device_prog_stat(progStruct, iVar, nGRU,iFreq, parVector)
+    implicit none
+    type(prog_stat_device) :: progStruct
+    integer(i4b) :: nGRU, iVar,iFreq
+    real(rkind) :: parVector(:)
+
+    parVector = -9999_rkind
+
+    select case(iVar)
+    case(iLookPROG%scalarCanopyIce); parVector = progStruct%stat_scalarCanopyIce(iFreq,:)
+    case(iLookPROG%scalarCanopyLiq); parVector = progStruct%stat_scalarCanopyLiq(iFreq,:)
+    case(iLookPROG%scalarCanopyWat); parVector = progStruct%stat_scalarCanopyWat(iFreq,:)
+    case(iLookPROG%scalarCanairTemp); parVector = progStruct%stat_scalarCanairTemp(iFreq,:)
+    case(iLookPROG%scalarCanopyTemp); parVector = progStruct%stat_scalarCanopyTemp(iFreq,:)
+    case(iLookPROG%scalarSnowAlbedo); parVector = progStruct%stat_scalarSnowAlbedo(iFreq,:)
+    case(iLookPROG%scalarSnowDepth); parVector = progStruct%stat_scalarSnowDepth(iFreq,:)
+    case(iLookPROG%scalarSWE); parVector = progStruct%stat_scalarSWE(iFreq,:)
+    case(iLookPROG%scalarSfcMeltPond); parVector = progStruct%stat_scalarSfcMeltPond(iFreq,:)
+    case(iLookPROG%scalarCanairEnthalpy); parVector = progStruct%stat_scalarCanairEnthalpy(iFreq,:)
+    case(iLookPROG%scalarCanopyEnthalpy); parVector = progStruct%stat_scalarCanopyEnthalpy(iFreq,:)
+    case(iLookPROG%scalarAquiferStorage); parVector = progStruct%stat_scalarAquiferStorage(iFreq,:)
+    case(iLookPROG%scalarSurfaceTemp); parVector = progStruct%stat_scalarSurfaceTemp(iFreq,:)
+    end select
+  end subroutine
+subroutine get_device_forc_stat(forcStat,iVar,nGRU,iFreq,parVector)
+  implicit none
+  type(forc_stat_device) :: forcStat
+  integer(i4b) :: nGRU, iVar, iFreq
+  real(rkind) :: parVector(:)
+  select case(iVar)
+  case(iLookFORCE%time); parVector = forcStat%stat_time(iFreq,:)
+  case(iLookFORCE%pptrate); parVector = forcStat%stat_pptrate(iFreq,:)
+  case(iLookFORCE%SWRadAtm); parVector = forcStat%stat_SWRadAtm(iFreq,:)
+  case(iLookFORCE%LWRadAtm); parVector = forcStat%stat_LWRadAtm(iFreq,:)
+  case(iLookFORCE%airtemp); parVector = forcStat%stat_airtemp(iFreq,:)
+  case(iLookFORCE%windspd); parVector = forcStat%stat_windspd(iFreq,:)
+  case(iLookFORCE%airpres); parVector = forcStat%stat_airpres(iFreq,:)
+  case(iLookFORCE%spechum); parVector = forcStat%stat_spechum(iFreq,:)
+  case default; parVector = -9999_rkind
+  end select
+end subroutine
+
+subroutine allocate_device_forc_stat(forcStat,nGRU)
+  use globalData,only:statForc_meta
+  use var_lookup,only:maxVarFreq
+  implicit none
+  type(forc_stat_device) :: forcStat
+  integer(i4b) :: nGRU, iGRU, iVar, pVar
+
+  do iVar=1,size(statForc_meta)
+    pVar = statForc_meta(iVar)%ixParent
+    select case(pVar)
+    case(iLookFORCE%time); forcStat%statIndex_time = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_time(2*maxVarFreq,nGRU))
+    case(iLookFORCE%pptrate); forcStat%statIndex_pptrate = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_pptrate(2*maxVarFreq,nGRU))
+    case(iLookFORCE%SWRadAtm); forcStat%statIndex_SWRadAtm = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_SWRadAtm(2*maxVarFreq,nGRU))
+    case(iLookFORCE%LWRadAtm); forcStat%statIndex_LWRadAtm = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_LWRadAtm(2*maxVarFreq,nGRU))
+    case(iLookFORCE%airtemp); forcStat%statIndex_airtemp = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_airtemp(2*maxVarFreq,nGRU))
+    case(iLookFORCE%windspd); forcStat%statIndex_windspd = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_windspd(2*maxVarFreq,nGRU))
+    case(iLookFORCE%airpres); forcStat%statIndex_airpres = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_airpres(2*maxVarFreq,nGRU))
+    case(iLookFORCE%spechum); forcStat%statIndex_spechum = statForc_meta(iVar)%statIndex
+      allocate(forcStat%stat_spechum(2*maxVarFreq,nGRU))
+    end select
+  end do
+  if (.not.allocated(forcStat%statIndex_time)) allocate(forcStat%statIndex_time(1))
+  if (.not.allocated(forcStat%stat_time)) allocate(forcStat%stat_time(1,1))
+if (.not.allocated(forcStat%statIndex_pptrate)) allocate(forcStat%statIndex_pptrate(1))
+if (.not.allocated(forcStat%stat_pptrate)) allocate(forcStat%stat_pptrate(1,1))
+if (.not.allocated(forcStat%statIndex_SWRadAtm)) allocate(forcStat%statIndex_SWRadAtm(1))
+if (.not.allocated(forcStat%stat_SWRadAtm)) allocate(forcStat%stat_SWRadAtm(1,1))
+if (.not.allocated(forcStat%statIndex_LWRadAtm)) allocate(forcStat%statIndex_LWRadAtm(1))
+if (.not.allocated(forcStat%stat_LWRadAtm)) allocate(forcStat%stat_LWRadAtm(1,1))
+if (.not.allocated(forcStat%statIndex_airtemp)) allocate(forcStat%statIndex_airtemp(1))
+if (.not.allocated(forcStat%stat_airtemp)) allocate(forcStat%stat_airtemp(1,1))
+if (.not.allocated(forcStat%statIndex_windspd)) allocate(forcStat%statIndex_windspd(1))
+if (.not.allocated(forcStat%stat_windspd)) allocate(forcStat%stat_windspd(1,1))
+if (.not.allocated(forcStat%statIndex_airpres)) allocate(forcStat%statIndex_airpres(1))
+if (.not.allocated(forcStat%stat_airpres)) allocate(forcStat%stat_airpres(1,1))
+if (.not.allocated(forcStat%statIndex_spechum)) allocate(forcStat%statIndex_spechum(1))
+if (.not.allocated(forcStat%stat_spechum)) allocate(forcStat%stat_spechum(1,1))
+end subroutine
+
+
+
+  subroutine allocate_device_prog_stat(progStat_d,nGRU)
+    USE globalData,only:statProg_meta             ! child metadata for stats
+    USE var_lookup,only:maxvarFreq             ! allocation dimension (output frequency)
+    implicit none
+    type(prog_stat_device) :: progStat_d
+    ! type(gru_doubleVec) :: bvarStat
+
+    integer(i4b) :: nGRU, iGRU, iVar, pVar
+    integer :: err
+
+    err = cudaDeviceSynchronize()
+ do iVar=1,size(statProg_meta)
+  pVar = statProg_meta(iVar)%ixParent
+  select case(pVar)
+  case(iLookPROG%scalarCanopyIce); progStat_d%statIndex_scalarCanopyIce = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanopyIce(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarCanopyLiq); progStat_d%statIndex_scalarCanopyLiq = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanopyLiq(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarCanopyWat); progStat_d%statIndex_scalarCanopyWat = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanopyWat(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarCanairTemp); progStat_d%statIndex_scalarCanairTemp = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanairTemp(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarCanopyTemp); progStat_d%statIndex_scalarCanopyTemp = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanopyTemp(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarSnowAlbedo); progStat_d%statIndex_scalarSnowAlbedo = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarSnowAlbedo(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarSnowDepth); progStat_d%statIndex_scalarSnowDepth = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarSnowDepth(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarSWE); progStat_d%statIndex_scalarSWE = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarSWE(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarSfcMeltPond); progStat_d%statIndex_scalarSfcMeltPond = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarSfcMeltPond(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarCanairEnthalpy); progStat_d%statIndex_scalarCanairEnthalpy = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanairEnthalpy(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarCanopyEnthalpy); progStat_d%statIndex_scalarCanopyEnthalpy = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarCanopyEnthalpy(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarAquiferStorage); progStat_d%statIndex_scalarAquiferStorage = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarAquiferStorage(maxVarFreq*2,nGRU))
+  case(iLookPROG%scalarSurfaceTemp); progStat_d%statIndex_scalarSurfaceTemp = statProg_meta(iVar)%statIndex
+    allocate(progStat_d%stat_scalarSurfaceTemp(maxVarFreq*2,nGRU))
+    end select
+  end do
+  if (.not. allocated(progStat_d%statIndex_scalarCanopyIce)) allocate(progStat_d%statIndex_scalarCanopyIce(1))
+  if (.not.allocated(progStat_d%stat_scalarCanopyIce)) allocate(progStat_d%stat_scalarCanopyIce(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarCanopyLiq)) allocate(progStat_d%statIndex_scalarCanopyLiq(1))
+if (.not.allocated(progStat_d%stat_scalarCanopyLiq)) allocate(progStat_d%stat_scalarCanopyLiq(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarCanopyWat)) allocate(progStat_d%statIndex_scalarCanopyWat(1))
+if (.not.allocated(progStat_d%stat_scalarCanopyWat)) allocate(progStat_d%stat_scalarCanopyWat(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarCanairTemp)) allocate(progStat_d%statIndex_scalarCanairTemp(1))
+if (.not.allocated(progStat_d%stat_scalarCanairTemp)) allocate(progStat_d%stat_scalarCanairTemp(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarCanopyTemp)) allocate(progStat_d%statIndex_scalarCanopyTemp(1))
+if (.not.allocated(progStat_d%stat_scalarCanopyTemp)) allocate(progStat_d%stat_scalarCanopyTemp(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarSnowAlbedo)) allocate(progStat_d%statIndex_scalarSnowAlbedo(1))
+if (.not.allocated(progStat_d%stat_scalarSnowAlbedo)) allocate(progStat_d%stat_scalarSnowAlbedo(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarSnowDepth)) allocate(progStat_d%statIndex_scalarSnowDepth(1))
+if (.not.allocated(progStat_d%stat_scalarSnowDepth)) allocate(progStat_d%stat_scalarSnowDepth(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarSWE)) allocate(progStat_d%statIndex_scalarSWE(1))
+if (.not.allocated(progStat_d%stat_scalarSWE)) allocate(progStat_d%stat_scalarSWE(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarSfcMeltPond)) allocate(progStat_d%statIndex_scalarSfcMeltPond(1))
+if (.not.allocated(progStat_d%stat_scalarSfcMeltPond)) allocate(progStat_d%stat_scalarSfcMeltPond(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarCanairEnthalpy)) allocate(progStat_d%statIndex_scalarCanairEnthalpy(1))
+if (.not.allocated(progStat_d%stat_scalarCanairEnthalpy)) allocate(progStat_d%stat_scalarCanairEnthalpy(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarCanopyEnthalpy)) allocate(progStat_d%statIndex_scalarCanopyEnthalpy(1))
+if (.not.allocated(progStat_d%stat_scalarCanopyEnthalpy)) allocate(progStat_d%stat_scalarCanopyEnthalpy(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarAquiferStorage)) allocate(progStat_d%statIndex_scalarAquiferStorage(1))
+if (.not.allocated(progStat_d%stat_scalarAquiferStorage)) allocate(progStat_d%stat_scalarAquiferStorage(1,1))
+if (.not. allocated(progStat_d%statIndex_scalarSurfaceTemp)) allocate(progStat_d%statIndex_scalarSurfaceTemp(1))
+if (.not.allocated(progStat_d%stat_scalarSurfaceTemp)) allocate(progStat_d%stat_scalarSurfaceTemp(1,1))
+!   if (.not. allocated(bvarStat_d%statIndex_basin__SurfaceRunoff)) allocate(bvarStat_d%statIndex_basin__SurfaceRunoff(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__ColumnOutflow)) allocate(bvarStat_d%statIndex_basin__ColumnOutflow(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__AquiferStorage)) allocate(bvarStat_d%statIndex_basin__AquiferStorage(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__AquiferRecharge)) allocate(bvarStat_d%statIndex_basin__AquiferRecharge(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__AquiferBaseflow)) allocate(bvarStat_d%statIndex_basin__AquiferBaseflow(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__AquiferTranspire)) allocate(bvarStat_d%statIndex_basin__AquiferTranspire(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__TotalRunoff)) allocate(bvarStat_d%statIndex_basin__TotalRunoff(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__SoilDrainage)) allocate(bvarStat_d%statIndex_basin__SoilDrainage(1))
+! if (.not. allocated(bvarStat_d%statIndex_basin__totalArea)) allocate(bvarStat_d%statIndex_basin__totalArea(1))
+! if (.not. allocated(bvarStat_d%statIndex_averageInstantRunoff)) allocate(bvarStat_d%statIndex_averageInstantRunoff(1))
+! if (.not. allocated(bvarStat_d%statIndex_averageRoutedRunoff)) allocate(bvarStat_d%statIndex_averageRoutedRunoff(1))
+
+  end subroutine
+
+
+        subroutine get_device_indx_stat(indxStruct, iVar, nGRU,iFreq, parVector)
+    implicit none
+    type(indx_stat_device) :: indxStruct
+    integer(i4b) :: nGRU, iVar,iFreq
+    real(rkind) :: parVector(:)
+
+    parVector = -9999_rkind
+    select case(iVar)
+    case(iLookINDEX%nSnow); parVector = indxStruct%stat_nSnow(iFreq,:)
+    case(iLookINDEX%nSoil); parVector = indxStruct%stat_nSoil(iFreq,:)
+    case(iLookINDEX%nLayers); parVector = indxStruct%stat_nLayers(iFreq,:)
+    case(iLookINDEX%nCasNrg); parVector = indxStruct%stat_nCasNrg(iFreq,:)
+    case(iLookINDEX%nVegNrg); parVector = indxStruct%stat_nVegNrg(iFreq,:)
+    case(iLookINDEX%nVegMass); parVector = indxStruct%stat_nVegMass(iFreq,:)
+    case(iLookINDEX%nVegState); parVector = indxStruct%stat_nVegState(iFreq,:)
+    case(iLookINDEX%nNrgState); parVector = indxStruct%stat_nNrgState(iFreq,:)
+    case(iLookINDEX%nWatState); parVector = indxStruct%stat_nWatState(iFreq,:)
+    case(iLookINDEX%nMatState); parVector = indxStruct%stat_nMatState(iFreq,:)
+    case(iLookINDEX%nMassState); parVector = indxStruct%stat_nMassState(iFreq,:)
+    case(iLookINDEX%nState); parVector = indxStruct%stat_nState(iFreq,:)
+    ! case(iLookINDEX%nSnowSoilNrg); allocate(parVector(nGRU)); parVector = indxStruct%stat_nSnowSoilNrg(iFreq,:)
+    ! case(iLookINDEX%nSnowOnlyNrg); allocate(parVector(nGRU)); parVector = indxStruct%stat_nSnowOnlyNrg(iFreq,:)
+    ! case(iLookINDEX%nSoilOnlyNrg); allocate(parVector(nGRU)); parVector = indxStruct%stat_nSoilOnlyNrg(iFreq,:)
+    ! case(iLookINDEX%nSnowSoilHyd); allocate(parVector(nGRU)); parVector = indxStruct%stat_nSnowSoilHyd(iFreq,:)
+    ! case(iLookINDEX%nSnowOnlyHyd); allocate(parVector(nGRU)); parVector = indxStruct%stat_nSnowOnlyHyd(iFreq,:)
+    ! case(iLookINDEX%nSoilOnlyHyd); allocate(parVector(nGRU)); parVector = indxStruct%stat_nSoilOnlyHyd(iFreq,:)
+    case(iLookINDEX%ixCasNrg); parVector = indxStruct%stat_ixCasNrg(iFreq,:)
+    case(iLookINDEX%ixVegNrg); parVector = indxStruct%stat_ixVegNrg(iFreq,:)
+    case(iLookINDEX%ixVegHyd); parVector = indxStruct%stat_ixVegHyd(iFreq,:)
+    case(iLookINDEX%ixTopNrg); parVector = indxStruct%stat_ixTopNrg(iFreq,:)
+    case(iLookINDEX%ixTopHyd); parVector = indxStruct%stat_ixTopHyd(iFreq,:)
+    case(iLookINDEX%ixAqWat); parVector = indxStruct%stat_ixAqWat(iFreq,:)
+    case(iLookINDEX%ixNrgCanair); parVector = indxStruct%stat_ixNrgCanair(iFreq,:)
+    case(iLookINDEX%ixNrgCanopy); parVector = indxStruct%stat_ixNrgCanopy(iFreq,:)
+    case(iLookINDEX%ixHydCanopy); parVector = indxStruct%stat_ixHydCanopy(iFreq,:)
+    case(iLookINDEX%ixWatAquifer); parVector = indxStruct%stat_ixWatAquifer(iFreq,:)
+    case(iLookINDEX%numberFluxCalc); parVector = indxStruct%stat_numberFluxCalc(iFreq,:)
+    case(iLookINDEX%numberStateSplit); parVector = indxStruct%stat_numberStateSplit(iFreq,:)
+    case(iLookINDEX%numberDomainSplitNrg); parVector = indxStruct%stat_numberDomainSplitNrg(iFreq,:)
+    case(iLookINDEX%numberDomainSplitMass); parVector = indxStruct%stat_numberDomainSplitMass(iFreq,:)
+    case(iLookINDEX%numberScalarSolutions); parVector = indxStruct%stat_numberScalarSolutions(iFreq,:)
+    end select
+  end subroutine
+  subroutine allocate_device_indx_stat(indxStat_d,nGRU)
+        USE globalData,only:statIndx_meta             ! child metadata for stats
+    USE var_lookup,only:maxvarFreq             ! allocation dimension (output frequency)
+    implicit none
+    type(indx_stat_device) :: indxStat_d
+    ! type(gru_doubleVec) :: bvarStat
+
+    integer(i4b) :: nGRU, iGRU, iVar, pVar
+    integer :: err
+
+ do iVar=1,size(statIndx_meta)
+  pVar = statIndx_meta(iVar)%ixParent
+  select case(pVar)
+  case(iLookINDEX%nSnow); indxStat_d%statIndex_nSnow = statIndx_meta(iVar)%statIndex
+        allocate(indxStat_d%stat_nSnow(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nSoil); indxStat_d%statIndex_nSoil = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nSoil(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nLayers); indxStat_d%statIndex_nLayers = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nLayers(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nCasNrg); indxStat_d%statIndex_nCasNrg = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nCasNrg(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nVegNrg); indxStat_d%statIndex_nVegNrg = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nVegNrg(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nVegMass); indxStat_d%statIndex_nVegMass = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nVegMass(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nVegState); indxStat_d%statIndex_nVegState = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nVegState(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nNrgState); indxStat_d%statIndex_nNrgState = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nNrgState(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nWatState); indxStat_d%statIndex_nWatState = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nWatState(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nMatState); indxStat_d%statIndex_nMatState = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nMatState(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nMassState); indxStat_d%statIndex_nMassState = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nMassState(maxVarFreq*2,nGRU))
+  case(iLookINDEX%nState); indxStat_d%statIndex_nState = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_nState(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixCasNrg); indxStat_d%statIndex_ixCasNrg = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixCasNrg(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixVegNrg); indxStat_d%statIndex_ixVegNrg = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixVegNrg(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixVegHyd); indxStat_d%statIndex_ixVegHyd = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixVegHyd(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixTopNrg); indxStat_d%statIndex_ixTopNrg = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixTopNrg(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixTopHyd); indxStat_d%statIndex_ixTopHyd = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixTopHyd(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixAqWat); indxStat_d%statIndex_ixAqWat = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixAqWat(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixNrgCanair); indxStat_d%statIndex_ixNrgCanair = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixNrgCanair(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixNrgCanopy); indxStat_d%statIndex_ixNrgCanopy = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixNrgCanopy(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixHydCanopy); indxStat_d%statIndex_ixHydCanopy = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixHydCanopy(maxVarFreq*2,nGRU))
+  case(iLookINDEX%ixWatAquifer); indxStat_d%statIndex_ixWatAquifer = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_ixWatAquifer(maxVarFreq*2,nGRU))
+  case(iLookINDEX%numberFluxCalc); indxStat_d%statIndex_numberFluxCalc = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_numberFluxCalc(maxVarFreq*2,nGRU))
+  case(iLookINDEX%numberStateSplit); indxStat_d%statIndex_numberStateSplit = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_numberStateSplit(maxVarFreq*2,nGRU))
+  case(iLookINDEX%numberDomainSplitNrg); indxStat_d%statIndex_numberDomainSplitNrg = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_numberDomainSplitNrg(maxVarFreq*2,nGRU))
+  case(iLookINDEX%numberDomainSplitMass); indxStat_d%statIndex_numberDomainSplitMass = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_numberDomainSplitMass(maxVarFreq*2,nGRU))
+  case(iLookINDEX%numberScalarSolutions); indxStat_d%statIndex_numberScalarSolutions = statIndx_meta(iVar)%statIndex
+    allocate(indxStat_d%stat_numberScalarSolutions(maxVarFreq*2,nGRU))
+
+  end select
+end do
+
+if (.not.allocated(indxStat_d%statIndex_nSnow)) allocate(indxStat_d%statIndex_nSnow(1))
+if (.not.allocated(indxStat_d%stat_nSnow)) allocate(indxStat_d%stat_nSnow(1,1))
+if (.not.allocated(indxStat_d%statIndex_nSoil)) allocate(indxStat_d%statIndex_nSoil(1))
+if (.not.allocated(indxStat_d%stat_nSoil)) allocate(indxStat_d%stat_nSoil(1,1))
+if (.not.allocated(indxStat_d%statIndex_nLayers)) allocate(indxStat_d%statIndex_nLayers(1))
+if (.not.allocated(indxStat_d%stat_nLayers)) allocate(indxStat_d%stat_nLayers(1,1))
+if (.not.allocated(indxStat_d%statIndex_nCasNrg)) allocate(indxStat_d%statIndex_nCasNrg(1))
+if (.not.allocated(indxStat_d%stat_nCasNrg)) allocate(indxStat_d%stat_nCasNrg(1,1))
+if (.not.allocated(indxStat_d%statIndex_nVegNrg)) allocate(indxStat_d%statIndex_nVegNrg(1))
+if (.not.allocated(indxStat_d%stat_nVegNrg)) allocate(indxStat_d%stat_nVegNrg(1,1))
+if (.not.allocated(indxStat_d%statIndex_nVegMass)) allocate(indxStat_d%statIndex_nVegMass(1))
+if (.not.allocated(indxStat_d%stat_nVegMass)) allocate(indxStat_d%stat_nVegMass(1,1))
+if (.not.allocated(indxStat_d%statIndex_nVegState)) allocate(indxStat_d%statIndex_nVegState(1))
+if (.not.allocated(indxStat_d%stat_nVegState)) allocate(indxStat_d%stat_nVegState(1,1))
+if (.not.allocated(indxStat_d%statIndex_nNrgState)) allocate(indxStat_d%statIndex_nNrgState(1))
+if (.not.allocated(indxStat_d%stat_nNrgState)) allocate(indxStat_d%stat_nNrgState(1,1))
+if (.not.allocated(indxStat_d%statIndex_nWatState)) allocate(indxStat_d%statIndex_nWatState(1))
+if (.not.allocated(indxStat_d%stat_nWatState)) allocate(indxStat_d%stat_nWatState(1,1))
+if (.not.allocated(indxStat_d%statIndex_nMatState)) allocate(indxStat_d%statIndex_nMatState(1))
+if (.not.allocated(indxStat_d%stat_nMatState)) allocate(indxStat_d%stat_nMatState(1,1))
+if (.not.allocated(indxStat_d%statIndex_nMassState)) allocate(indxStat_d%statIndex_nMassState(1))
+if (.not.allocated(indxStat_d%stat_nMassState)) allocate(indxStat_d%stat_nMassState(1,1))
+if (.not.allocated(indxStat_d%statIndex_nState)) allocate(indxStat_d%statIndex_nState(1))
+if (.not.allocated(indxStat_d%stat_nState)) allocate(indxStat_d%stat_nState(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixCasNrg)) allocate(indxStat_d%statIndex_ixCasNrg(1))
+if (.not.allocated(indxStat_d%stat_ixCasNrg)) allocate(indxStat_d%stat_ixCasNrg(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixVegNrg)) allocate(indxStat_d%statIndex_ixVegNrg(1))
+if (.not.allocated(indxStat_d%stat_ixVegNrg)) allocate(indxStat_d%stat_ixVegNrg(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixVegHyd)) allocate(indxStat_d%statIndex_ixVegHyd(1))
+if (.not.allocated(indxStat_d%stat_ixVegHyd)) allocate(indxStat_d%stat_ixVegHyd(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixTopNrg)) allocate(indxStat_d%statIndex_ixTopNrg(1))
+if (.not.allocated(indxStat_d%stat_ixTopNrg)) allocate(indxStat_d%stat_ixTopNrg(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixTopHyd)) allocate(indxStat_d%statIndex_ixTopHyd(1))
+if (.not.allocated(indxStat_d%stat_ixTopHyd)) allocate(indxStat_d%stat_ixTopHyd(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixAqWat)) allocate(indxStat_d%statIndex_ixAqWat(1))
+if (.not.allocated(indxStat_d%stat_ixAqWat)) allocate(indxStat_d%stat_ixAqWat(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixNrgCanair)) allocate(indxStat_d%statIndex_ixNrgCanair(1))
+if (.not.allocated(indxStat_d%stat_ixNrgCanair)) allocate(indxStat_d%stat_ixNrgCanair(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixNrgCanopy)) allocate(indxStat_d%statIndex_ixNrgCanopy(1))
+if (.not.allocated(indxStat_d%stat_ixNrgCanopy)) allocate(indxStat_d%stat_ixNrgCanopy(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixHydCanopy)) allocate(indxStat_d%statIndex_ixHydCanopy(1))
+if (.not.allocated(indxStat_d%stat_ixHydCanopy)) allocate(indxStat_d%stat_ixHydCanopy(1,1))
+if (.not.allocated(indxStat_d%statIndex_ixWatAquifer)) allocate(indxStat_d%statIndex_ixWatAquifer(1))
+if (.not.allocated(indxStat_d%stat_ixWatAquifer)) allocate(indxStat_d%stat_ixWatAquifer(1,1))
+if (.not.allocated(indxStat_d%statIndex_numberFluxCalc)) allocate(indxStat_d%statIndex_numberFluxCalc(1))
+if (.not.allocated(indxStat_d%stat_numberFluxCalc)) allocate(indxStat_d%stat_numberFluxCalc(1,1))
+if (.not.allocated(indxStat_d%statIndex_numberStateSplit)) allocate(indxStat_d%statIndex_numberStateSplit(1))
+if (.not.allocated(indxStat_d%stat_numberStateSplit)) allocate(indxStat_d%stat_numberStateSplit(1,1))
+if (.not.allocated(indxStat_d%statIndex_numberDomainSplitNrg)) allocate(indxStat_d%statIndex_numberDomainSplitNrg(1))
+if (.not.allocated(indxStat_d%stat_numberDomainSplitNrg)) allocate(indxStat_d%stat_numberDomainSplitNrg(1,1))
+if (.not.allocated(indxStat_d%statIndex_numberDomainSplitMass)) allocate(indxStat_d%statIndex_numberDomainSplitMass(1))
+if (.not.allocated(indxStat_d%stat_numberDomainSplitMass)) allocate(indxStat_d%stat_numberDomainSplitMass(1,1))
+if (.not.allocated(indxStat_d%statIndex_numberScalarSolutions)) allocate(indxStat_d%statIndex_numberScalarSolutions(1))
+if (.not.allocated(indxStat_d%stat_numberScalarSolutions)) allocate(indxStat_d%stat_numberScalarSolutions(1,1))
+
+
+  end subroutine
+
+  subroutine get_device_flux_stat(fluxStruct, iVar, nGRU, iFreq, parVector)
+    implicit none
+    type(flux_stat_device) :: fluxStruct
+    integer(i4b) :: nGRU, iVar, iFreq
+    real(rkind) :: parVector(:)
+
+select case(iVar)
+  case(iLookFLUX%scalarCanairNetNrgFlux); parVector = fluxStruct%stat_scalarCanairNetNrgFlux(iFreq,:)
+case(iLookFLUX%scalarCanopyNetNrgFlux); parVector = fluxStruct%stat_scalarCanopyNetNrgFlux(iFreq,:)
+case(iLookFLUX%scalarGroundNetNrgFlux); parVector = fluxStruct%stat_scalarGroundNetNrgFlux(iFreq,:)
+case(iLookFLUX%scalarCanopyNetLiqFlux); parVector = fluxStruct%stat_scalarCanopyNetLiqFlux(iFreq,:)
+case(iLookFLUX%scalarRainfall); parVector = fluxStruct%stat_scalarRainfall(iFreq,:)
+case(iLookFLUX%scalarSnowfall); parVector = fluxStruct%stat_scalarSnowfall(iFreq,:)
+case(iLookFLUX%scalarCanopySunlitPAR); parVector = fluxStruct%stat_scalarCanopySunlitPAR(iFreq,:)
+case(iLookFLUX%scalarCanopyShadedPAR); parVector = fluxStruct%stat_scalarCanopyShadedPAR(iFreq,:)
+case(iLookFLUX%scalarBelowCanopySolar); parVector = fluxStruct%stat_scalarBelowCanopySolar(iFreq,:)
+case(iLookFLUX%scalarCanopyAbsorbedSolar); parVector = fluxStruct%stat_scalarCanopyAbsorbedSolar(iFreq,:)
+case(iLookFLUX%scalarGroundAbsorbedSolar); parVector = fluxStruct%stat_scalarGroundAbsorbedSolar(iFreq,:)
+case(iLookFLUX%scalarLWRadCanopy); parVector = fluxStruct%stat_scalarLWRadCanopy(iFreq,:)
+case(iLookFLUX%scalarLWRadGround); parVector = fluxStruct%stat_scalarLWRadGround(iFreq,:)
+case(iLookFLUX%scalarLWRadUbound2Canopy); parVector = fluxStruct%stat_scalarLWRadUbound2Canopy(iFreq,:)
+case(iLookFLUX%scalarLWRadUbound2Ground); parVector = fluxStruct%stat_scalarLWRadUbound2Ground(iFreq,:)
+case(iLookFLUX%scalarLWRadUbound2Ubound); parVector = fluxStruct%stat_scalarLWRadUbound2Ubound(iFreq,:)
+case(iLookFLUX%scalarLWRadCanopy2Ubound); parVector = fluxStruct%stat_scalarLWRadCanopy2Ubound(iFreq,:)
+case(iLookFLUX%scalarLWRadCanopy2Ground); parVector = fluxStruct%stat_scalarLWRadCanopy2Ground(iFreq,:)
+case(iLookFLUX%scalarLWRadCanopy2Canopy); parVector = fluxStruct%stat_scalarLWRadCanopy2Canopy(iFreq,:)
+case(iLookFLUX%scalarLWRadGround2Ubound); parVector = fluxStruct%stat_scalarLWRadGround2Ubound(iFreq,:)
+case(iLookFLUX%scalarLWRadGround2Canopy); parVector = fluxStruct%stat_scalarLWRadGround2Canopy(iFreq,:)
+case(iLookFLUX%scalarLWNetCanopy); parVector = fluxStruct%stat_scalarLWNetCanopy(iFreq,:)
+case(iLookFLUX%scalarLWNetGround); parVector = fluxStruct%stat_scalarLWNetGround(iFreq,:)
+case(iLookFLUX%scalarLWNetUbound); parVector = fluxStruct%stat_scalarLWNetUbound(iFreq,:)
+case(iLookFLUX%scalarEddyDiffusCanopyTop); parVector = fluxStruct%stat_scalarEddyDiffusCanopyTop(iFreq,:)
+case(iLookFLUX%scalarFrictionVelocity); parVector = fluxStruct%stat_scalarFrictionVelocity(iFreq,:)
+case(iLookFLUX%scalarWindspdCanopyTop); parVector = fluxStruct%stat_scalarWindspdCanopyTop(iFreq,:)
+case(iLookFLUX%scalarWindspdCanopyBottom); parVector = fluxStruct%stat_scalarWindspdCanopyBottom(iFreq,:)
+case(iLookFLUX%scalarGroundResistance); parVector = fluxStruct%stat_scalarGroundResistance(iFreq,:)
+case(iLookFLUX%scalarCanopyResistance); parVector = fluxStruct%stat_scalarCanopyResistance(iFreq,:)
+case(iLookFLUX%scalarLeafResistance); parVector = fluxStruct%stat_scalarLeafResistance(iFreq,:)
+case(iLookFLUX%scalarSoilResistance); parVector = fluxStruct%stat_scalarSoilResistance(iFreq,:)
+case(iLookFLUX%scalarSenHeatTotal); parVector = fluxStruct%stat_scalarSenHeatTotal(iFreq,:)
+case(iLookFLUX%scalarSenHeatCanopy); parVector = fluxStruct%stat_scalarSenHeatCanopy(iFreq,:)
+case(iLookFLUX%scalarSenHeatGround); parVector = fluxStruct%stat_scalarSenHeatGround(iFreq,:)
+case(iLookFLUX%scalarLatHeatTotal); parVector = fluxStruct%stat_scalarLatHeatTotal(iFreq,:)
+case(iLookFLUX%scalarLatHeatCanopyEvap); parVector = fluxStruct%stat_scalarLatHeatCanopyEvap(iFreq,:)
+case(iLookFLUX%scalarLatHeatCanopyTrans); parVector = fluxStruct%stat_scalarLatHeatCanopyTrans(iFreq,:)
+case(iLookFLUX%scalarLatHeatGround); parVector = fluxStruct%stat_scalarLatHeatGround(iFreq,:)
+case(iLookFLUX%scalarCanopyAdvectiveHeatFlux); parVector = fluxStruct%stat_scalarCanopyAdvectiveHeatFlux(iFreq,:)
+case(iLookFLUX%scalarGroundAdvectiveHeatFlux); parVector = fluxStruct%stat_scalarGroundAdvectiveHeatFlux(iFreq,:)
+case(iLookFLUX%scalarCanopySublimation); parVector = fluxStruct%stat_scalarCanopySublimation(iFreq,:)
+case(iLookFLUX%scalarSnowSublimation); parVector = fluxStruct%stat_scalarSnowSublimation(iFreq,:)
+case(iLookFLUX%scalarStomResistSunlit); parVector = fluxStruct%stat_scalarStomResistSunlit(iFreq,:)
+case(iLookFLUX%scalarStomResistShaded); parVector = fluxStruct%stat_scalarStomResistShaded(iFreq,:)
+case(iLookFLUX%scalarPhotosynthesisSunlit); parVector = fluxStruct%stat_scalarPhotosynthesisSunlit(iFreq,:)
+case(iLookFLUX%scalarPhotosynthesisShaded); parVector = fluxStruct%stat_scalarPhotosynthesisShaded(iFreq,:)
+case(iLookFLUX%scalarCanopyTranspiration); parVector = fluxStruct%stat_scalarCanopyTranspiration(iFreq,:)
+case(iLookFLUX%scalarCanopyEvaporation); parVector = fluxStruct%stat_scalarCanopyEvaporation(iFreq,:)
+case(iLookFLUX%scalarGroundEvaporation); parVector = fluxStruct%stat_scalarGroundEvaporation(iFreq,:)
+case(iLookFLUX%scalarThroughfallSnow); parVector = fluxStruct%stat_scalarThroughfallSnow(iFreq,:)
+case(iLookFLUX%scalarThroughfallRain); parVector = fluxStruct%stat_scalarThroughfallRain(iFreq,:)
+case(iLookFLUX%scalarCanopySnowUnloading); parVector = fluxStruct%stat_scalarCanopySnowUnloading(iFreq,:)
+case(iLookFLUX%scalarCanopyLiqDrainage);  parVector = fluxStruct%stat_scalarCanopyLiqDrainage(iFreq,:)
+case(iLookFLUX%scalarCanopyMeltFreeze);  parVector = fluxStruct%stat_scalarCanopyMeltFreeze(iFreq,:)
+case(iLookFLUX%scalarSnowDrainage);  parVector = fluxStruct%stat_scalarSnowDrainage(iFreq,:)
+case(iLookFLUX%scalarRainPlusMelt);  parVector = fluxStruct%stat_scalarRainPlusMelt(iFreq,:)
+case(iLookFLUX%scalarMaxInfilRate);  parVector = fluxStruct%stat_scalarMaxInfilRate(iFreq,:)
+case(iLookFLUX%scalarInfiltration);  parVector = fluxStruct%stat_scalarInfiltration(iFreq,:)
+case(iLookFLUX%scalarExfiltration);  parVector = fluxStruct%stat_scalarExfiltration(iFreq,:)
+case(iLookFLUX%scalarSurfaceRunoff);  parVector = fluxStruct%stat_scalarSurfaceRunoff(iFreq,:)
+case(iLookFLUX%scalarSurfaceRunoff_IE);  parVector = fluxStruct%stat_scalarSurfaceRunoff_IE(iFreq,:)
+case(iLookFLUX%scalarSurfaceRunoff_SE);  parVector = fluxStruct%stat_scalarSurfaceRunoff_SE(iFreq,:)
+case(iLookFLUX%scalarSoilBaseflow);  parVector = fluxStruct%stat_scalarSoilBaseflow(iFreq,:)
+case(iLookFLUX%scalarSoilDrainage);  parVector = fluxStruct%stat_scalarSoilDrainage(iFreq,:)
+case(iLookFLUX%scalarAquiferRecharge); parVector = fluxStruct%stat_scalarAquiferRecharge(iFreq,:)
+case(iLookFLUX%scalarAquiferTranspire); parVector = fluxStruct%stat_scalarAquiferTranspire(iFreq,:)
+case(iLookFLUX%scalarAquiferBaseflow); parVector = fluxStruct%stat_scalarAquiferBaseflow(iFreq,:)
+case(iLookFLUX%scalarTotalET); parVector = fluxStruct%stat_scalarTotalET(iFreq,:)
+case(iLookFLUX%scalarTotalRunoff); parVector = fluxStruct%stat_scalarTotalRunoff(iFreq,:)
+case(iLookFLUX%scalarNetRadiation); parVector = fluxStruct%stat_scalarNetRadiation(iFreq,:)
+case default; parVector = -9999_rkind
+end select
+end subroutine
+subroutine allocate_device_flux_stat(fluxStat,nGRU)
+          USE globalData,only:statFlux_meta             ! child metadata for stats
+    USE var_lookup,only:maxvarFreq             ! allocation dimension (output frequency)
+    implicit none
+    type(flux_stat_device) :: fluxStat
+    ! type(gru_doubleVec) :: bvarStat
+
+    integer(i4b) :: nGRU, iGRU, iVar, pVar
+
+do iVar = 1,size(statFlux_meta)
+  pVar = statFlux_meta(iVar)%ixParent
+  select case (pVar)
+  case(iLookFLUX%scalarCanairNetNrgFlux); fluxStat%statIndex_scalarCanairNetNrgFlux = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanairNetNrgFlux(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyNetNrgFlux); fluxStat%statIndex_scalarCanopyNetNrgFlux = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyNetNrgFlux(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarGroundNetNrgFlux); fluxStat%statIndex_scalarGroundNetNrgFlux = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarGroundNetNrgFlux(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyNetLiqFlux); fluxStat%statIndex_scalarCanopyNetLiqFlux = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyNetLiqFlux(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarRainfall); fluxStat%statIndex_scalarRainfall = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarRainfall(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSnowfall); fluxStat%statIndex_scalarSnowfall = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSnowfall(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopySunlitPAR); fluxStat%statIndex_scalarCanopySunlitPAR = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopySunlitPAR(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyShadedPAR); fluxStat%statIndex_scalarCanopyShadedPAR = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyShadedPAR(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarBelowCanopySolar); fluxStat%statIndex_scalarBelowCanopySolar = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarBelowCanopySolar(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyAbsorbedSolar); fluxStat%statIndex_scalarCanopyAbsorbedSolar = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyAbsorbedSolar(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarGroundAbsorbedSolar); fluxStat%statIndex_scalarGroundAbsorbedSolar = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarGroundAbsorbedSolar(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadCanopy); fluxStat%statIndex_scalarLWRadCanopy = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadCanopy(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadGround); fluxStat%statIndex_scalarLWRadGround = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadGround(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadUbound2Canopy); fluxStat%statIndex_scalarLWRadUbound2Canopy = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadUbound2Canopy(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadUbound2Ground); fluxStat%statIndex_scalarLWRadUbound2Ground = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadUbound2Ground(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadUbound2Ubound); fluxStat%statIndex_scalarLWRadUbound2Ubound = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadUbound2Ubound(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadCanopy2Ubound); fluxStat%statIndex_scalarLWRadCanopy2Ubound = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadCanopy2Ubound(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadCanopy2Ground); fluxStat%statIndex_scalarLWRadCanopy2Ground = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadCanopy2Ground(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadCanopy2Canopy); fluxStat%statIndex_scalarLWRadCanopy2Canopy = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadCanopy2Canopy(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadGround2Ubound); fluxStat%statIndex_scalarLWRadGround2Ubound = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadGround2Ubound(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWRadGround2Canopy); fluxStat%statIndex_scalarLWRadGround2Canopy = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWRadGround2Canopy(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWNetCanopy); fluxStat%statIndex_scalarLWNetCanopy = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWNetCanopy(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWNetGround); fluxStat%statIndex_scalarLWNetGround = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWNetGround(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLWNetUbound); fluxStat%statIndex_scalarLWNetUbound = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLWNetUbound(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarEddyDiffusCanopyTop); fluxStat%statIndex_scalarEddyDiffusCanopyTop = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarEddyDiffusCanopyTop(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarFrictionVelocity); fluxStat%statIndex_scalarFrictionVelocity = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarFrictionVelocity(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarWindspdCanopyTop); fluxStat%statIndex_scalarWindspdCanopyTop = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarWindspdCanopyTop(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarWindspdCanopyBottom); fluxStat%statIndex_scalarWindspdCanopyBottom = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarWindspdCanopyBottom(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarGroundResistance); fluxStat%statIndex_scalarGroundResistance = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarGroundResistance(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyResistance); fluxStat%statIndex_scalarCanopyResistance = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyResistance(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLeafResistance); fluxStat%statIndex_scalarLeafResistance = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLeafResistance(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSoilResistance); fluxStat%statIndex_scalarSoilResistance = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSoilResistance(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSenHeatTotal); fluxStat%statIndex_scalarSenHeatTotal = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSenHeatTotal(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSenHeatCanopy); fluxStat%statIndex_scalarSenHeatCanopy = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSenHeatCanopy(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSenHeatGround); fluxStat%statIndex_scalarSenHeatGround = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSenHeatGround(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLatHeatTotal); fluxStat%statIndex_scalarLatHeatTotal = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLatHeatTotal(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLatHeatCanopyEvap); fluxStat%statIndex_scalarLatHeatCanopyEvap = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLatHeatCanopyEvap(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLatHeatCanopyTrans); fluxStat%statIndex_scalarLatHeatCanopyTrans = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLatHeatCanopyTrans(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarLatHeatGround); fluxStat%statIndex_scalarLatHeatGround = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarLatHeatGround(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyAdvectiveHeatFlux); fluxStat%statIndex_scalarCanopyAdvectiveHeatFlux = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyAdvectiveHeatFlux(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarGroundAdvectiveHeatFlux); fluxStat%statIndex_scalarGroundAdvectiveHeatFlux = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarGroundAdvectiveHeatFlux(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopySublimation); fluxStat%statIndex_scalarCanopySublimation = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopySublimation(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSnowSublimation); fluxStat%statIndex_scalarSnowSublimation = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSnowSublimation(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarStomResistSunlit); fluxStat%statIndex_scalarStomResistSunlit = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarStomResistSunlit(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarStomResistShaded); fluxStat%statIndex_scalarStomResistShaded = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarStomResistShaded(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarPhotosynthesisSunlit); fluxStat%statIndex_scalarPhotosynthesisSunlit = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarPhotosynthesisSunlit(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarPhotosynthesisShaded); fluxStat%statIndex_scalarPhotosynthesisShaded = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarPhotosynthesisShaded(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyTranspiration); fluxStat%statIndex_scalarCanopyTranspiration = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyTranspiration(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyEvaporation); fluxStat%statIndex_scalarCanopyEvaporation = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyEvaporation(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarGroundEvaporation); fluxStat%statIndex_scalarGroundEvaporation = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarGroundEvaporation(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarThroughfallSnow); fluxStat%statIndex_scalarThroughfallSnow = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarThroughfallSnow(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarThroughfallRain); fluxStat%statIndex_scalarThroughfallRain = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarThroughfallRain(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopySnowUnloading); fluxStat%statIndex_scalarCanopySnowUnloading = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopySnowUnloading(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyLiqDrainage); fluxStat%statIndex_scalarCanopyLiqDrainage = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyLiqDrainage(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarCanopyMeltFreeze); fluxStat%statIndex_scalarCanopyMeltFreeze = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarCanopyMeltFreeze(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSnowDrainage); fluxStat%statIndex_scalarSnowDrainage = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSnowDrainage(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarRainPlusMelt); fluxStat%statIndex_scalarRainPlusMelt = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarRainPlusMelt(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarMaxInfilRate); fluxStat%statIndex_scalarMaxInfilRate = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarMaxInfilRate(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarInfiltration); fluxStat%statIndex_scalarInfiltration = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarInfiltration(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarExfiltration); fluxStat%statIndex_scalarExfiltration = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarExfiltration(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSurfaceRunoff); fluxStat%statIndex_scalarSurfaceRunoff = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSurfaceRunoff(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSurfaceRunoff_IE); fluxStat%statIndex_scalarSurfaceRunoff_IE = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSurfaceRunoff_IE(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSurfaceRunoff_SE); fluxStat%statIndex_scalarSurfaceRunoff_SE = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSurfaceRunoff_SE(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSoilBaseflow); fluxStat%statIndex_scalarSoilBaseflow = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSoilBaseflow(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarSoilDrainage); fluxStat%statIndex_scalarSoilDrainage = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarSoilDrainage(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarAquiferRecharge); fluxStat%statIndex_scalarAquiferRecharge = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarAquiferRecharge(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarAquiferTranspire); fluxStat%statIndex_scalarAquiferTranspire = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarAquiferTranspire(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarAquiferBaseflow); fluxStat%statIndex_scalarAquiferBaseflow = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarAquiferBaseflow(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarTotalET); fluxStat%statIndex_scalarTotalET = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarTotalET(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarTotalRunoff); fluxStat%statIndex_scalarTotalRunoff = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarTotalRunoff(2*maxVarFreq,nGRU))
+  case(iLookFLUX%scalarNetRadiation); fluxStat%statIndex_scalarNetRadiation = statFlux_meta(iVar)%statIndex
+    allocate(fluxStat%stat_scalarNetRadiation(2*maxVarFreq,nGRU))
+  end select
+end do
+if (.not. allocated(fluxStat%statIndex_scalarCanairNetNrgFlux)) allocate(fluxStat%statIndex_scalarCanairNetNrgFlux(1))
+if (.not. allocated(fluxStat%stat_scalarCanairNetNrgFlux)) allocate(fluxStat%stat_scalarCanairNetNrgFlux(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyNetNrgFlux)) allocate(fluxStat%statIndex_scalarCanopyNetNrgFlux(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyNetNrgFlux)) allocate(fluxStat%stat_scalarCanopyNetNrgFlux(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarGroundNetNrgFlux)) allocate(fluxStat%statIndex_scalarGroundNetNrgFlux(1))
+if (.not. allocated(fluxStat%stat_scalarGroundNetNrgFlux)) allocate(fluxStat%stat_scalarGroundNetNrgFlux(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyNetLiqFlux)) allocate(fluxStat%statIndex_scalarCanopyNetLiqFlux(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyNetLiqFlux)) allocate(fluxStat%stat_scalarCanopyNetLiqFlux(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarRainfall)) allocate(fluxStat%statIndex_scalarRainfall(1))
+if (.not. allocated(fluxStat%stat_scalarRainfall)) allocate(fluxStat%stat_scalarRainfall(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSnowfall)) allocate(fluxStat%statIndex_scalarSnowfall(1))
+if (.not. allocated(fluxStat%stat_scalarSnowfall)) allocate(fluxStat%stat_scalarSnowfall(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopySunlitPAR)) allocate(fluxStat%statIndex_scalarCanopySunlitPAR(1))
+if (.not. allocated(fluxStat%stat_scalarCanopySunlitPAR)) allocate(fluxStat%stat_scalarCanopySunlitPAR(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyShadedPAR)) allocate(fluxStat%statIndex_scalarCanopyShadedPAR(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyShadedPAR)) allocate(fluxStat%stat_scalarCanopyShadedPAR(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarBelowCanopySolar)) allocate(fluxStat%statIndex_scalarBelowCanopySolar(1))
+if (.not. allocated(fluxStat%stat_scalarBelowCanopySolar)) allocate(fluxStat%stat_scalarBelowCanopySolar(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyAbsorbedSolar)) allocate(fluxStat%statIndex_scalarCanopyAbsorbedSolar(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyAbsorbedSolar)) allocate(fluxStat%stat_scalarCanopyAbsorbedSolar(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarGroundAbsorbedSolar)) allocate(fluxStat%statIndex_scalarGroundAbsorbedSolar(1))
+if (.not. allocated(fluxStat%stat_scalarGroundAbsorbedSolar)) allocate(fluxStat%stat_scalarGroundAbsorbedSolar(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadCanopy)) allocate(fluxStat%statIndex_scalarLWRadCanopy(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadCanopy)) allocate(fluxStat%stat_scalarLWRadCanopy(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadGround)) allocate(fluxStat%statIndex_scalarLWRadGround(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadGround)) allocate(fluxStat%stat_scalarLWRadGround(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadUbound2Canopy)) allocate(fluxStat%statIndex_scalarLWRadUbound2Canopy(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadUbound2Canopy)) allocate(fluxStat%stat_scalarLWRadUbound2Canopy(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadUbound2Ground)) allocate(fluxStat%statIndex_scalarLWRadUbound2Ground(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadUbound2Ground)) allocate(fluxStat%stat_scalarLWRadUbound2Ground(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadUbound2Ubound)) allocate(fluxStat%statIndex_scalarLWRadUbound2Ubound(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadUbound2Ubound)) allocate(fluxStat%stat_scalarLWRadUbound2Ubound(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadCanopy2Ubound)) allocate(fluxStat%statIndex_scalarLWRadCanopy2Ubound(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadCanopy2Ubound)) allocate(fluxStat%stat_scalarLWRadCanopy2Ubound(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadCanopy2Ground)) allocate(fluxStat%statIndex_scalarLWRadCanopy2Ground(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadCanopy2Ground)) allocate(fluxStat%stat_scalarLWRadCanopy2Ground(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadCanopy2Canopy)) allocate(fluxStat%statIndex_scalarLWRadCanopy2Canopy(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadCanopy2Canopy)) allocate(fluxStat%stat_scalarLWRadCanopy2Canopy(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadGround2Ubound)) allocate(fluxStat%statIndex_scalarLWRadGround2Ubound(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadGround2Ubound)) allocate(fluxStat%stat_scalarLWRadGround2Ubound(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWRadGround2Canopy)) allocate(fluxStat%statIndex_scalarLWRadGround2Canopy(1))
+if (.not. allocated(fluxStat%stat_scalarLWRadGround2Canopy)) allocate(fluxStat%stat_scalarLWRadGround2Canopy(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWNetCanopy)) allocate(fluxStat%statIndex_scalarLWNetCanopy(1))
+if (.not. allocated(fluxStat%stat_scalarLWNetCanopy)) allocate(fluxStat%stat_scalarLWNetCanopy(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWNetGround)) allocate(fluxStat%statIndex_scalarLWNetGround(1))
+if (.not. allocated(fluxStat%stat_scalarLWNetGround)) allocate(fluxStat%stat_scalarLWNetGround(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLWNetUbound)) allocate(fluxStat%statIndex_scalarLWNetUbound(1))
+if (.not. allocated(fluxStat%stat_scalarLWNetUbound)) allocate(fluxStat%stat_scalarLWNetUbound(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarEddyDiffusCanopyTop)) allocate(fluxStat%statIndex_scalarEddyDiffusCanopyTop(1))
+if (.not. allocated(fluxStat%stat_scalarEddyDiffusCanopyTop)) allocate(fluxStat%stat_scalarEddyDiffusCanopyTop(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarFrictionVelocity)) allocate(fluxStat%statIndex_scalarFrictionVelocity(1))
+if (.not. allocated(fluxStat%stat_scalarFrictionVelocity)) allocate(fluxStat%stat_scalarFrictionVelocity(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarWindspdCanopyTop)) allocate(fluxStat%statIndex_scalarWindspdCanopyTop(1))
+if (.not. allocated(fluxStat%stat_scalarWindspdCanopyTop)) allocate(fluxStat%stat_scalarWindspdCanopyTop(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarWindspdCanopyBottom)) allocate(fluxStat%statIndex_scalarWindspdCanopyBottom(1))
+if (.not. allocated(fluxStat%stat_scalarWindspdCanopyBottom)) allocate(fluxStat%stat_scalarWindspdCanopyBottom(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarGroundResistance)) allocate(fluxStat%statIndex_scalarGroundResistance(1))
+if (.not. allocated(fluxStat%stat_scalarGroundResistance)) allocate(fluxStat%stat_scalarGroundResistance(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyResistance)) allocate(fluxStat%statIndex_scalarCanopyResistance(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyResistance)) allocate(fluxStat%stat_scalarCanopyResistance(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLeafResistance)) allocate(fluxStat%statIndex_scalarLeafResistance(1))
+if (.not. allocated(fluxStat%stat_scalarLeafResistance)) allocate(fluxStat%stat_scalarLeafResistance(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSoilResistance)) allocate(fluxStat%statIndex_scalarSoilResistance(1))
+if (.not. allocated(fluxStat%stat_scalarSoilResistance)) allocate(fluxStat%stat_scalarSoilResistance(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSenHeatTotal)) allocate(fluxStat%statIndex_scalarSenHeatTotal(1))
+if (.not. allocated(fluxStat%stat_scalarSenHeatTotal)) allocate(fluxStat%stat_scalarSenHeatTotal(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSenHeatCanopy)) allocate(fluxStat%statIndex_scalarSenHeatCanopy(1))
+if (.not. allocated(fluxStat%stat_scalarSenHeatCanopy)) allocate(fluxStat%stat_scalarSenHeatCanopy(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSenHeatGround)) allocate(fluxStat%statIndex_scalarSenHeatGround(1))
+if (.not. allocated(fluxStat%stat_scalarSenHeatGround)) allocate(fluxStat%stat_scalarSenHeatGround(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLatHeatTotal)) allocate(fluxStat%statIndex_scalarLatHeatTotal(1))
+if (.not. allocated(fluxStat%stat_scalarLatHeatTotal)) allocate(fluxStat%stat_scalarLatHeatTotal(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLatHeatCanopyEvap)) allocate(fluxStat%statIndex_scalarLatHeatCanopyEvap(1))
+if (.not. allocated(fluxStat%stat_scalarLatHeatCanopyEvap)) allocate(fluxStat%stat_scalarLatHeatCanopyEvap(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLatHeatCanopyTrans)) allocate(fluxStat%statIndex_scalarLatHeatCanopyTrans(1))
+if (.not. allocated(fluxStat%stat_scalarLatHeatCanopyTrans)) allocate(fluxStat%stat_scalarLatHeatCanopyTrans(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarLatHeatGround)) allocate(fluxStat%statIndex_scalarLatHeatGround(1))
+if (.not. allocated(fluxStat%stat_scalarLatHeatGround)) allocate(fluxStat%stat_scalarLatHeatGround(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyAdvectiveHeatFlux)) allocate(fluxStat%statIndex_scalarCanopyAdvectiveHeatFlux(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyAdvectiveHeatFlux)) allocate(fluxStat%stat_scalarCanopyAdvectiveHeatFlux(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarGroundAdvectiveHeatFlux)) allocate(fluxStat%statIndex_scalarGroundAdvectiveHeatFlux(1))
+if (.not. allocated(fluxStat%stat_scalarGroundAdvectiveHeatFlux)) allocate(fluxStat%stat_scalarGroundAdvectiveHeatFlux(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopySublimation)) allocate(fluxStat%statIndex_scalarCanopySublimation(1))
+if (.not. allocated(fluxStat%stat_scalarCanopySublimation)) allocate(fluxStat%stat_scalarCanopySublimation(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSnowSublimation)) allocate(fluxStat%statIndex_scalarSnowSublimation(1))
+if (.not. allocated(fluxStat%stat_scalarSnowSublimation)) allocate(fluxStat%stat_scalarSnowSublimation(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarStomResistSunlit)) allocate(fluxStat%statIndex_scalarStomResistSunlit(1))
+if (.not. allocated(fluxStat%stat_scalarStomResistSunlit)) allocate(fluxStat%stat_scalarStomResistSunlit(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarStomResistShaded)) allocate(fluxStat%statIndex_scalarStomResistShaded(1))
+if (.not. allocated(fluxStat%stat_scalarStomResistShaded)) allocate(fluxStat%stat_scalarStomResistShaded(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarPhotosynthesisSunlit)) allocate(fluxStat%statIndex_scalarPhotosynthesisSunlit(1))
+if (.not. allocated(fluxStat%stat_scalarPhotosynthesisSunlit)) allocate(fluxStat%stat_scalarPhotosynthesisSunlit(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarPhotosynthesisShaded)) allocate(fluxStat%statIndex_scalarPhotosynthesisShaded(1))
+if (.not. allocated(fluxStat%stat_scalarPhotosynthesisShaded)) allocate(fluxStat%stat_scalarPhotosynthesisShaded(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyTranspiration)) allocate(fluxStat%statIndex_scalarCanopyTranspiration(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyTranspiration)) allocate(fluxStat%stat_scalarCanopyTranspiration(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyEvaporation)) allocate(fluxStat%statIndex_scalarCanopyEvaporation(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyEvaporation)) allocate(fluxStat%stat_scalarCanopyEvaporation(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarGroundEvaporation)) allocate(fluxStat%statIndex_scalarGroundEvaporation(1))
+if (.not. allocated(fluxStat%stat_scalarGroundEvaporation)) allocate(fluxStat%stat_scalarGroundEvaporation(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarThroughfallSnow)) allocate(fluxStat%statIndex_scalarThroughfallSnow(1))
+if (.not. allocated(fluxStat%stat_scalarThroughfallSnow)) allocate(fluxStat%stat_scalarThroughfallSnow(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarThroughfallRain)) allocate(fluxStat%statIndex_scalarThroughfallRain(1))
+if (.not. allocated(fluxStat%stat_scalarThroughfallRain)) allocate(fluxStat%stat_scalarThroughfallRain(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopySnowUnloading)) allocate(fluxStat%statIndex_scalarCanopySnowUnloading(1))
+if (.not. allocated(fluxStat%stat_scalarCanopySnowUnloading)) allocate(fluxStat%stat_scalarCanopySnowUnloading(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyLiqDrainage)) allocate(fluxStat%statIndex_scalarCanopyLiqDrainage(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyLiqDrainage)) allocate(fluxStat%stat_scalarCanopyLiqDrainage(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarCanopyMeltFreeze)) allocate(fluxStat%statIndex_scalarCanopyMeltFreeze(1))
+if (.not. allocated(fluxStat%stat_scalarCanopyMeltFreeze)) allocate(fluxStat%stat_scalarCanopyMeltFreeze(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSnowDrainage)) allocate(fluxStat%statIndex_scalarSnowDrainage(1))
+if (.not. allocated(fluxStat%stat_scalarSnowDrainage)) allocate(fluxStat%stat_scalarSnowDrainage(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarRainPlusMelt)) allocate(fluxStat%statIndex_scalarRainPlusMelt(1))
+if (.not. allocated(fluxStat%stat_scalarRainPlusMelt)) allocate(fluxStat%stat_scalarRainPlusMelt(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarMaxInfilRate)) allocate(fluxStat%statIndex_scalarMaxInfilRate(1))
+if (.not. allocated(fluxStat%stat_scalarMaxInfilRate)) allocate(fluxStat%stat_scalarMaxInfilRate(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarInfiltration)) allocate(fluxStat%statIndex_scalarInfiltration(1))
+if (.not. allocated(fluxStat%stat_scalarInfiltration)) allocate(fluxStat%stat_scalarInfiltration(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarExfiltration)) allocate(fluxStat%statIndex_scalarExfiltration(1))
+if (.not. allocated(fluxStat%stat_scalarExfiltration)) allocate(fluxStat%stat_scalarExfiltration(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSurfaceRunoff)) allocate(fluxStat%statIndex_scalarSurfaceRunoff(1))
+if (.not. allocated(fluxStat%stat_scalarSurfaceRunoff)) allocate(fluxStat%stat_scalarSurfaceRunoff(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSurfaceRunoff_IE)) allocate(fluxStat%statIndex_scalarSurfaceRunoff_IE(1))
+if (.not. allocated(fluxStat%stat_scalarSurfaceRunoff_IE)) allocate(fluxStat%stat_scalarSurfaceRunoff_IE(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSurfaceRunoff_SE)) allocate(fluxStat%statIndex_scalarSurfaceRunoff_SE(1))
+if (.not. allocated(fluxStat%stat_scalarSurfaceRunoff_SE)) allocate(fluxStat%stat_scalarSurfaceRunoff_SE(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSoilBaseflow)) allocate(fluxStat%statIndex_scalarSoilBaseflow(1))
+if (.not. allocated(fluxStat%stat_scalarSoilBaseflow)) allocate(fluxStat%stat_scalarSoilBaseflow(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarSoilDrainage)) allocate(fluxStat%statIndex_scalarSoilDrainage(1))
+if (.not. allocated(fluxStat%stat_scalarSoilDrainage)) allocate(fluxStat%stat_scalarSoilDrainage(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarAquiferRecharge)) allocate(fluxStat%statIndex_scalarAquiferRecharge(1))
+if (.not. allocated(fluxStat%stat_scalarAquiferRecharge)) allocate(fluxStat%stat_scalarAquiferRecharge(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarAquiferTranspire)) allocate(fluxStat%statIndex_scalarAquiferTranspire(1))
+if (.not. allocated(fluxStat%stat_scalarAquiferTranspire)) allocate(fluxStat%stat_scalarAquiferTranspire(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarAquiferBaseflow)) allocate(fluxStat%statIndex_scalarAquiferBaseflow(1))
+if (.not. allocated(fluxStat%stat_scalarAquiferBaseflow)) allocate(fluxStat%stat_scalarAquiferBaseflow(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarTotalET)) allocate(fluxStat%statIndex_scalarTotalET(1))
+if (.not. allocated(fluxStat%stat_scalarTotalET)) allocate(fluxStat%stat_scalarTotalET(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarTotalRunoff)) allocate(fluxStat%statIndex_scalarTotalRunoff(1))
+if (.not. allocated(fluxStat%stat_scalarTotalRunoff)) allocate(fluxStat%stat_scalarTotalRunoff(1,1))
+if (.not. allocated(fluxStat%statIndex_scalarNetRadiation)) allocate(fluxStat%statIndex_scalarNetRadiation(1))
+if (.not. allocated(fluxStat%stat_scalarNetRadiation)) allocate(fluxStat%stat_scalarNetRadiation(1,1))
+end subroutine
+
+subroutine allocate_device_diag_stat(diagStat,nGRU)
+            USE globalData,only:statDiag_meta             ! child metadata for stats
+    USE var_lookup,only:maxvarFreq             ! allocation dimension (output frequency)
+
+  implicit none
+  type(diag_stat_device) :: diagStat
+      integer(i4b) :: nGRU, iGRU, iVar, pVar
+
+do iVar = 1,size(statDiag_meta)
+  pVar = statDiag_meta(iVar)%ixParent
+  select case (pVar)
+
+  case(iLookDIAG%scalarCanopyDepth); diagStat%statIndex_scalarCanopyDepth = statDiag_meta(iVar)%statIndex
+    allocate(diagStat%stat_scalarCanopyDepth(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarBulkVolHeatCapVeg); diagStat%statIndex_scalarBulkVolHeatCapVeg = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarBulkVolHeatCapVeg(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyCm); diagStat%statIndex_scalarCanopyCm = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyCm(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyEmissivity); diagStat%statIndex_scalarCanopyEmissivity = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyEmissivity(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarRootZoneTemp); diagStat%statIndex_scalarRootZoneTemp = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarRootZoneTemp(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarLAI); diagStat%statIndex_scalarLAI = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarLAI(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSAI); diagStat%statIndex_scalarSAI = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSAI(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarExposedLAI); diagStat%statIndex_scalarExposedLAI = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarExposedLAI(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarExposedSAI); diagStat%statIndex_scalarExposedSAI = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarExposedSAI(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarAdjMeasHeight); diagStat%statIndex_scalarAdjMeasHeight = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarAdjMeasHeight(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyIceMax); diagStat%statIndex_scalarCanopyIceMax = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyIceMax(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyLiqMax); diagStat%statIndex_scalarCanopyLiqMax = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyLiqMax(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarGrowingSeasonIndex); diagStat%statIndex_scalarGrowingSeasonIndex = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarGrowingSeasonIndex(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVolHtCap_air); diagStat%statIndex_scalarVolHtCap_air = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVolHtCap_air(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVolHtCap_ice); diagStat%statIndex_scalarVolHtCap_ice = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVolHtCap_ice(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVolHtCap_soil); diagStat%statIndex_scalarVolHtCap_soil = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVolHtCap_soil(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVolHtCap_water); diagStat%statIndex_scalarVolHtCap_water = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVolHtCap_water(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarLambda_drysoil); diagStat%statIndex_scalarLambda_drysoil = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarLambda_drysoil(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarLambda_wetsoil); diagStat%statIndex_scalarLambda_wetsoil = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarLambda_wetsoil(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyEnthTemp); diagStat%statIndex_scalarCanopyEnthTemp = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyEnthTemp(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTotalSoilEnthalpy); diagStat%statIndex_scalarTotalSoilEnthalpy = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTotalSoilEnthalpy(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTotalSnowEnthalpy); diagStat%statIndex_scalarTotalSnowEnthalpy = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTotalSnowEnthalpy(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVPair); diagStat%statIndex_scalarVPair = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVPair(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVP_CanopyAir); diagStat%statIndex_scalarVP_CanopyAir = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVP_CanopyAir(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTwetbulb); diagStat%statIndex_scalarTwetbulb = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTwetbulb(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSnowfallTemp); diagStat%statIndex_scalarSnowfallTemp = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSnowfallTemp(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarNewSnowDensity); diagStat%statIndex_scalarNewSnowDensity = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarNewSnowDensity(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarO2air); diagStat%statIndex_scalarO2air = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarO2air(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCO2air); diagStat%statIndex_scalarCO2air = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCO2air(2*maxVarFreq,nGRU))
+case(iLookDIAG%windspd_x); diagStat%statIndex_windspd_x = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_windspd_x(2*maxVarFreq,nGRU))
+case(iLookDIAG%windspd_y); diagStat%statIndex_windspd_y = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_windspd_y(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCosZenith); diagStat%statIndex_scalarCosZenith = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCosZenith(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarFractionDirect); diagStat%statIndex_scalarFractionDirect = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarFractionDirect(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopySunlitFraction); diagStat%statIndex_scalarCanopySunlitFraction = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopySunlitFraction(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopySunlitLAI); diagStat%statIndex_scalarCanopySunlitLAI = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopySunlitLAI(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyShadedLAI); diagStat%statIndex_scalarCanopyShadedLAI = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyShadedLAI(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarGroundAlbedo); diagStat%statIndex_scalarGroundAlbedo = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarGroundAlbedo(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarLatHeatSubVapCanopy); diagStat%statIndex_scalarLatHeatSubVapCanopy = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarLatHeatSubVapCanopy(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarLatHeatSubVapGround); diagStat%statIndex_scalarLatHeatSubVapGround = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarLatHeatSubVapGround(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSatVP_CanopyTemp); diagStat%statIndex_scalarSatVP_CanopyTemp = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSatVP_CanopyTemp(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSatVP_GroundTemp); diagStat%statIndex_scalarSatVP_GroundTemp = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSatVP_GroundTemp(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarZ0Canopy); diagStat%statIndex_scalarZ0Canopy = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarZ0Canopy(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarWindReductionFactor); diagStat%statIndex_scalarWindReductionFactor = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarWindReductionFactor(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarZeroPlaneDisplacement); diagStat%statIndex_scalarZeroPlaneDisplacement = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarZeroPlaneDisplacement(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarRiBulkCanopy); diagStat%statIndex_scalarRiBulkCanopy = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarRiBulkCanopy(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarRiBulkGround); diagStat%statIndex_scalarRiBulkGround = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarRiBulkGround(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyStabilityCorrection); diagStat%statIndex_scalarCanopyStabilityCorrection = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyStabilityCorrection(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarGroundStabilityCorrection); diagStat%statIndex_scalarGroundStabilityCorrection = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarGroundStabilityCorrection(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarIntercellularCO2Sunlit); diagStat%statIndex_scalarIntercellularCO2Sunlit = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarIntercellularCO2Sunlit(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarIntercellularCO2Shaded); diagStat%statIndex_scalarIntercellularCO2Shaded = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarIntercellularCO2Shaded(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTranspireLim); diagStat%statIndex_scalarTranspireLim = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTranspireLim(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTranspireLimAqfr); diagStat%statIndex_scalarTranspireLimAqfr = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTranspireLimAqfr(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarFoliageNitrogenFactor); diagStat%statIndex_scalarFoliageNitrogenFactor = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarFoliageNitrogenFactor(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSoilRelHumidity); diagStat%statIndex_scalarSoilRelHumidity = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSoilRelHumidity(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarAquiferRootFrac); diagStat%statIndex_scalarAquiferRootFrac = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarAquiferRootFrac(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarFracLiqVeg); diagStat%statIndex_scalarFracLiqVeg = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarFracLiqVeg(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarCanopyWetFraction); diagStat%statIndex_scalarCanopyWetFraction = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarCanopyWetFraction(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSnowAge); diagStat%statIndex_scalarSnowAge = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSnowAge(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarGroundSnowFraction); diagStat%statIndex_scalarGroundSnowFraction = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarGroundSnowFraction(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarInfilArea); diagStat%statIndex_scalarInfilArea = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarInfilArea(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarFrozenArea); diagStat%statIndex_scalarFrozenArea = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarFrozenArea(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSoilControl); diagStat%statIndex_scalarSoilControl = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSoilControl(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarSoilCompress); diagStat%statIndex_scalarSoilCompress = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarSoilCompress(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTotalSoilLiq); diagStat%statIndex_scalarTotalSoilLiq = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTotalSoilLiq(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTotalSoilIce); diagStat%statIndex_scalarTotalSoilIce = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTotalSoilIce(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarTotalSoilWat); diagStat%statIndex_scalarTotalSoilWat = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarTotalSoilWat(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarKappa); diagStat%statIndex_scalarKappa = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarKappa(2*maxVarFreq,nGRU))
+case(iLookDIAG%scalarVolLatHt_fus); diagStat%statIndex_scalarVolLatHt_fus = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_scalarVolLatHt_fus(2*maxVarFreq,nGRU))
+case(iLookDIAG%numFluxCalls); diagStat%statIndex_numFluxCalls = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_numFluxCalls(2*maxVarFreq,nGRU))
+case(iLookDIAG%wallClockTime); diagStat%statIndex_wallClockTime = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_wallClockTime(2*maxVarFreq,nGRU))
+case(iLookDIAG%meanStepSize); diagStat%statIndex_meanStepSize = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_meanStepSize(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceCasNrg); diagStat%statIndex_balanceCasNrg = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceCasNrg(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceVegNrg); diagStat%statIndex_balanceVegNrg = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceVegNrg(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceSnowNrg); diagStat%statIndex_balanceSnowNrg = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceSnowNrg(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceSoilNrg); diagStat%statIndex_balanceSoilNrg = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceSoilNrg(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceVegMass); diagStat%statIndex_balanceVegMass = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceVegMass(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceSnowMass); diagStat%statIndex_balanceSnowMass = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceSnowMass(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceSoilMass); diagStat%statIndex_balanceSoilMass = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceSoilMass(2*maxVarFreq,nGRU))
+case(iLookDIAG%balanceAqMass); diagStat%statIndex_balanceAqMass = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_balanceAqMass(2*maxVarFreq,nGRU))
+case(iLookDIAG%numSteps); diagStat%statIndex_numSteps = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_numSteps(2*maxVarFreq,nGRU))
+case(iLookDIAG%numResEvals); diagStat%statIndex_numResEvals = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_numResEvals(2*maxVarFreq,nGRU))
+case(iLookDIAG%numLinSolvSetups); diagStat%statIndex_numLinSolvSetups = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_numLinSolvSetups(2*maxVarFreq,nGRU))
+case(iLookDIAG%numErrTestFails); diagStat%statIndex_numErrTestFails = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_numErrTestFails(2*maxVarFreq,nGRU))
+case(iLookDIAG%kLast); diagStat%statIndex_kLast = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_kLast(2*maxVarFreq,nGRU))
+case(iLookDIAG%kCur); diagStat%statIndex_kCur = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_kCur(2*maxVarFreq,nGRU))
+case(iLookDIAG%hInitUsed); diagStat%statIndex_hInitUsed = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_hInitUsed(2*maxVarFreq,nGRU))
+case(iLookDIAG%hLast); diagStat%statIndex_hLast = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_hLast(2*maxVarFreq,nGRU))
+case(iLookDIAG%hCur); diagStat%statIndex_hCur = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_hCur(2*maxVarFreq,nGRU))
+case(iLookDIAG%tCur); diagStat%statIndex_tCur = statDiag_meta(iVar)%statIndex
+  allocate(diagStat%stat_tCur(2*maxVarFreq,nGRU))
+end select
+end do
+
+if (.not.allocated(diagStat%statIndex_scalarCanopyDepth)) allocate(diagStat%statIndex_scalarCanopyDepth(1))
+if (.not.allocated(diagStat%stat_scalarCanopyDepth)) allocate(diagStat%stat_scalarCanopyDepth(1,1))
+if (.not.allocated(diagStat%statIndex_scalarBulkVolHeatCapVeg)) allocate(diagStat%statIndex_scalarBulkVolHeatCapVeg(1))
+if (.not.allocated(diagStat%stat_scalarBulkVolHeatCapVeg)) allocate(diagStat%stat_scalarBulkVolHeatCapVeg(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyCm)) allocate(diagStat%statIndex_scalarCanopyCm(1))
+if (.not.allocated(diagStat%stat_scalarCanopyCm)) allocate(diagStat%stat_scalarCanopyCm(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyEmissivity)) allocate(diagStat%statIndex_scalarCanopyEmissivity(1))
+if (.not.allocated(diagStat%stat_scalarCanopyEmissivity)) allocate(diagStat%stat_scalarCanopyEmissivity(1,1))
+if (.not.allocated(diagStat%statIndex_scalarRootZoneTemp)) allocate(diagStat%statIndex_scalarRootZoneTemp(1))
+if (.not.allocated(diagStat%stat_scalarRootZoneTemp)) allocate(diagStat%stat_scalarRootZoneTemp(1,1))
+if (.not.allocated(diagStat%statIndex_scalarLAI)) allocate(diagStat%statIndex_scalarLAI(1))
+if (.not.allocated(diagStat%stat_scalarLAI)) allocate(diagStat%stat_scalarLAI(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSAI)) allocate(diagStat%statIndex_scalarSAI(1))
+if (.not.allocated(diagStat%stat_scalarSAI)) allocate(diagStat%stat_scalarSAI(1,1))
+if (.not.allocated(diagStat%statIndex_scalarExposedLAI)) allocate(diagStat%statIndex_scalarExposedLAI(1))
+if (.not.allocated(diagStat%stat_scalarExposedLAI)) allocate(diagStat%stat_scalarExposedLAI(1,1))
+if (.not.allocated(diagStat%statIndex_scalarExposedSAI)) allocate(diagStat%statIndex_scalarExposedSAI(1))
+if (.not.allocated(diagStat%stat_scalarExposedSAI)) allocate(diagStat%stat_scalarExposedSAI(1,1))
+if (.not.allocated(diagStat%statIndex_scalarAdjMeasHeight)) allocate(diagStat%statIndex_scalarAdjMeasHeight(1))
+if (.not.allocated(diagStat%stat_scalarAdjMeasHeight)) allocate(diagStat%stat_scalarAdjMeasHeight(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyIceMax)) allocate(diagStat%statIndex_scalarCanopyIceMax(1))
+if (.not.allocated(diagStat%stat_scalarCanopyIceMax)) allocate(diagStat%stat_scalarCanopyIceMax(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyLiqMax)) allocate(diagStat%statIndex_scalarCanopyLiqMax(1))
+if (.not.allocated(diagStat%stat_scalarCanopyLiqMax)) allocate(diagStat%stat_scalarCanopyLiqMax(1,1))
+if (.not.allocated(diagStat%statIndex_scalarGrowingSeasonIndex)) allocate(diagStat%statIndex_scalarGrowingSeasonIndex(1))
+if (.not.allocated(diagStat%stat_scalarGrowingSeasonIndex)) allocate(diagStat%stat_scalarGrowingSeasonIndex(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVolHtCap_air)) allocate(diagStat%statIndex_scalarVolHtCap_air(1))
+if (.not.allocated(diagStat%stat_scalarVolHtCap_air)) allocate(diagStat%stat_scalarVolHtCap_air(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVolHtCap_ice)) allocate(diagStat%statIndex_scalarVolHtCap_ice(1))
+if (.not.allocated(diagStat%stat_scalarVolHtCap_ice)) allocate(diagStat%stat_scalarVolHtCap_ice(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVolHtCap_soil)) allocate(diagStat%statIndex_scalarVolHtCap_soil(1))
+if (.not.allocated(diagStat%stat_scalarVolHtCap_soil)) allocate(diagStat%stat_scalarVolHtCap_soil(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVolHtCap_water)) allocate(diagStat%statIndex_scalarVolHtCap_water(1))
+if (.not.allocated(diagStat%stat_scalarVolHtCap_water)) allocate(diagStat%stat_scalarVolHtCap_water(1,1))
+if (.not.allocated(diagStat%statIndex_scalarLambda_drysoil)) allocate(diagStat%statIndex_scalarLambda_drysoil(1))
+if (.not.allocated(diagStat%stat_scalarLambda_drysoil)) allocate(diagStat%stat_scalarLambda_drysoil(1,1))
+if (.not.allocated(diagStat%statIndex_scalarLambda_wetsoil)) allocate(diagStat%statIndex_scalarLambda_wetsoil(1))
+if (.not.allocated(diagStat%stat_scalarLambda_wetsoil)) allocate(diagStat%stat_scalarLambda_wetsoil(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyEnthTemp)) allocate(diagStat%statIndex_scalarCanopyEnthTemp(1))
+if (.not.allocated(diagStat%stat_scalarCanopyEnthTemp)) allocate(diagStat%stat_scalarCanopyEnthTemp(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTotalSoilEnthalpy)) allocate(diagStat%statIndex_scalarTotalSoilEnthalpy(1))
+if (.not.allocated(diagStat%stat_scalarTotalSoilEnthalpy)) allocate(diagStat%stat_scalarTotalSoilEnthalpy(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTotalSnowEnthalpy)) allocate(diagStat%statIndex_scalarTotalSnowEnthalpy(1))
+if (.not.allocated(diagStat%stat_scalarTotalSnowEnthalpy)) allocate(diagStat%stat_scalarTotalSnowEnthalpy(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVPair)) allocate(diagStat%statIndex_scalarVPair(1))
+if (.not.allocated(diagStat%stat_scalarVPair)) allocate(diagStat%stat_scalarVPair(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVP_CanopyAir)) allocate(diagStat%statIndex_scalarVP_CanopyAir(1))
+if (.not.allocated(diagStat%stat_scalarVP_CanopyAir)) allocate(diagStat%stat_scalarVP_CanopyAir(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTwetbulb)) allocate(diagStat%statIndex_scalarTwetbulb(1))
+if (.not.allocated(diagStat%stat_scalarTwetbulb)) allocate(diagStat%stat_scalarTwetbulb(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSnowfallTemp)) allocate(diagStat%statIndex_scalarSnowfallTemp(1))
+if (.not.allocated(diagStat%stat_scalarSnowfallTemp)) allocate(diagStat%stat_scalarSnowfallTemp(1,1))
+if (.not.allocated(diagStat%statIndex_scalarNewSnowDensity)) allocate(diagStat%statIndex_scalarNewSnowDensity(1))
+if (.not.allocated(diagStat%stat_scalarNewSnowDensity)) allocate(diagStat%stat_scalarNewSnowDensity(1,1))
+if (.not.allocated(diagStat%statIndex_scalarO2air)) allocate(diagStat%statIndex_scalarO2air(1))
+if (.not.allocated(diagStat%stat_scalarO2air)) allocate(diagStat%stat_scalarO2air(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCO2air)) allocate(diagStat%statIndex_scalarCO2air(1))
+if (.not.allocated(diagStat%stat_scalarCO2air)) allocate(diagStat%stat_scalarCO2air(1,1))
+if (.not.allocated(diagStat%statIndex_windspd_x)) allocate(diagStat%statIndex_windspd_x(1))
+if (.not.allocated(diagStat%stat_windspd_x)) allocate(diagStat%stat_windspd_x(1,1))
+if (.not.allocated(diagStat%statIndex_windspd_y)) allocate(diagStat%statIndex_windspd_y(1))
+if (.not.allocated(diagStat%stat_windspd_y)) allocate(diagStat%stat_windspd_y(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCosZenith)) allocate(diagStat%statIndex_scalarCosZenith(1))
+if (.not.allocated(diagStat%stat_scalarCosZenith)) allocate(diagStat%stat_scalarCosZenith(1,1))
+if (.not.allocated(diagStat%statIndex_scalarFractionDirect)) allocate(diagStat%statIndex_scalarFractionDirect(1))
+if (.not.allocated(diagStat%stat_scalarFractionDirect)) allocate(diagStat%stat_scalarFractionDirect(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopySunlitFraction)) allocate(diagStat%statIndex_scalarCanopySunlitFraction(1))
+if (.not.allocated(diagStat%stat_scalarCanopySunlitFraction)) allocate(diagStat%stat_scalarCanopySunlitFraction(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopySunlitLAI)) allocate(diagStat%statIndex_scalarCanopySunlitLAI(1))
+if (.not.allocated(diagStat%stat_scalarCanopySunlitLAI)) allocate(diagStat%stat_scalarCanopySunlitLAI(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyShadedLAI)) allocate(diagStat%statIndex_scalarCanopyShadedLAI(1))
+if (.not.allocated(diagStat%stat_scalarCanopyShadedLAI)) allocate(diagStat%stat_scalarCanopyShadedLAI(1,1))
+if (.not.allocated(diagStat%statIndex_scalarGroundAlbedo)) allocate(diagStat%statIndex_scalarGroundAlbedo(1))
+if (.not.allocated(diagStat%stat_scalarGroundAlbedo)) allocate(diagStat%stat_scalarGroundAlbedo(1,1))
+if (.not.allocated(diagStat%statIndex_scalarLatHeatSubVapCanopy)) allocate(diagStat%statIndex_scalarLatHeatSubVapCanopy(1))
+if (.not.allocated(diagStat%stat_scalarLatHeatSubVapCanopy)) allocate(diagStat%stat_scalarLatHeatSubVapCanopy(1,1))
+if (.not.allocated(diagStat%statIndex_scalarLatHeatSubVapGround)) allocate(diagStat%statIndex_scalarLatHeatSubVapGround(1))
+if (.not.allocated(diagStat%stat_scalarLatHeatSubVapGround)) allocate(diagStat%stat_scalarLatHeatSubVapGround(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSatVP_CanopyTemp)) allocate(diagStat%statIndex_scalarSatVP_CanopyTemp(1))
+if (.not.allocated(diagStat%stat_scalarSatVP_CanopyTemp)) allocate(diagStat%stat_scalarSatVP_CanopyTemp(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSatVP_GroundTemp)) allocate(diagStat%statIndex_scalarSatVP_GroundTemp(1))
+if (.not.allocated(diagStat%stat_scalarSatVP_GroundTemp)) allocate(diagStat%stat_scalarSatVP_GroundTemp(1,1))
+if (.not.allocated(diagStat%statIndex_scalarZ0Canopy)) allocate(diagStat%statIndex_scalarZ0Canopy(1))
+if (.not.allocated(diagStat%stat_scalarZ0Canopy)) allocate(diagStat%stat_scalarZ0Canopy(1,1))
+if (.not.allocated(diagStat%statIndex_scalarWindReductionFactor)) allocate(diagStat%statIndex_scalarWindReductionFactor(1))
+if (.not.allocated(diagStat%stat_scalarWindReductionFactor)) allocate(diagStat%stat_scalarWindReductionFactor(1,1))
+if (.not.allocated(diagStat%statIndex_scalarZeroPlaneDisplacement)) allocate(diagStat%statIndex_scalarZeroPlaneDisplacement(1))
+if (.not.allocated(diagStat%stat_scalarZeroPlaneDisplacement)) allocate(diagStat%stat_scalarZeroPlaneDisplacement(1,1))
+if (.not.allocated(diagStat%statIndex_scalarRiBulkCanopy)) allocate(diagStat%statIndex_scalarRiBulkCanopy(1))
+if (.not.allocated(diagStat%stat_scalarRiBulkCanopy)) allocate(diagStat%stat_scalarRiBulkCanopy(1,1))
+if (.not.allocated(diagStat%statIndex_scalarRiBulkGround)) allocate(diagStat%statIndex_scalarRiBulkGround(1))
+if (.not.allocated(diagStat%stat_scalarRiBulkGround)) allocate(diagStat%stat_scalarRiBulkGround(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyStabilityCorrection)) allocate(diagStat%statIndex_scalarCanopyStabilityCorrection(1))
+if (.not.allocated(diagStat%stat_scalarCanopyStabilityCorrection)) allocate(diagStat%stat_scalarCanopyStabilityCorrection(1,1))
+if (.not.allocated(diagStat%statIndex_scalarGroundStabilityCorrection)) allocate(diagStat%statIndex_scalarGroundStabilityCorrection(1))
+if (.not.allocated(diagStat%stat_scalarGroundStabilityCorrection)) allocate(diagStat%stat_scalarGroundStabilityCorrection(1,1))
+if (.not.allocated(diagStat%statIndex_scalarIntercellularCO2Sunlit)) allocate(diagStat%statIndex_scalarIntercellularCO2Sunlit(1))
+if (.not.allocated(diagStat%stat_scalarIntercellularCO2Sunlit)) allocate(diagStat%stat_scalarIntercellularCO2Sunlit(1,1))
+if (.not.allocated(diagStat%statIndex_scalarIntercellularCO2Shaded)) allocate(diagStat%statIndex_scalarIntercellularCO2Shaded(1))
+if (.not.allocated(diagStat%stat_scalarIntercellularCO2Shaded)) allocate(diagStat%stat_scalarIntercellularCO2Shaded(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTranspireLim)) allocate(diagStat%statIndex_scalarTranspireLim(1))
+if (.not.allocated(diagStat%stat_scalarTranspireLim)) allocate(diagStat%stat_scalarTranspireLim(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTranspireLimAqfr)) allocate(diagStat%statIndex_scalarTranspireLimAqfr(1))
+if (.not.allocated(diagStat%stat_scalarTranspireLimAqfr)) allocate(diagStat%stat_scalarTranspireLimAqfr(1,1))
+if (.not.allocated(diagStat%statIndex_scalarFoliageNitrogenFactor)) allocate(diagStat%statIndex_scalarFoliageNitrogenFactor(1))
+if (.not.allocated(diagStat%stat_scalarFoliageNitrogenFactor)) allocate(diagStat%stat_scalarFoliageNitrogenFactor(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSoilRelHumidity)) allocate(diagStat%statIndex_scalarSoilRelHumidity(1))
+if (.not.allocated(diagStat%stat_scalarSoilRelHumidity)) allocate(diagStat%stat_scalarSoilRelHumidity(1,1))
+if (.not.allocated(diagStat%statIndex_scalarAquiferRootFrac)) allocate(diagStat%statIndex_scalarAquiferRootFrac(1))
+if (.not.allocated(diagStat%stat_scalarAquiferRootFrac)) allocate(diagStat%stat_scalarAquiferRootFrac(1,1))
+if (.not.allocated(diagStat%statIndex_scalarFracLiqVeg)) allocate(diagStat%statIndex_scalarFracLiqVeg(1))
+if (.not.allocated(diagStat%stat_scalarFracLiqVeg)) allocate(diagStat%stat_scalarFracLiqVeg(1,1))
+if (.not.allocated(diagStat%statIndex_scalarCanopyWetFraction)) allocate(diagStat%statIndex_scalarCanopyWetFraction(1))
+if (.not.allocated(diagStat%stat_scalarCanopyWetFraction)) allocate(diagStat%stat_scalarCanopyWetFraction(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSnowAge)) allocate(diagStat%statIndex_scalarSnowAge(1))
+if (.not.allocated(diagStat%stat_scalarSnowAge)) allocate(diagStat%stat_scalarSnowAge(1,1))
+if (.not.allocated(diagStat%statIndex_scalarGroundSnowFraction)) allocate(diagStat%statIndex_scalarGroundSnowFraction(1))
+if (.not.allocated(diagStat%stat_scalarGroundSnowFraction)) allocate(diagStat%stat_scalarGroundSnowFraction(1,1))
+if (.not.allocated(diagStat%statIndex_scalarInfilArea)) allocate(diagStat%statIndex_scalarInfilArea(1))
+if (.not.allocated(diagStat%stat_scalarInfilArea)) allocate(diagStat%stat_scalarInfilArea(1,1))
+if (.not.allocated(diagStat%statIndex_scalarFrozenArea)) allocate(diagStat%statIndex_scalarFrozenArea(1))
+if (.not.allocated(diagStat%stat_scalarFrozenArea)) allocate(diagStat%stat_scalarFrozenArea(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSoilControl)) allocate(diagStat%statIndex_scalarSoilControl(1))
+if (.not.allocated(diagStat%stat_scalarSoilControl)) allocate(diagStat%stat_scalarSoilControl(1,1))
+if (.not.allocated(diagStat%statIndex_scalarSoilCompress)) allocate(diagStat%statIndex_scalarSoilCompress(1))
+if (.not.allocated(diagStat%stat_scalarSoilCompress)) allocate(diagStat%stat_scalarSoilCompress(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTotalSoilLiq)) allocate(diagStat%statIndex_scalarTotalSoilLiq(1))
+if (.not.allocated(diagStat%stat_scalarTotalSoilLiq)) allocate(diagStat%stat_scalarTotalSoilLiq(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTotalSoilIce)) allocate(diagStat%statIndex_scalarTotalSoilIce(1))
+if (.not.allocated(diagStat%stat_scalarTotalSoilIce)) allocate(diagStat%stat_scalarTotalSoilIce(1,1))
+if (.not.allocated(diagStat%statIndex_scalarTotalSoilWat)) allocate(diagStat%statIndex_scalarTotalSoilWat(1))
+if (.not.allocated(diagStat%stat_scalarTotalSoilWat)) allocate(diagStat%stat_scalarTotalSoilWat(1,1))
+if (.not.allocated(diagStat%statIndex_scalarKappa)) allocate(diagStat%statIndex_scalarKappa(1))
+if (.not.allocated(diagStat%stat_scalarKappa)) allocate(diagStat%stat_scalarKappa(1,1))
+if (.not.allocated(diagStat%statIndex_scalarVolLatHt_fus)) allocate(diagStat%statIndex_scalarVolLatHt_fus(1))
+if (.not.allocated(diagStat%stat_scalarVolLatHt_fus)) allocate(diagStat%stat_scalarVolLatHt_fus(1,1))
+if (.not.allocated(diagStat%statIndex_numFluxCalls)) allocate(diagStat%statIndex_numFluxCalls(1))
+if (.not.allocated(diagStat%stat_numFluxCalls)) allocate(diagStat%stat_numFluxCalls(1,1))
+if (.not.allocated(diagStat%statIndex_wallClockTime)) allocate(diagStat%statIndex_wallClockTime(1))
+if (.not.allocated(diagStat%stat_wallClockTime)) allocate(diagStat%stat_wallClockTime(1,1))
+if (.not.allocated(diagStat%statIndex_meanStepSize)) allocate(diagStat%statIndex_meanStepSize(1))
+if (.not.allocated(diagStat%stat_meanStepSize)) allocate(diagStat%stat_meanStepSize(1,1))
+if (.not.allocated(diagStat%statIndex_balanceCasNrg)) allocate(diagStat%statIndex_balanceCasNrg(1))
+if (.not.allocated(diagStat%stat_balanceCasNrg)) allocate(diagStat%stat_balanceCasNrg(1,1))
+if (.not.allocated(diagStat%statIndex_balanceVegNrg)) allocate(diagStat%statIndex_balanceVegNrg(1))
+if (.not.allocated(diagStat%stat_balanceVegNrg)) allocate(diagStat%stat_balanceVegNrg(1,1))
+if (.not.allocated(diagStat%statIndex_balanceSnowNrg)) allocate(diagStat%statIndex_balanceSnowNrg(1))
+if (.not.allocated(diagStat%stat_balanceSnowNrg)) allocate(diagStat%stat_balanceSnowNrg(1,1))
+if (.not.allocated(diagStat%statIndex_balanceSoilNrg)) allocate(diagStat%statIndex_balanceSoilNrg(1))
+if (.not.allocated(diagStat%stat_balanceSoilNrg)) allocate(diagStat%stat_balanceSoilNrg(1,1))
+if (.not.allocated(diagStat%statIndex_balanceVegMass)) allocate(diagStat%statIndex_balanceVegMass(1))
+if (.not.allocated(diagStat%stat_balanceVegMass)) allocate(diagStat%stat_balanceVegMass(1,1))
+if (.not.allocated(diagStat%statIndex_balanceSnowMass)) allocate(diagStat%statIndex_balanceSnowMass(1))
+if (.not.allocated(diagStat%stat_balanceSnowMass)) allocate(diagStat%stat_balanceSnowMass(1,1))
+if (.not.allocated(diagStat%statIndex_balanceSoilMass)) allocate(diagStat%statIndex_balanceSoilMass(1))
+if (.not.allocated(diagStat%stat_balanceSoilMass)) allocate(diagStat%stat_balanceSoilMass(1,1))
+if (.not.allocated(diagStat%statIndex_balanceAqMass)) allocate(diagStat%statIndex_balanceAqMass(1))
+if (.not.allocated(diagStat%stat_balanceAqMass)) allocate(diagStat%stat_balanceAqMass(1,1))
+if (.not.allocated(diagStat%statIndex_numSteps)) allocate(diagStat%statIndex_numSteps(1))
+if (.not.allocated(diagStat%stat_numSteps)) allocate(diagStat%stat_numSteps(1,1))
+if (.not.allocated(diagStat%statIndex_numResEvals)) allocate(diagStat%statIndex_numResEvals(1))
+if (.not.allocated(diagStat%stat_numResEvals)) allocate(diagStat%stat_numResEvals(1,1))
+if (.not.allocated(diagStat%statIndex_numLinSolvSetups)) allocate(diagStat%statIndex_numLinSolvSetups(1))
+if (.not.allocated(diagStat%stat_numLinSolvSetups)) allocate(diagStat%stat_numLinSolvSetups(1,1))
+if (.not.allocated(diagStat%statIndex_numErrTestFails)) allocate(diagStat%statIndex_numErrTestFails(1))
+if (.not.allocated(diagStat%stat_numErrTestFails)) allocate(diagStat%stat_numErrTestFails(1,1))
+if (.not.allocated(diagStat%statIndex_kLast)) allocate(diagStat%statIndex_kLast(1))
+if (.not.allocated(diagStat%stat_kLast)) allocate(diagStat%stat_kLast(1,1))
+if (.not.allocated(diagStat%statIndex_kCur)) allocate(diagStat%statIndex_kCur(1))
+if (.not.allocated(diagStat%stat_kCur)) allocate(diagStat%stat_kCur(1,1))
+if (.not.allocated(diagStat%statIndex_hInitUsed)) allocate(diagStat%statIndex_hInitUsed(1))
+if (.not.allocated(diagStat%stat_hInitUsed)) allocate(diagStat%stat_hInitUsed(1,1))
+if (.not.allocated(diagStat%statIndex_hLast)) allocate(diagStat%statIndex_hLast(1))
+if (.not.allocated(diagStat%stat_hLast)) allocate(diagStat%stat_hLast(1,1))
+if (.not.allocated(diagStat%statIndex_hCur)) allocate(diagStat%statIndex_hCur(1))
+if (.not.allocated(diagStat%stat_hCur)) allocate(diagStat%stat_hCur(1,1))
+if (.not.allocated(diagStat%statIndex_tCur)) allocate(diagStat%statIndex_tCur(1))
+if (.not.allocated(diagStat%stat_tCur)) allocate(diagStat%stat_tCur(1,1))
+end subroutine
+
+subroutine get_device_diag_stat(diagStat, iVar, nGRU, iFreq, parVector)
+  implicit none
+  type(diag_stat_device) :: diagStat
+  integer(i4b) :: nGRU, iVar, iFreq
+  real(rkind) :: parVector(:)
+  select case(iVar)
+case(iLookDIAG%scalarCanopyDepth); parVector = diagStat%stat_scalarCanopyDepth(iFreq,:)
+case(iLookDIAG%scalarBulkVolHeatCapVeg); parVector = diagStat%stat_scalarBulkVolHeatCapVeg(iFreq,:)
+case(iLookDIAG%scalarCanopyCm); parVector = diagStat%stat_scalarCanopyCm(iFreq,:)
+case(iLookDIAG%scalarCanopyEmissivity); parVector = diagStat%stat_scalarCanopyEmissivity(iFreq,:)
+case(iLookDIAG%scalarRootZoneTemp); parVector = diagStat%stat_scalarRootZoneTemp(iFreq,:)
+case(iLookDIAG%scalarLAI); parVector = diagStat%stat_scalarLAI(iFreq,:)
+case(iLookDIAG%scalarSAI); parVector = diagStat%stat_scalarSAI(iFreq,:)
+case(iLookDIAG%scalarExposedLAI); parVector = diagStat%stat_scalarExposedLAI(iFreq,:)
+case(iLookDIAG%scalarExposedSAI); parVector = diagStat%stat_scalarExposedSAI(iFreq,:)
+case(iLookDIAG%scalarAdjMeasHeight); parVector = diagStat%stat_scalarAdjMeasHeight(iFreq,:)
+case(iLookDIAG%scalarCanopyIceMax); parVector = diagStat%stat_scalarCanopyIceMax(iFreq,:)
+case(iLookDIAG%scalarCanopyLiqMax); parVector = diagStat%stat_scalarCanopyLiqMax(iFreq,:)
+case(iLookDIAG%scalarGrowingSeasonIndex); parVector = diagStat%stat_scalarGrowingSeasonIndex(iFreq,:)
+case(iLookDIAG%scalarVolHtCap_air); parVector = diagStat%stat_scalarVolHtCap_air(iFreq,:)
+case(iLookDIAG%scalarVolHtCap_ice); parVector = diagStat%stat_scalarVolHtCap_ice(iFreq,:)
+case(iLookDIAG%scalarVolHtCap_soil); parVector = diagStat%stat_scalarVolHtCap_soil(iFreq,:)
+case(iLookDIAG%scalarVolHtCap_water); parVector = diagStat%stat_scalarVolHtCap_water(iFreq,:)
+case(iLookDIAG%scalarLambda_drysoil); parVector = diagStat%stat_scalarLambda_drysoil(iFreq,:)
+case(iLookDIAG%scalarLambda_wetsoil); parVector = diagStat%stat_scalarLambda_wetsoil(iFreq,:)
+case(iLookDIAG%scalarCanopyEnthTemp); parVector = diagStat%stat_scalarCanopyEnthTemp(iFreq,:)
+case(iLookDIAG%scalarTotalSoilEnthalpy); parVector = diagStat%stat_scalarTotalSoilEnthalpy(iFreq,:)
+case(iLookDIAG%scalarTotalSnowEnthalpy); parVector = diagStat%stat_scalarTotalSnowEnthalpy(iFreq,:)
+case(iLookDIAG%scalarVPair); parVector = diagStat%stat_scalarVPair(iFreq,:)
+case(iLookDIAG%scalarVP_CanopyAir); parVector = diagStat%stat_scalarVP_CanopyAir(iFreq,:)
+case(iLookDIAG%scalarTwetbulb); parVector = diagStat%stat_scalarTwetbulb(iFreq,:)
+case(iLookDIAG%scalarSnowfallTemp); parVector = diagStat%stat_scalarSnowfallTemp(iFreq,:)
+case(iLookDIAG%scalarNewSnowDensity); parVector = diagStat%stat_scalarNewSnowDensity(iFreq,:)
+case(iLookDIAG%scalarO2air); parVector = diagStat%stat_scalarO2air(iFreq,:)
+case(iLookDIAG%scalarCO2air); parVector = diagStat%stat_scalarCO2air(iFreq,:)
+case(iLookDIAG%windspd_x); parVector = diagStat%stat_windspd_x(iFreq,:)
+case(iLookDIAG%windspd_y); parVector = diagStat%stat_windspd_y(iFreq,:)
+case(iLookDIAG%scalarCosZenith); parVector = diagStat%stat_scalarCosZenith(iFreq,:)
+case(iLookDIAG%scalarFractionDirect); parVector = diagStat%stat_scalarFractionDirect(iFreq,:)
+case(iLookDIAG%scalarCanopySunlitFraction); parVector = diagStat%stat_scalarCanopySunlitFraction(iFreq,:)
+case(iLookDIAG%scalarCanopySunlitLAI); parVector = diagStat%stat_scalarCanopySunlitLAI(iFreq,:)
+case(iLookDIAG%scalarCanopyShadedLAI); parVector = diagStat%stat_scalarCanopyShadedLAI(iFreq,:)
+case(iLookDIAG%scalarGroundAlbedo); parVector = diagStat%stat_scalarGroundAlbedo(iFreq,:)
+case(iLookDIAG%scalarLatHeatSubVapCanopy); parVector = diagStat%stat_scalarLatHeatSubVapCanopy(iFreq,:)
+case(iLookDIAG%scalarLatHeatSubVapGround); parVector = diagStat%stat_scalarLatHeatSubVapGround(iFreq,:)
+case(iLookDIAG%scalarSatVP_CanopyTemp); parVector = diagStat%stat_scalarSatVP_CanopyTemp(iFreq,:)
+case(iLookDIAG%scalarSatVP_GroundTemp); parVector = diagStat%stat_scalarSatVP_GroundTemp(iFreq,:)
+case(iLookDIAG%scalarZ0Canopy); parVector = diagStat%stat_scalarZ0Canopy(iFreq,:)
+case(iLookDIAG%scalarWindReductionFactor); parVector = diagStat%stat_scalarWindReductionFactor(iFreq,:)
+case(iLookDIAG%scalarZeroPlaneDisplacement); parVector = diagStat%stat_scalarZeroPlaneDisplacement(iFreq,:)
+case(iLookDIAG%scalarRiBulkCanopy); parVector = diagStat%stat_scalarRiBulkCanopy(iFreq,:)
+case(iLookDIAG%scalarRiBulkGround); parVector = diagStat%stat_scalarRiBulkGround(iFreq,:)
+case(iLookDIAG%scalarCanopyStabilityCorrection); parVector = diagStat%stat_scalarCanopyStabilityCorrection(iFreq,:)
+case(iLookDIAG%scalarGroundStabilityCorrection); parVector = diagStat%stat_scalarGroundStabilityCorrection(iFreq,:)
+case(iLookDIAG%scalarIntercellularCO2Sunlit); parVector = diagStat%stat_scalarIntercellularCO2Sunlit(iFreq,:)
+case(iLookDIAG%scalarIntercellularCO2Shaded); parVector = diagStat%stat_scalarIntercellularCO2Shaded(iFreq,:)
+case(iLookDIAG%scalarTranspireLim); parVector = diagStat%stat_scalarTranspireLim(iFreq,:)
+case(iLookDIAG%scalarTranspireLimAqfr); parVector = diagStat%stat_scalarTranspireLimAqfr(iFreq,:)
+case(iLookDIAG%scalarFoliageNitrogenFactor); parVector = diagStat%stat_scalarFoliageNitrogenFactor(iFreq,:)
+case(iLookDIAG%scalarSoilRelHumidity); parVector = diagStat%stat_scalarSoilRelHumidity(iFreq,:)
+case(iLookDIAG%scalarAquiferRootFrac); parVector = diagStat%stat_scalarAquiferRootFrac(iFreq,:)
+case(iLookDIAG%scalarFracLiqVeg); parVector = diagStat%stat_scalarFracLiqVeg(iFreq,:)
+case(iLookDIAG%scalarCanopyWetFraction); parVector = diagStat%stat_scalarCanopyWetFraction(iFreq,:)
+case(iLookDIAG%scalarSnowAge); parVector = diagStat%stat_scalarSnowAge(iFreq,:)
+case(iLookDIAG%scalarGroundSnowFraction); parVector = diagStat%stat_scalarGroundSnowFraction(iFreq,:)
+case(iLookDIAG%scalarInfilArea); parVector = diagStat%stat_scalarInfilArea(iFreq,:)
+case(iLookDIAG%scalarFrozenArea); parVector = diagStat%stat_scalarFrozenArea(iFreq,:)
+case(iLookDIAG%scalarSoilControl); parVector = diagStat%stat_scalarSoilControl(iFreq,:)
+case(iLookDIAG%scalarSoilCompress); parVector = diagStat%stat_scalarSoilCompress(iFreq,:)
+case(iLookDIAG%scalarTotalSoilLiq); parVector = diagStat%stat_scalarTotalSoilLiq(iFreq,:)
+case(iLookDIAG%scalarTotalSoilIce); parVector = diagStat%stat_scalarTotalSoilIce(iFreq,:)
+case(iLookDIAG%scalarTotalSoilWat); parVector = diagStat%stat_scalarTotalSoilWat(iFreq,:)
+case(iLookDIAG%scalarKappa); parVector = diagStat%stat_scalarKappa(iFreq,:)
+case(iLookDIAG%scalarVolLatHt_fus); parVector = diagStat%stat_scalarVolLatHt_fus(iFreq,:)
+case(iLookDIAG%numFluxCalls); parVector = diagStat%stat_numFluxCalls(iFreq,:)
+case(iLookDIAG%wallClockTime); parVector = diagStat%stat_wallClockTime(iFreq,:)
+case(iLookDIAG%meanStepSize); parVector = diagStat%stat_meanStepSize(iFreq,:)
+case(iLookDIAG%balanceCasNrg); parVector = diagStat%stat_balanceCasNrg(iFreq,:)
+case(iLookDIAG%balanceVegNrg); parVector = diagStat%stat_balanceVegNrg(iFreq,:)
+case(iLookDIAG%balanceSnowNrg); parVector = diagStat%stat_balanceSnowNrg(iFreq,:)
+case(iLookDIAG%balanceSoilNrg); parVector = diagStat%stat_balanceSoilNrg(iFreq,:)
+case(iLookDIAG%balanceVegMass); parVector = diagStat%stat_balanceVegMass(iFreq,:)
+case(iLookDIAG%balanceSnowMass); parVector = diagStat%stat_balanceSnowMass(iFreq,:)
+case(iLookDIAG%balanceSoilMass); parVector = diagStat%stat_balanceSoilMass(iFreq,:)
+case(iLookDIAG%balanceAqMass); parVector = diagStat%stat_balanceAqMass(iFreq,:)
+case(iLookDIAG%numSteps); parVector = diagStat%stat_numSteps(iFreq,:)
+case(iLookDIAG%numResEvals); parVector = diagStat%stat_numResEvals(iFreq,:)
+case(iLookDIAG%numLinSolvSetups); parVector = diagStat%stat_numLinSolvSetups(iFreq,:)
+case(iLookDIAG%numErrTestFails); parVector = diagStat%stat_numErrTestFails(iFreq,:)
+case(iLookDIAG%kLast); parVector = diagStat%stat_kLast(iFreq,:)
+case(iLookDIAG%kCur); parVector = diagStat%stat_kCur(iFreq,:)
+case(iLookDIAG%hInitUsed); parVector = diagStat%stat_hInitUsed(iFreq,:)
+case(iLookDIAG%hLast); parVector = diagStat%stat_hLast(iFreq,:)
+case(iLookDIAG%hCur); parVector = diagStat%stat_hCur(iFreq,:)
+case(iLookDIAG%tCur); parVector = diagStat%stat_tCur(iFreq,:)
+case default; parVector = -9999_rkind
+end select
+end subroutine
 
 end module initialize_device      

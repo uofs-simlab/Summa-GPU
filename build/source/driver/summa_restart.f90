@@ -109,14 +109,14 @@ contains
   ! lookup table data structure
   lookupStruct         => summa1_struc%lookupStruct        , & ! x%gru(:)%hru(:)%z(:)%var(:)%lookup(:) -- lookup tables
   ! primary data structures (variable length vectors)
-  indxStruct           => summa1_struc%indxStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
-  mparStruct           => summa1_struc%mparStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
-  progStruct           => summa1_struc%progStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
-  diagStruct           => summa1_struc%diagStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
-  fluxStruct           => summa1_struc%fluxStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
+  indxStruct           => summa1_struc%indxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
+  mparStruct           => summa1_struc%mparStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+  progStruct           => summa1_struc%progStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
+  diagStruct           => summa1_struc%diagStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
+  fluxStruct           => summa1_struc%fluxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
   ! basin-average structures
   bparStruct           => summa1_struc%bparStruct          , & ! x%gru(:)%var(:)            -- basin-average parameters
-  bvarStruct           => summa1_struc%bvarStruct_d          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
+  bvarStruct           => summa1_struc%bvarStruct          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
   ! miscellaneous variables
   dt_init              => summa1_struc%dt_init             , & ! used to initialize the length of the sub-step for each HRU
   nGRU                 => summa1_struc%nGRU                , & ! number of grouped response units
@@ -153,13 +153,13 @@ contains
  if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
 
- call readRestart_kernel<<<1,1>>>(nGRU,summa1_struc%decisions%aquiferIni,summa1_struc%decisions%spatial_gw,summa1_struc%decisions%hc_profile,summa1_struc%decisions%rootProfil,summa1_struc%decisions%groundwatr,summa1_struc%decisions%nrgConserv,&
+ call readRestart_kernel<<<blocks,threads>>>(nGRU,summa1_struc%decisions%aquiferIni,summa1_struc%decisions%spatial_gw,summa1_struc%decisions%hc_profile,summa1_struc%decisions%rootProfil,summa1_struc%decisions%groundwatr,summa1_struc%decisions%nrgConserv,&
 no_icond_enth, &
 bvarStruct%basin__AquiferStorage,progStruct%scalarAquiferStorage,&
 fluxStruct%ixScalarCanopyLiqDrainage,fluxStruct%data,&
 mparStruct%vGn_n_,diagStruct%scalarVGn_m,&
 fluxStruct%ixmLayerSatHydCond_start,fluxStruct%ixmLayerSatHydCond_end,fluxStruct%ixmLayerSatHydCondMP_start,fluxStruct%ixmLayerSatHydCondMP_end,fluxStruct%ixiLayerSatHydCond_start,fluxStruct%ixiLayerSatHydCond_end,&
-indxStruct%nSnow,indxStruct%nSoil,indxStruct%nLayers_d,&
+indxStruct%nSnow,indxStruct%nSoil,indxStruct%nLayers,&
 mparStruct%k_soil_,mparStruct%k_macropore_,mparStruct%compactedDepth_,mparStruct%zScale_TOPMODEL_,&
 progStruct%mLayerHeight,progStruct%iLayerHeight,progStruct%mLayerDepth,&
 indxStruct%layerType,&
@@ -280,7 +280,7 @@ end do
   iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
   if (iGRU .gt. nGRU) return
 
-  do iGRU=1,nGRU
+  ! do iGRU=1,nGRU
   ! check initial conditions
  checkEnthalpy = .false.
  use_lookup    = .false.
@@ -367,10 +367,7 @@ end do
      scalarAquiferStorage_(iGRU) = 0._rkind  ! set to zero to be clear that there is no local aquifer storage in this configuration
 
   end select  ! groundwater option
-end do
-do iGRU=1,nGRU
-    print*, iGRU, scalarCanopyTemp_(iGRU)
-end do
+! end do
 end subroutine
 
 end module summa_restart

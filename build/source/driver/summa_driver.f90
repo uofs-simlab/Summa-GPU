@@ -90,31 +90,6 @@ contains
    ! initialize parameter data structures (e.g. vegetation and soil parameters)
    call summa_paramSetup(summa1_struc(n), err, message)
    call handle_err(err, message)
-   call allocate_device_decisions(summa1_struc(n)%decisions)
-  call allocate_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct,summa1_struc(n)%nGRU)
-         call allocate_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,summa1_struc(n)%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
-        call allocate_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,summa1_struc(n)%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
-    ! call allocate_device_param_data(summa1_struc(n)%mparStruct_d,summa1_struc(n)%mparStruct,summa1_struc(n)%nGRU)
-        call allocate_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc(n)%nGRU)
-           call allocate_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct,summa1_struc(n)%nGRU)
-        allocate(summa1_struc(n)%computeVegFlux_d(summa1_struc(n)%nGRU))
-        do iGRU=1,summa1_struc(n)%nGRU
-            summa1_struc(n)%computeVegFlux_d(iGRU) = summa1_struc(n)%computeVegFlux%gru(iGRU)%hru(1)
-        end do
-         print*, 259
-  print*, 263
-    print*, 265
-                    err = cudaDeviceSynchronize()
-                    print*, 267, err
-  call allocate_device_attr_data(summa1_struc(n)%attrStruct_d,summa1_struc(n)%attrStruct,summa1_struc(n)%nGRU)
-                    err = cudaDeviceSynchronize()
-                    print*, 267, err
-                    err = cudaDeviceSynchronize()
-                    print*, 267, err
-                    err = cudaDeviceSynchronize()
-                    print*, 267, err
-   call allocate_veg_table(summa1_struc(n)%veg_tables)
-        call allocate_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc(n)%nGRU)
 
    ! read restart data and reset the model state
    call summa_readRestart(summa1_struc(n), err, message)
@@ -153,15 +128,6 @@ contains
 #ifdef OPENWQ_ACTIVE
      call openwq_run_space_step(summa1_struc(n)) ! Passing fluxes to openWQ
 #endif
-call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forcStruct)
-    call finalize_device_indx_data(summa1_struc(n)%indxStruct_d,summa1_struc(n)%indxStruct)
-                      call finalize_device_prog_data(summa1_struc(n)%progStruct_d,summa1_struc(n)%progStruct,summa1_struc(n)%indxStruct)
-      call finalize_device_bvar_data(summa1_struc(n)%bvarStruct_d,summa1_struc(n)%bvarStruct)
-             call finalize_device_diag_data(summa1_struc(n)%diagStruct_d,summa1_struc(n)%diagStruct,summa1_struc(n)%indxStruct)
-      call finalize_device_flux_data(summa1_struc(n)%fluxStruct_d,summa1_struc(n)%fluxStruct,summa1_struc(n)%indxStruct)
-          do iGRU=1,summa1_struc(n)%nGRU
-            summa1_struc(n)%computeVegFlux%gru(iGRU)%hru(1) = summa1_struc(n)%computeVegFlux_d(iGRU)
-        end do
 
      ! write the model output
      call summa_writeOutputFiles(modelTimeStep, summa1_struc(n), err, message)
@@ -172,15 +138,6 @@ call finalize_device_forc_data(summa1_struc(n)%forcStruct_d,summa1_struc(n)%forc
 #endif
  
    end do  ! end looping through time
-  !  call deallocate_device_forc_data(summa1_struc(n)%forcStruct_d)
-  ! call deallocate_device_indx_data(summa1_struc(n)%indxStruct_d)
-  ! call deallocate_device_prog_data(summa1_struc(n)%progStruct_d)
-  ! call deallocate_device_bvar_data(summa1_struc(n)%bvarStruct_d)
-  ! call deallocate_device_diag_data(summa1_struc(n)%diagStruct_d)
-  ! call deallocate_device_flux_data(summa1_struc(n)%fluxStruct_d)
-  ! call deallocate_device_param_data(summa1_struc(n)%mparStruct_d)
-  ! call deallocate_device_attr_data(summa1_struc(n)%attrStruct_d)
-  ! call deallocate_device_decisions(summa1_struc(n)%decisions)
 
   end subroutine update_summa_driver
 

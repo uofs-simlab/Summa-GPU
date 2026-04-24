@@ -408,13 +408,13 @@ tooMuchSublim_d = tooMuchSublim
   diag_data%scalarCanopyEnthTemp,prog_data%scalarCanopyEnthalpy,&
   data_step,exposedVAI,&
   decisions%snowIncept,decisions%snowUnload,&
-  forc_data%airtemp_d,&
+  forc_data%airtemp,&
   mpar_data%refInterceptCapSnow_,mpar_data%ratioDrip2Unloading_,mpar_data%snowUnloadingCoeff_,&
   mpar_data%minTempUnloading_,mpar_data%minWindUnloading_,mpar_data%rateTempUnloading_,mpar_data%rateWindUnloading_,&
   diag_data%scalarNewSnowDensity,prog_data%scalarCanairTemp,&
   flux_data%ixScalarSnowfall,flux_data%ixScalarWindspdCanopyTop,&
   flux_data%ixScalarThroughfallSnow,flux_data%ixScalarCanopySnowUnloading,&
-  indx_data%nSnow,indx_data%nSoil,indx_data%nLayers_d,&
+  indx_data%nSnow,indx_data%nSoil,indx_data%nLayers,&
   decisions%canopySrad,type_data%vegTypeIndex,&
   prog_data%scalarSWE,prog_data%scalarSnowDepth,&
   prog_data%mLayerVolFracLiq,prog_data%spectralSnowAlbedoDiffuse,&
@@ -527,36 +527,33 @@ tooMuchSublim_d = tooMuchSublim
         ! save/recover copies of index variables, temp saved on lastInnerStep, failed starts at lastInnerStep
         ! do iVar=1,size(indx_data%var)
           select case(stepFailure)
-            case(.false.); indx_temp=indx_data!call finalize_device_indx_data(indx_data,indx_temp)!indx_temp%var(iVar)%dat(:) = indx_data%var(iVar)%dat(:)
-            case(.true.);  indx_data=indx_temp!call initialize_device_indx_data(indx_data,indx_temp,indx_data%var(iLookINDEX%nSoil)%dat(1),nGRU)!indx_data%var(iVar)%dat(:) = indx_temp%var(iVar)%dat(:)
+            case(.false.); indx_temp=indx_data
+            case(.true.);  indx_data=indx_temp
           end select
         ! end do  ! looping through variables
 
         ! save/recover copies of prognostic variables
         ! do iVar=1,size(prog_data%var)
           select case(stepFailure)
-            case(.false.); prog_temp = prog_data!call finalize_device_prog_data(prog_data,prog_temp,indx_data%var(iLookINDEX%nLayers)%dat(1),indx_data%var(iLookINDEX%nSoil)%dat(1))!prog_temp%var(iVar)%dat(:) = prog_data%var(iVar)%dat(:)
-            case(.true.);  prog_data = prog_temp!call initialize_device_prog_data(prog_data,prog_temp,nGRU,indx_data%var(iLookINDEX%nSoil)%dat(1))!prog_data%var(iVar)%dat(:) = prog_temp%var(iVar)%dat(:)
+            case(.false.); prog_temp = prog_data
+            case(.true.);  prog_data = prog_temp
           end select
         ! end do  ! looping through variables
 
         ! save/recover copies of diagnostic variables
         ! do iVar=1,size(diag_data%var)
           select case(stepFailure)
-            case(.false.); diag_temp=diag_data!call finalize_device_diag_data(diag_data,diag_temp,indx_data%var(iLookINDEX%nSnow)%dat(1),indx_data%var(iLookINDEX%nLayers)%dat(1)) !diag_temp%var(iVar)%dat(:) = diag_data%var(iVar)%dat(:)
-            case(.true.);  diag_data=diag_temp!call initialize_device_diag_data(diag_data,diag_temp,nGRU,indx_data%var(iLookINDEX%nSoil)%dat(1)) !diag_data%var(iVar)%dat(:) = diag_temp%var(iVar)%dat(:)
+            case(.false.); diag_temp=diag_data
+            case(.true.);  diag_data=diag_temp
           end select
         ! end do  ! looping through variables
 
         nSoil = indx_data%nSoil
         ! *** merge/sub-divide snow layers...
         ! -----------------------------------
-        ! print*, indx_data%var(iLookINDEX%nSnow)%dat(1), indx_data%var(iLookINDEX%nLayers)%dat(1)
-        ! indx_data%var(iLookINDEX%nSnow)%dat(1) = nSnow
-        ! indx_data%var(iLookINDEX%nLayers)%dat(1) = nLayers
   err = cudaDeviceSynchronize()
 
-        call resize_snow_kernel<<<blocks,threads>>>(nGRU,decisions%snowLayers,indx_data%nSnow,indx_data%nLayers_d,nSoil, &
+        call resize_snow_kernel<<<blocks,threads>>>(nGRU,decisions%snowLayers,indx_data%nSnow,indx_data%nLayers,nSoil, &
  prog_data%mLayerTemp,prog_data%mLayerVolFracIce,prog_data%mLayerVolFracLiq, &
 prog_data%mLayerVolFracWat,prog_data%mLayerEnthalpy,prog_data%mLayerDepth, prog_data%mLayerHeight, prog_data%iLayerHeight, &
 diag_data%mLayerVolHtCapBulk, diag_data%mLayerCm, diag_data%mLayerThermalC, diag_data%iLayerThermalC, &
@@ -598,20 +595,22 @@ flux_data%ixILayerLiqFluxSnow_start,flux_data%ixILayerLiqFluxSnow_end,flux_data%
   err = cudaDeviceSynchronize()
 
         ! save the number of snow and soil layers
-        nSnow   = maxval(indx_data%nSnow)
+        ! nSnow   = maxval(indx_data%nSnow)
+        nSnow = maxSnowLayers+1
         nSoil   = indx_data%nSoil
-        nLayers = maxval(indx_data%nLayers_d)
+        ! nLayers = maxval(indx_data%nLayers)
+        nLayers = maxSnowLayers+nSoil
 
         ! recreate the temporary data structures
         ! NOTE: resizeData(meta, old, new, ..)
         ! if(modifiedVegState .or. modifiedLayers)then
 
           ! create temporary data structures for prognostic variables
-          prog_temp=prog_data!call finalize_device_prog_data(prog_data,prog_temp,nLayers,nSoil)
+          prog_temp=prog_data
           if(err/=0)then; err=20; message=trim(message)//trim(cmessage); return; endif
 
           ! create temporary data structures for diagnostic variables
-          diag_temp = diag_data!call finalize_device_diag_data(diag_data,diag_temp,nSnow,nLayers)
+          diag_temp = diag_data
           if(err/=0)then; err=20; message=trim(message)//trim(cmessage); return; endif
 
           ! create temporary data structures for index variables
@@ -639,7 +638,7 @@ flux_data%ixILayerLiqFluxSnow_start,flux_data%ixILayerLiqFluxSnow_end,flux_data%
     computeVegFlux,canopyDepth,&
     specificHeatVeg,maxMassVegetation,mpar_data%fixedThermalCond_snow_, &
     mpar_data%soil_dens_intr_,mpar_data%thCond_soil_,mpar_data%theta_sat_,mpar_data%frac_sand_,mpar_data%frac_silt_,mpar_data%frac_clay_,&
-    indx_data%nSnow,indx_data%nSoil,indx_data%nLayers_d,indx_data%layerType,&
+    indx_data%nSnow,indx_data%nSoil,indx_data%nLayers,indx_data%layerType,&
     prog_data%scalarCanopyIce,prog_data%scalarCanopyLiq,&
     prog_data%mLayerVolFracIce,prog_data%mLayerVolFracLiq,&
     prog_data%mLayerHeight,prog_data%iLayerHeight,&
@@ -780,7 +779,7 @@ flux_data%ixILayerLiqFluxSnow_start,flux_data%ixILayerLiqFluxSnow_end,flux_data%
           mLayerDepth             => prog_data%mLayerDepth                 & ! depth of each snow+soil layer (m)
           ) ! associations to variables in data structures
 
-          call sublime_kernel<<<blocks,threads>>>(nGRU,indx_data%nSnow,indx_data%nLayers_d, &
+          call sublime_kernel<<<blocks,threads>>>(nGRU,indx_data%nSnow,indx_data%nLayers, &
   mLayerMeltFreeze, mLayerVolFracIce, mLayerVolFracIceInit, &
   computeVegFlux, computeEnthalpy,enthalpyStateVec,&
   scalarCanopyIce, sumCanopySublimation, scalarCanopyLiq, &
@@ -859,7 +858,7 @@ flux_data%ixILayerLiqFluxSnow_start,flux_data%ixILayerLiqFluxSnow_end,flux_data%
   prog_data%mLayerDepth, indx_data%layerType, &
   diag_data%balanceSnowNrg, diag_data%balanceSnowMass, diag_data%balanceSoilNrg,diag_data%balanceSoilMass, &
   bal_soil, bal_snow, bal_aq, &
-  indx_data%nLayers_d, decisions%groundwatr)
+  indx_data%nLayers, decisions%groundwatr)
   err = cudaDeviceSynchronize()
 
       if(do_outer)then
@@ -920,7 +919,7 @@ flux_data%ixILayerLiqFluxSnow_start,flux_data%ixILayerLiqFluxSnow_end,flux_data%
   data_step,indx_data%nSnow,snowfrz_scale,&
   prog_data%mLayerVolFracWat,diag_data%mLayerEnthTemp,prog_data%mLayerEnthalpy,&
   computeEnthalpy,enthalpyStateVec,&
-  indx_data%nLayers_d,indx_data%layerType,indx_data%nSoil,&
+  indx_data%nLayers,indx_data%layerType,indx_data%nSoil,&
   prog_data%mLayerHeight,prog_data%iLayerHeight,&
   flux_data%data,flux_data%numScalarFluxData,&
   diag_data%mLayerCompress,meanSoilCompress,diag_data%scalarSoilCompress,&
@@ -991,6 +990,7 @@ contains
 
   ! get initial value of nLayers
   nSnow = maxval(indx_data%nSnow)
+  nSnow = maxSnowLayers
   nSoil = indx_data%nSoil
   nLayers = nSnow + nSoil
 

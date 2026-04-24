@@ -180,7 +180,7 @@ mparData%newSnowDenMin_,mparData%newSnowDenMult_,mparData%newSnowDenScal_,mparDa
 mparData%newSnowDenMultWind_,mparData%newSnowDenMultAnd_,mparData%newSnowDenBase_,mparData%constSnowDen_,mparData%snowfrz_scale_, &
 mparData%tempRangeTimestep_,mparData%tempCritRain_,mparData%frozenPrecipMultip_,mparData%minwind_,mparData%Frad_vis_,mparData%Frad_direct_,mparData%directScale_,&
 mparData%heightCanopyTop_,mparData%heightCanopyBottom_,&
-forcData%airtemp_d,forcData%windspd_d,forcData%pptrate,forcData%spechum,forcData%airpres_d,forcData%SWRadAtm,forcData%time,&
+forcData%airtemp,forcData%windspd,forcData%pptrate,forcData%spechum,forcData%airpres,forcData%SWRadAtm,forcData%time_h,&
 attrData%longitude,attrData%latitude,attrData%tan_slope,attrData%aspect,attrData%mHeight,&
 tmZoneOffsetFracDay,decisions%NC_TIME_ZONE,decisions%data_step,decisions%refJulDay,&
 veg_param%RSMIN_d,mparData%minStomatalResistance_,&
@@ -248,7 +248,8 @@ real(rkind),intent(inout) :: newSnowDenMin(:), newSnowDenMult(:),newSnowDenScal(
 real(rkind),intent(inout) :: newSnowDenMultWind(:),newSnowDenMultAnd(:),newSnowDenBase(:),constSnowDen(:),snowfrz_scale(:)
 real(rkind),intent(inout) :: tempRangeTimestep(:),tempCritRain(:),frozenPrecipMultip(:),minwind(:),Frad_vis(:),Frad_direct(:),directScale(:)
 real(rkind),intent(inout) :: heightCanopyTop(:),heightCanopyBottom(:)
-real(rkind),intent(inout) :: airtemp(:),windspd(:),pptrate(:),spechum(:),airpres(:),SWRadAtm(:),time(:)
+real(rkind),intent(inout) :: airtemp(:),windspd(:),pptrate(:),spechum(:),airpres(:),SWRadAtm(:)
+real(rkind),intent(in),value :: time
 real(rkind),intent(inout) :: longitude(:), latitude(:), tan_slope(:), aspect(:),mHeight(:)
 real(rkind),intent(in),value :: tmZoneOffsetFracDay
 integer(i4b) :: NC_TIME_ZONE
@@ -276,7 +277,7 @@ newSnowDenMin(iGRU),newSnowDenMult(iGRU),newSnowDenScal(iGRU),newSnowDenAdd(iGRU
 newSnowDenMultWind(iGRU),newSnowDenMultAnd(iGRU),newSnowDenBase(iGRU),constSnowDen(iGRU),snowfrz_scale(iGRU), &
 tempRangeTimestep(iGRU),tempCritRain(iGRU),frozenPrecipMultip(iGRU),minwind(iGRU),Frad_vis(iGRU),Frad_direct(iGRU),directScale(iGRU), &
 heightCanopyTop(iGRU), heightCanopyBottom(iGRU),&
-airtemp(iGRU),windspd(iGRU),pptrate(iGRU),spechum(iGRU),airpres(iGRU),SWRadAtm(iGRU),time(iGRU),&
+airtemp(iGRU),windspd(iGRU),pptrate(iGRU),spechum(iGRU),airpres(iGRU),SWRadAtm(iGRU),time,&
 longitude(iGRU),latitude(iGRU),tan_slope(iGRU),aspect(iGRU),mHeight(iGRU),&
 tmZoneOffsetFracDay,NC_TIME_ZONE,data_step,refJulDay,&
 RSMIN(iGRU),minStomatalResistance(iGRU),&
@@ -285,11 +286,6 @@ SAIM(:,:,iGRU),LAIM(:,:,iGRU),winterSAI(iGRU),summerLAI(iGRU),greenVegFrac_month
   RSTBL,RGLTBL,HSTBL, &
   TOPT_DATA,RSMAX_DATA, &
   RGL(iGRU),HS(iGRU),RSMAX(iGRU),TOPT(iGRU))
-  if (iGRU .eq. 1) then
-    do iGRU=1,nGRU
-      print*, mHeight(iGRU), adjMeasHeight(iGRU), heightCanopyTop(iGRU),scalarSnowDepth(iGRU)
-    end do
-  end if
 
 end subroutine
 

@@ -381,17 +381,20 @@ contains
  ! **********************************************************************************************************
  ! public subroutine fracFuture: compute the fraction of runoff in future time steps
  ! **********************************************************************************************************
- subroutine fracFuture(bpar_data,bvar_data,err,message)
+ attributes(device) subroutine fracFuture(ixRouting,data_step,routingGammaScale,routingGammaShape,runoffFuture,fractionFuture)
  ! external functions
  USE soil_utils_module,only:gammp ! compute the cumulative probabilty based on the Gamma distribution
 
  implicit none
  ! input variables
- real(rkind),intent(in)          :: bpar_data(:)         ! vector of basin-average model parameters
+ integer(i4b),intent(in) :: ixRouting
+ real(rkind),intent(in) :: data_step
+!  real(rkind),intent(in)          :: bpar_data(:)         ! vector of basin-average model parameters
+ real(rkind),intent(in) :: routingGammaShape,routingGammaScale
  ! output variables
- type(var_dlength),intent(inout) :: bvar_data            ! data structure of basin-average model variables
- integer(i4b),intent(out)        :: err                  ! error code
- character(*),intent(out)        :: message              ! error message
+!  type(var_dlength),intent(inout) :: bvar_data            ! data structure of basin-average model variables
+ real(rkind),intent(inout) :: runoffFuture(:), fractionFuture(:)
+!  integer(i4b),intent(out)        :: err                  ! error code
  ! internal
  real(rkind)                     :: dt                   ! data time step (s)
  integer(i4b)                    :: nTDH                 ! number of points in the time-delay histogram
@@ -402,16 +405,16 @@ contains
  real(rkind)                     :: sumFrac              ! sum of runoff fractions in all steps
  real(rkind),parameter           :: tolerFrac=0.01_rkind ! tolerance for missing fractional runoff by truncating histogram
  ! initialize error control
- err=0; message='fracFuture/'
+!  err=0
  ! ----------------------------------------------------------------------------------
  ! associate variables in data structure
- associate(&
- ixRouting         => model_decisions(iLookDECISIONS%subRouting)%iDecision, & ! index for routing method
- routingGammaShape => bpar_data(iLookBPAR%routingGammaShape),               & ! shape parameter in Gamma distribution used for sub-grid routing (-)
- routingGammaScale => bpar_data(iLookBPAR%routingGammaScale),               & ! scale parameter in Gamma distribution used for sub-grid routing (s)
- runoffFuture      => bvar_data%var(iLookBVAR%routingRunoffFuture)%dat,     & ! runoff in future time steps (m s-1)
- fractionFuture    => bvar_data%var(iLookBVAR%routingFractionFuture)%dat    & ! fraction of runoff in future time steps (-)
- ) ! end associate
+!  associate(&
+!  ixRouting         => model_decisions(iLookDECISIONS%subRouting)%iDecision & ! index for routing method
+!  routingGammaShape => bpar_data(iLookBPAR%routingGammaShape),               & ! shape parameter in Gamma distribution used for sub-grid routing (-)
+!  routingGammaScale => bpar_data(iLookBPAR%routingGammaScale),               & ! scale parameter in Gamma distribution used for sub-grid routing (s)
+!  runoffFuture      => bvar_data%var(iLookBVAR%routingRunoffFuture)%dat,     & ! runoff in future time steps (m s-1)
+!  fractionFuture    => bvar_data%var(iLookBVAR%routingFractionFuture)%dat    & ! fraction of runoff in future time steps (-)
+!  ) ! end associate
  ! ----------------------------------------------------------------------------------
 
  ! define time step
@@ -436,8 +439,8 @@ contains
    ! initialize
    pSave   = 0._rkind ! cumulative probability at the start of the step
    if(routingGammaShape <= 0._rkind .or. routingGammaScale <= 0._rkind)then
-    message=trim(message)//'bad arguments for the Gamma distribution'
-    err=20; return
+    ! message=trim(message)//'bad arguments for the Gamma distribution'
+    ! err=20; return
    end if
    ! loop through time steps and compute fraction of runoff in future steps
    do iFuture = 1,nTDH
@@ -456,23 +459,23 @@ contains
    ! check that we have enough bins
    sumFrac  = sum(fractionFuture(1:nTDH))
    if(abs(1._rkind - sumFrac) > tolerFrac)then
-    write(*,*) 'WARNING: The fraction of basin runoff histogram being accounted for by time delay vector is ', sumFrac
-    write(*,*) 'This is less than allowed by tolerFrac = ', tolerFrac
-    write(*,*) 'This means that we do not have enough bins for the time delay histogram'
-    write(*,*) 'Solutions:'
-    write(*,*) ' (1) Check that the values of routingGammaShape and routingGammaScale are appropriate (and fix if necessary); or'
-    write(*,*) ' (2) Increase the hard coded parameter nTimeDelay in globalData.f90 (currently nTimeDelay is set to ', nTDH, ')'
-    write(*,*) '       -- note that nTimeDelay defines the number of time steps in the time delay histogram'
+    ! write(*,*) 'WARNING: The fraction of basin runoff histogram being accounted for by time delay vector is ', sumFrac
+    ! write(*,*) 'This is less than allowed by tolerFrac = ', tolerFrac
+    ! write(*,*) 'This means that we do not have enough bins for the time delay histogram'
+    ! write(*,*) 'Solutions:'
+    ! write(*,*) ' (1) Check that the values of routingGammaShape and routingGammaScale are appropriate (and fix if necessary); or'
+    ! write(*,*) ' (2) Increase the hard coded parameter nTimeDelay in globalData.f90 (currently nTimeDelay is set to ', nTDH, ')'
+    ! write(*,*) '       -- note that nTimeDelay defines the number of time steps in the time delay histogram'
    end if
    ! ensure the fraction sums to one
    fractionFuture(1:nTDH) = fractionFuture(1:nTDH)/sumFrac
 
   ! ** error checking
-  case default; err=20; message=trim(message)//'cannot find option for sub-grid routing'; return
+!   case default; err=20; message=trim(message)//'cannot find option for sub-grid routing'; return
 
  end select ! (select option for sub-grid routing)
 
- end associate
+!  end associate
 
  end subroutine fracFuture
 

@@ -67,7 +67,7 @@ contains
  type(gru_hru_int8),  intent(in)       :: idStruct         ! local labels for hru and gru IDs
  ! define output
  type(mpar_data_device),intent(inout) :: mparStruct       ! model parameters
- type(gru_double)    ,intent(inout)    :: bparStruct       ! basin parameters
+ type(bpar_data_device),intent(inout) :: bparStruct       ! basin parameters
  integer(i4b),        intent(out)      :: err              ! error code
  character(*),        intent(out)      :: message          ! error message
  ! define local variables
@@ -341,13 +341,17 @@ contains
 
    ! populate parameter structures
    if (iRunMode==iRunModeGRU) then
-    do iGRU=1,nGRU
-     bparStruct%gru(iGRU)%var(ixParam) = parVector(iGRU+startGRU-1)
-    end do  ! looping through GRUs
+   !  do iGRU=1,nGRU
+   !   bparStruct%gru(iGRU)%var(ixParam) = parVector(iGRU+startGRU-1)
+      call bparStruct%set(ixParam,parVector(startGRU:nGRU+startGRU-1))
+      ! call set_device_bpar_data(bparStruct,ixParam,parVector(startGRU:nGRU+startGRU-1))
+   !  end do  ! looping through GRUs
    else if (iRunMode==iRunModeFull) then
-    do iGRU=1,nGRU
-     bparStruct%gru(iGRU)%var(ixParam) = parVector(iGRU)
-    end do  ! looping through GRUs
+   !  do iGRU=1,nGRU
+   !   bparStruct%gru(iGRU)%var(ixParam) = parVector(iGRU)
+      call bparStruct%set(ixParam,parVector(1:nGRU))
+   !   call set_device_bpar_data(bparStruct,ixParam,parVector(1:nGRU))
+   !  end do  ! looping through GRUs
    else if (iRunMode==iRunModeHRU) then
     err = 20; message='checkHRU run mode not working'; return;
    endif

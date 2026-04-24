@@ -127,7 +127,7 @@ subroutine varSubstep(&
   USE allocspace_module,only:allocLocal                ! allocate local data structures
   ! simulation of fluxes and residuals given a trial state vector
   USE getVectorz_module,only:popStateVec                ! populate the state vector
-  USE getVectorz_module,only:varExtract_host                 ! extract variables from the state vector
+  USE getVectorz_module,only:varExtract                 ! extract variables from the state vector
   USE systemSolv_module,only:systemSolv                 ! solve the system of equations for one time step
   ! identify name of variable type (for error message)
   USE get_ixName_module,only:get_varTypeName           ! to access type strings for error messages
@@ -245,7 +245,7 @@ type(dim3) :: blocks,threads
     ! number of layers
     nSnow                   => indx_data%nSnow                 ,& ! intent(in):    [i4b]    number of snow layers
     nSoil                   => indx_data%nSoil                 ,& ! intent(in):    [i4b]    number of soil layers
-    nLayers                 => indx_data%nLayers_d               ,& ! intent(in):    [i4b]    total number of layers
+    nLayers                 => indx_data%nLayers               ,& ! intent(in):    [i4b]    total number of layers
     ! nSoilOnlyHyd            => indx_data%var(iLookINDEX%nSoilOnlyHyd )%dat(1)         ,& ! intent(in):    [i4b]    number of hydrology variables in the soil domain
     mLayerDepth             => prog_data%mLayerDepth               ,& ! intent(in):    [dp(:)]  depth of each layer in the snow-soil sub-domain (m)
     ! get indices for balances
@@ -686,7 +686,7 @@ subroutine updateProg(nGRU, dt,nSnow,nSoil,nLayers,untappedMelt,stateVecTrial,st
                       doAdjustTemp,computeVegFlux,computMassBalance,computNrgBalance,computeEnthTemp,enthalpyStateVec,use_lookup,& ! input: model control
                       model_decisions,lookup_data,mpar_data,indx_data,flux_data,prog_data,diag_data,deriv_data,                  & ! input-output: data structures
                       fluxVec,resVec,balance,waterBalanceError,nrgFluxModified,err,message)                                        ! input-output: balances, flags, and error control
-USE getVectorz_module,only:varExtract_host,varExtract                              ! extract variables from the state vector
+USE getVectorz_module,only:varExtract                              ! extract variables from the state vector
 use device_data_types
 #ifdef SUNDIALS_ACTIVE
   USE updateVarsWithPrime_module,only:updateVarsWithPrime          ! update prognostic variables
@@ -876,7 +876,7 @@ type(dim3) :: blocks,threads
   scalarCanopyLiq, scalarCanopyIce, &
   computeVegFlux,&
   mLayerVolFracLiq, mLayerVolFracIce, mLayerDepth, &
-  nSnow, indx_data%nLayers_d)
+  nSnow, indx_data%nLayers)
     ! -----
     ! * update states...
     ! ------------------
@@ -1043,7 +1043,7 @@ type(dim3) :: blocks,threads
 
     call checkBalances_kernel<<<blocks,threads>>>(nGRU,computNrgBalance,computMassBalance, &
   ixCasNrg, ixVegNrg, ixVegHyd, ixAqWat, &
-  indx_data%nLayers_d, nSnow, &
+  indx_data%nLayers, nSnow, &
   ixSnowSoilNrg, ixSnowSoilHyd,ixDomainType,ixNrgOnly,ixControlVolume,&
   mLayerVolFracLiqTrial, mLayerVolFracIceTrial, &
   scalarCanopyLiqTrial, scalarCanopyIceTrial, scalarCanopyWatTrial, &

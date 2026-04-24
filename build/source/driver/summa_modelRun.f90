@@ -86,8 +86,6 @@ contains
 !  type(flux_data_device) :: fluxStruct_d
 !  type(diag_data_device) :: diagStruct_d
 !  type(bvar_data_device) :: bvarStruct_d
-!  type(attr_data_device) :: attrStruct_d
-!  type(mpar_data_device) :: mparStruct_d
 !   type(decisions_device) :: decisions
 ! type(veg_parameters) :: veg_param
 ! type(veg_param_tables) :: veg_tables
@@ -103,26 +101,26 @@ contains
 
   ! primary data structures (scalars)
   timeStruct           => summa1_struc%timeStruct          , & ! x%var(:)                   -- model time data
-  forcStruct           => summa1_struc%forcStruct_d          , & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
-  attrStruct           => summa1_struc%attrStruct_d          , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
+  forcStruct           => summa1_struc%forcStruct          , & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
+  attrStruct           => summa1_struc%attrStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
   typeStruct           => summa1_struc%typeStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
   idStruct             => summa1_struc%idStruct            , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
 
   veg_param => summa1_struc%veg_param, &
   decisions => summa1_struc%decisions, &
   ! primary data structures (variable length vectors)
-  indxStruct           => summa1_struc%indxStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
-  mparStruct           => summa1_struc%mparStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
-  progStruct           => summa1_struc%progStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
-  diagStruct           => summa1_struc%diagStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
-  fluxStruct           => summa1_struc%fluxStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
+  indxStruct           => summa1_struc%indxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
+  mparStruct           => summa1_struc%mparStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+  progStruct           => summa1_struc%progStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
+  diagStruct           => summa1_struc%diagStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
+  fluxStruct           => summa1_struc%fluxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
 
   ! basin-average structures
   bparStruct           => summa1_struc%bparStruct          , & ! x%gru(:)%var(:)            -- basin-average parameters
-  bvarStruct           => summa1_struc%bvarStruct_d          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
+  bvarStruct           => summa1_struc%bvarStruct          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
 
   ! run time variables
-  computeVegFlux       => summa1_struc%computeVegFlux_d      , & ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+  computeVegFlux       => summa1_struc%computeVegFlux      , & ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
   dt_init              => summa1_struc%dt_init             , & ! used to initialize the length of the sub-step for each HRU
   nGRU                 => summa1_struc%nGRU                  & ! number of grouped response units
 
@@ -175,21 +173,21 @@ veg_param%hvt_,veg_param%hvb_,veg_param%laim_,veg_param%saim_,veg_param%tmin,urb
 
   ! primary data structures (scalars)
   timeStruct           => summa1_struc%timeStruct          , & ! x%var(:)                   -- model time data
-  forcStruct           => summa1_struc%forcStruct_d          , & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
-  attrStruct           => summa1_struc%attrStruct_d          , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
+  forcStruct           => summa1_struc%forcStruct          , & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
+  attrStruct           => summa1_struc%attrStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
   typeStruct           => summa1_struc%typeStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
   idStruct             => summa1_struc%idStruct            , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
 
   ! primary data structures (variable length vectors)
-  indxStruct           => summa1_struc%indxStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
-  mparStruct           => summa1_struc%mparStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
-  progStruct           => summa1_struc%progStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
-  diagStruct           => summa1_struc%diagStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
-  fluxStruct           => summa1_struc%fluxStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
+  indxStruct           => summa1_struc%indxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model indices
+  mparStruct           => summa1_struc%mparStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+  progStruct           => summa1_struc%progStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model prognostic (state) variables
+  diagStruct           => summa1_struc%diagStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model diagnostic variables
+  fluxStruct           => summa1_struc%fluxStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model fluxes
 
   ! basin-average structures
   bparStruct           => summa1_struc%bparStruct          , & ! x%gru(:)%var(:)            -- basin-average parameters
-  bvarStruct           => summa1_struc%bvarStruct_d          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
+  bvarStruct           => summa1_struc%bvarStruct          , & ! x%gru(:)%var(:)%dat        -- basin-average variables
 
   ! lookup table structure
   lookupStruct         => summa1_struc%lookupStruct        , & ! x%gru(:)%hru(:)%z(:)%var(:)%lookup    -- lookup-tables
@@ -198,7 +196,7 @@ veg_param%hvt_,veg_param%hvb_,veg_param%laim_,veg_param%saim_,veg_param%tmin,urb
   veg_tables => summa1_struc%veg_tables, &
 
   ! run time variables
-  computeVegFlux       => summa1_struc%computeVegFlux_d      , & ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
+  computeVegFlux       => summa1_struc%computeVegFlux      , & ! flag to indicate if we are computing fluxes over vegetation (.false. means veg is buried with snow)
   dt_init              => summa1_struc%dt_init             , & ! used to initialize the length of the sub-step for each HRU
   nGRU                 => summa1_struc%nGRU                  & ! number of grouped response units
 
@@ -289,7 +287,6 @@ scalarExposedLAI(iGRU),scalarExposedSAI(iGRU),&
 scalarGrowingSeasonIndex(iGRU),scalarGroundSnowFraction(iGRU), &
 dveg,iswater,isbarren,issnow,&
 hvt(:,iGRU),hvb(:,iGRU),laim(:,:,iGRU),saim(:,:,iGRU),tmin,urbanVegCategory,minExpLogHgtFac, computeVegFlux(iGRU))
-print*, iGRU, scalarCanopyTemp(iGRU)
 end subroutine
 
 attributes(device) subroutine initialize_computeVegFlux(nSnow, bcUpprTdyn,bcUpprSoiH,&

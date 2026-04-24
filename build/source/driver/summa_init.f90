@@ -96,6 +96,7 @@ subroutine summa_initialize(summa1_struc, err, message)
   USE globalData,only:gru_struc                               ! gru-hru mapping structures
   USE globalData,only:structInfo                              ! information on the data structures
   USE globalData,only:output_fileSuffix                       ! suffix for the output file
+  use initialize_device
 
   ! ---------------------------------------------------------------------------------------
   ! * variables
@@ -235,17 +236,26 @@ subroutine summa_initialize(summa1_struc, err, message)
       print*, trim(structInfo(iStruct)%structName)
       select case(trim(structInfo(iStruct)%structName))
         case('time'  ); call allocGlobal(time_meta,    summa1_struc%timeStruct,    err, cmessage)   ! model forcing data
-        case('forc'  ); call allocGlobal(forc_meta,    summa1_struc%forcStruct,    err, cmessage)   ! model forcing data
+        case('forc'  ); !call allocGlobal(forc_meta,    summa1_struc%forcStruct,    err, cmessage)   ! model forcing data
+                     call allocate_device_forc_data(summa1_struc%forcStruct,summa1_struc%nGRU)
+
         case('attr'  ); call allocGlobal(attr_meta,    summa1_struc%attrStruct,    err, cmessage)   ! local attributes for each HRU
         case('type'  ); call allocGlobal(type_meta,    summa1_struc%typeStruct,    err, cmessage)   ! local classification of soil veg etc. for each HRU
         case('id'    ); call allocGlobal(id_meta,      summa1_struc%idStruct,      err, message)    ! local values of hru and gru IDs
-        case('mpar'  ); call allocGlobal(mpar_meta,    summa1_struc%mparStruct_d,    err, cmessage)   ! model parameters
-        case('indx'  ); call allocGlobal(indx_meta,    summa1_struc%indxStruct,    err, cmessage)   ! model variables
-        case('prog'  ); call allocGlobal(prog_meta,    summa1_struc%progStruct,    err, cmessage)   ! model prognostic (state) variables
-        case('diag'  ); call allocGlobal(diag_meta,    summa1_struc%diagStruct,    err, cmessage)   ! model diagnostic variables
-        case('flux'  ); call allocGlobal(flux_meta,    summa1_struc%fluxStruct,    err, cmessage)   ! model fluxes
+        case('mpar'  ); call allocGlobal(mpar_meta,    summa1_struc%mparStruct,    err, cmessage)   ! model parameters
+        case('indx'  ); !call allocGlobal(indx_meta,    summa1_struc%indxStruct,    err, cmessage)   ! model variables
+           call allocate_device_indx_data(summa1_struc%indxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc%nGRU)
+
+        case('prog'  ); !call allocGlobal(prog_meta,    summa1_struc%progStruct,    err, cmessage)   ! model prognostic (state) variables
+                   call allocate_device_prog_data(summa1_struc%progStruct,summa1_struc%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
+
+        case('diag'  ); !call allocGlobal(diag_meta,    summa1_struc%diagStruct,    err, cmessage)   ! model diagnostic variables
+                  call allocate_device_diag_data(summa1_struc%diagStruct,summa1_struc%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
+
+        case('flux'  ); !call allocGlobal(flux_meta,    summa1_struc%fluxStruct,    err, cmessage)   ! model fluxes
         case('bpar'  ); call allocGlobal(bpar_meta,    summa1_struc%bparStruct,    err, cmessage)   ! basin-average parameters
-        case('bvar'  ); call allocGlobal(bvar_meta,    summa1_struc%bvarStruct,    err, cmessage)   ! basin-average variables
+        case('bvar'  ); !call allocGlobal(bvar_meta,    summa1_struc%bvarStruct,    err, cmessage)   ! basin-average variables
+            call allocate_device_bvar_data(summa1_struc%bvarStruct,summa1_struc%nGRU)
         case('lookup'); call allocGlobal(lookup_meta,  summa1_struc%lookupStruct,  err, cmessage)   ! basin-average variables
         case('deriv' ); cycle
         case default; err=20; message='unable to find structure name: '//trim(structInfo(iStruct)%structName)
@@ -266,7 +276,7 @@ subroutine summa_initialize(summa1_struc, err, message)
     endif
 
     ! allocate space for the time step and computeVegFlux flags (recycled for each GRU for subsequent model calls)
-    allocate(dt_init%gru(nGRU),upArea%gru(nGRU),computeVegFlux%gru(nGRU),stat=err)
+    allocate(dt_init%gru(nGRU),upArea%gru(nGRU),summa1_struc%computeVegFlux(nGRU),stat=err)
     if(err/=0)then
       message=trim(message)//'problem allocating space for dt_init, upArea, or computeVegFlux [GRU]'
       return
@@ -275,9 +285,9 @@ subroutine summa_initialize(summa1_struc, err, message)
     ! allocate space for the HRUs
     do iGRU=1,nGRU
       hruCount = gru_struc(iGRU)%hruCount  ! gru_struc populated in "read_dimension"
-      allocate(dt_init%gru(iGRU)%hru(hruCount),upArea%gru(iGRU)%hru(hruCount),computeVegFlux%gru(iGRU)%hru(hruCount),stat=err)
+      allocate(dt_init%gru(iGRU)%hru(hruCount),upArea%gru(iGRU)%hru(hruCount),stat=err)
       if(err/=0)then
-        message='problem allocating space for dt_init, upArea, or computeVegFlux [HRU]'
+        message='problem allocating space for dt_init, or upArea [HRU]'
       return
       endif
     end do
@@ -291,11 +301,16 @@ subroutine summa_initialize(summa1_struc, err, message)
 
       ! allocate space
       select case(trim(structInfo(iStruct)%structName))
-        case('forc'); call allocGlobal(statForc_meta(:)%var_info,summa1_struc%forcStat,err,cmessage)   ! model forcing data
-        case('prog'); call allocGlobal(statProg_meta(:)%var_info,summa1_struc%progStat,err,cmessage)   ! model prognostic (state) variables
-        case('diag'); call allocGlobal(statDiag_meta(:)%var_info,summa1_struc%diagStat,err,cmessage)   ! model diagnostic variables
-        case('flux'); call allocGlobal(statFlux_meta(:)%var_info,summa1_struc%fluxStat,err,cmessage)   ! model fluxes
-        case('indx'); call allocGlobal(statIndx_meta(:)%var_info,summa1_struc%indxStat,err,cmessage)   ! index vars
+        ! case('forc'); call allocGlobal(statForc_meta(:)%var_info,summa1_struc%forcStat,err,cmessage)   ! model forcing data
+        case('forc'); call allocate_device_forc_stat(summa1_struc%forcStat,nGRU)
+        ! case('prog'); call allocGlobal(statProg_meta(:)%var_info,summa1_struc%progStat,err,cmessage)   ! model prognostic (state) variables
+        case('prog'); call allocate_device_prog_stat(summa1_struc%progStat,nGRU)
+        ! case('diag'); call allocGlobal(statDiag_meta(:)%var_info,summa1_struc%diagStat,err,cmessage)   ! model diagnostic variables
+        case('diag'); call allocate_device_diag_stat(summa1_struc%diagStat,nGRU)
+        ! case('flux'); call allocGlobal(statFlux_meta(:)%var_info,summa1_struc%fluxStat,err,cmessage)   ! model fluxes
+        case('flux'); call allocate_device_flux_stat(summa1_struc%fluxStat,nGRU)
+        ! case('indx'); call allocGlobal(statIndx_meta(:)%var_info,summa1_struc%indxStat,err,cmessage)   ! index vars
+        case('indx'); call allocate_device_indx_stat(summa1_struc%indxStat,nGRU)
         case('bvar'); call allocGlobal(statBvar_meta(:)%var_info,summa1_struc%bvarStat,err,cmessage)   ! basin-average variables
         case default; cycle
       end select

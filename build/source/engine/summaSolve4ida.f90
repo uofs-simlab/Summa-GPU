@@ -173,37 +173,37 @@ subroutine summaSolve4ida(&
   real(qp),intent(in)             :: dt                     ! data time step
   real(qp),intent(inout),device          :: atol(:,:)                ! vector of absolute tolerances
   real(qp),intent(inout),device          :: rtol(:,:)                ! vector of relative tolerances
-  integer(i4b),intent(in),device         :: nSnow(:)                  ! number of snow layers
+  integer(i4b),intent(in),device,target         :: nSnow(:)                  ! number of snow layers
   integer(i4b),intent(in)         :: nSoil                  ! number of soil layers
-  integer(i4b),intent(in),device         :: nLayers(:)                ! total number of layers
+  integer(i4b),intent(in),device,target         :: nLayers(:)                ! total number of layers
   integer(i4b),intent(in)         :: nStat                  ! total number of state variables
   integer(i4b),intent(in)         :: ixMatrix               ! form of matrix (dense or banded)
   logical(lgt),intent(in)         :: firstSubStep           ! flag to indicate if we are processing the first sub-step
-  logical(lgt),intent(in),device         :: computeVegFlux(:)         ! flag to indicate if computing fluxes over vegetation
+  logical(lgt),intent(in),device,target         :: computeVegFlux(:)         ! flag to indicate if computing fluxes over vegetation
   logical(lgt),intent(in)         :: scalarSolution         ! flag to denote if implementing the scalar solution
   logical(lgt),intent(in)         :: computMassBalance      ! flag to compute mass balance
   logical(lgt),intent(in)         :: computNrgBalance       ! flag to compute energy balance
   ! input: state vectors
   real(rkind),intent(in),device          :: stateVecInit(:,:)        ! model state vector
-  real(qp),intent(in),device             :: sMul(:,:)                ! state vector multiplier (used in the residual calculations)
-  real(rkind), intent(inout),device      :: dMat(:,:)                ! diagonal of the Jacobian matrix (excludes fluxes)
+  real(qp),intent(in),device,target             :: sMul(:,:)                ! state vector multiplier (used in the residual calculations)
+  real(rkind), intent(inout),device,target      :: dMat(:,:)                ! diagonal of the Jacobian matrix (excludes fluxes)
   ! input: data structures
   type(model_options),intent(in)  :: model_decisions(:)     ! model decisions
-  type(zLookup_device),      intent(in)  :: lookup_data            ! lookup tables
-  type(type_data_device),        intent(in)  :: type_data              ! type of vegetation and soil
-  type(attr_data_device),        intent(in)  :: attr_data              ! spatial attributes
-  type(mpar_data_device),  intent(in)  :: mpar_data              ! model parameters
-  type(forc_data_device),        intent(in)  :: forc_data              ! model forcing data
-  type(bvar_data_device),  intent(in)  :: bvar_data              ! model variables for the local basin
-  type(prog_data_device),  intent(in)  :: prog_data              ! prognostic variables for a local HRU
-  type(decisions_device) :: decisions
-  type(veg_parameters) :: veg_param
+  type(zLookup_device),      intent(in),target  :: lookup_data            ! lookup tables
+  type(type_data_device),        intent(in),target  :: type_data              ! type of vegetation and soil
+  type(attr_data_device),        intent(in),target  :: attr_data              ! spatial attributes
+  type(mpar_data_device),  intent(in),target  :: mpar_data              ! model parameters
+  type(forc_data_device),        intent(in),target  :: forc_data              ! model forcing data
+  type(bvar_data_device),  intent(in),target  :: bvar_data              ! model variables for the local basin
+  type(prog_data_device),  intent(in),target  :: prog_data              ! prognostic variables for a local HRU
+  type(decisions_device),target :: decisions
+  type(veg_parameters),target :: veg_param
    ! input-output: data structures
-  type(indx_data_device),intent(inout) :: indx_data              ! indices defining model states and layers
-  type(diag_data_device),intent(inout) :: diag_data              ! diagnostic variables for a local HRU
-  type(flux_data_device),intent(inout) :: flux_data              ! model fluxes for a local HRU
+  type(indx_data_device),intent(inout),target :: indx_data              ! indices defining model states and layers
+  type(diag_data_device),intent(inout),target :: diag_data              ! diagnostic variables for a local HRU
+  type(flux_data_device),intent(inout),target :: flux_data              ! model fluxes for a local HRU
   type(flux_data_device),intent(inout) :: flux_sum               ! sum of fluxes model fluxes for a local HRU over a dt_cur
-  type(deriv_data_device),intent(inout) :: deriv_data             ! derivatives in model fluxes w.r.t. relevant state variables
+  type(deriv_data_device),intent(inout),target :: deriv_data             ! derivatives in model fluxes w.r.t. relevant state variables
   real(rkind),intent(inout),device       :: mLayerCmpress_sum(:,:)   ! sum of soil compress
   ! output: state vectors
   integer(i4b),intent(inout),device      :: ixSaturation(:)           ! index of the lowest saturated layer
@@ -306,41 +306,45 @@ subroutine summaSolve4ida(&
     
     ! fill eqns_data which will be required later to call eval8summa4ida
     eqns_data%dt             = dt
-    allocate(eqns_data%nSnow(nGRU))
-    allocate(eqns_data%nLayers(nGRU))
+    ! allocate(eqns_data%nSnow(nGRU))
+    ! allocate(eqns_data%nLayers(nGRU))
     eqns_data%nGRU = nGRU
-    eqns_data%nSnow          = nSnow
+    eqns_data%nSnow_p          => nSnow
     eqns_data%nSoil          = nSoil
-    eqns_data%nLayers        = nLayers
+    eqns_data%nLayers_p        => nLayers
     eqns_data%nState         = nState
     eqns_data%ixMatrix       = ixMatrix
     eqns_data%firstSubStep   = firstSubStep
-    allocate(eqns_data%computeVegFlux(nGRU))
-    eqns_data%computeVegFlux = computeVegFlux
+    ! allocate(eqns_data%computeVegFlux(nGRU))
+    eqns_data%computeVegFlux_p => computeVegFlux
     eqns_data%scalarSolution = scalarSolution
-    eqns_data%deriv_data     = deriv_data
-    eqns_data%lookup_data    = lookup_data
-    eqns_data%decisions = decisions
-    eqns_data%veg_param = veg_param
+    eqns_data%deriv_data_p     => deriv_data
+    eqns_data%lookup_data_p    => lookup_data
+    eqns_data%decisions_p => decisions
+    eqns_data%veg_param_p => veg_param
 
-    eqns_data%type_data      = type_data
-    eqns_data%attr_data      = attr_data
-    eqns_data%mpar_data      = mpar_data
-    eqns_data%forc_data      = forc_data
-    eqns_data%bvar_data      = bvar_data
-    eqns_data%prog_data      = prog_data
-    eqns_data%indx_data      = indx_data
-    eqns_data%diag_data      = diag_data
-    eqns_data%flux_data      = flux_data
+    eqns_data%type_data_p      => type_data
+    eqns_data%attr_data_p      => attr_data
+    eqns_data%mpar_data_p      => mpar_data
+    eqns_data%forc_data_p      => forc_data
+    eqns_data%bvar_data_p      => bvar_data
+    eqns_data%prog_data_p      => prog_data
+    eqns_data%indx_data_p      => indx_data
+    eqns_data%diag_data_p      => diag_data
+    eqns_data%flux_data_p      => flux_data
     allocate(eqns_data%ixSaturation(nGRU))
     eqns_data%ixSaturation   = ixSaturation
     
     ! allocate space and fill
     allocate( eqns_data%model_decisions(maxvarDecisions) ); eqns_data%model_decisions = model_decisions
-    allocate( eqns_data%atol(nState,nGRU) ); eqns_data%atol = atol
-    allocate( eqns_data%rtol(nState,nGRU) ); eqns_data%rtol = rtol
-    allocate( eqns_data%sMul(nState,nGRU) ); eqns_data%sMul = sMul
-    allocate( eqns_data%dMat(nState,nGRU) ); eqns_data%dMat = dMat
+    allocate( eqns_data%atol(nState,nGRU) ); 
+    eqns_data%atol = atol
+    allocate( eqns_data%rtol(nState,nGRU) ); 
+    eqns_data%rtol = rtol
+    ! allocate( eqns_data%sMul(nState,nGRU) ); 
+    eqns_data%sMul_p => sMul
+    ! allocate( eqns_data%dMat(nState,nGRU) ); 
+    eqns_data%dMat_p => dMat
     
     ! allocate space for the to save previous fluxes
     
@@ -350,13 +354,13 @@ subroutine summaSolve4ida(&
     else
       allocate(eqns_data%dBaseflow_dMatric(1,1,nGRU),stat=err)
     end if
-    allocate( eqns_data%mLayerTempPrev(nSoil+maxSnowLayers,nGRU) )
+    allocate( eqns_data%mLayerTempPrev(nSoil+maxSnowLayers+1,nGRU) )
     allocate( eqns_data%mLayerMatricHeadPrev(nSoil,nGRU) )
-    allocate( eqns_data%mLayerTempTrial(nSoil+maxSnowLayers,nGRU) )
+    allocate( eqns_data%mLayerTempTrial(nSoil+maxSnowLayers+1,nGRU) )
     allocate( eqns_data%mLayerMatricHeadTrial(nSoil,nGRU) )
-    allocate( eqns_data%mLayerTempPrime(nSoil+maxSnowLayers,nGRU) )       
+    allocate( eqns_data%mLayerTempPrime(nSoil+maxSnowLayers+1,nGRU) )       
     allocate( eqns_data%mLayerMatricHeadPrime(nSoil,nGRU) )
-    allocate( eqns_data%mLayerVolFracWatPrime(nSoil+maxSnowLayers,nGRU) ) 
+    allocate( eqns_data%mLayerVolFracWatPrime(nSoil+maxSnowLayers+1,nGRU) ) 
     allocate( mLayerMatricHeadPrimePrev(nSoil,nGRU) )
     allocate( dCompress_dPsiPrev(nSoil,nGRU) )
     allocate( eqns_data%fluxVec(nState,nGRU) )
@@ -373,11 +377,11 @@ allocate( eqns_data%scalarCanopyWatPrime(nGRU))
     call allocate_device_flux_prev(flux_prev,nSoil,nGRU)
     ! flux_prev = flux_data
     flux_prev%data = flux_data%data
-    eqns_data%scalarCanopyTempPrev    = eqns_data%prog_data%scalarCanopyTemp
-    eqns_data%mLayerTempPrev       = eqns_data%prog_data%mLayerTemp
-    eqns_data%scalarCanopyTempTrial   = eqns_data%prog_data%scalarCanopyTemp
-    eqns_data%mLayerTempTrial      = eqns_data%prog_data%mLayerTemp
-    eqns_data%mLayerMatricHeadPrev = eqns_data%prog_data%mLayerMatricHead
+    eqns_data%scalarCanopyTempPrev    = eqns_data%prog_data_p%scalarCanopyTemp
+    eqns_data%mLayerTempPrev       = eqns_data%prog_data_p%mLayerTemp
+    eqns_data%scalarCanopyTempTrial   = eqns_data%prog_data_p%scalarCanopyTemp
+    eqns_data%mLayerTempTrial      = eqns_data%prog_data_p%mLayerTemp
+    eqns_data%mLayerMatricHeadPrev = eqns_data%prog_data_p%mLayerMatricHead
     mLayerMatricHeadPrimePrev         = 0._rkind
     ! mLayerMatricHeadPrimePrev = eqns_data%mLayerMatricHeadPrime
     dCompress_dPsiPrev             = 0._rkind
@@ -388,7 +392,6 @@ allocate( eqns_data%scalarCanopyWatPrime(nGRU))
     retval = FSUNContext_Create(SUN_COMM_NULL, sunctx)
     
     ! create serial vectors
-    print*, nState
     sunvec_y => FN_VMake_Cuda(nState*nGRU, stateVec_h,stateVec, sunctx)
     if (.not. associated(sunvec_y)) then; err=20; message=trim(message)//'sunvec = NULL'; return; endif
     sunvec_yp => FN_VMake_Cuda(nState*nGRU, stateVecPrime_h,stateVecPrime, sunctx)
@@ -443,7 +446,7 @@ allocate( eqns_data%scalarCanopyWatPrime(nGRU))
     if (retval /= 0) then; err=20; message=trim(message)//'error in FIDASetStopTime'; return; endif
     
     ! Set solver parameters at end of setup
-    call setSolverParams(dt_cur, eqns_data%mpar_data, ida_mem, retval)
+    call setSolverParams(dt_cur, eqns_data%mpar_data_p, ida_mem, retval)
     if (retval /= 0) then; err=20; message=trim(message)//'error in setSolverParams'; return; endif
     
     ! Disable error messages and warnings
@@ -461,7 +464,6 @@ allocate( eqns_data%scalarCanopyWatPrime(nGRU))
     test_weights = 0._rkind
 
     do while(tret(1) < dt_cur)
-      print*, tret(1)
     
       eqns_data%firstFluxCall = .false. ! already called for initial data window
       eqns_data%firstSplitOper = .false. ! already called for initial data window
@@ -480,8 +482,8 @@ allocate( eqns_data%scalarCanopyWatPrime(nGRU))
     
       tooMuchMelt = .false.
       tooMuchMelt_d = .false.
-      call checkMelt<<<blocks,threads>>>(nGRU,eqns_data%indx_data%nSnow,model_decisions(iLookDECISIONS%nrgConserv)%iDecision.ne.closedForm,tooMuchMelt_d,&
-eqns_data%indx_data%ixSnowOnlyNrg,eqns_data%indx_data%ixVegHyd,&
+      call checkMelt<<<blocks,threads>>>(nGRU,eqns_data%indx_data_p%nSnow,model_decisions(iLookDECISIONS%nrgConserv)%iDecision.ne.closedForm,tooMuchMelt_d,&
+eqns_data%indx_data_p%ixSnowOnlyNrg,eqns_data%indx_data_p%ixVegHyd,&
 stateVec)
       tooMuchMelt = tooMuchMelt_d
       if(tooMuchMelt)exit
@@ -497,9 +499,9 @@ stateVec)
       eqns_data%nGRU, &
                       ! input
                       stateVec,                                             & ! intent(in):    model state vector (mixed units)
-                      eqns_data%mpar_data,                                  & ! intent(in):    model parameters
-                      eqns_data%prog_data,                                  & ! intent(in):    model prognostic variables for a local HRU
-                      eqns_data%indx_data,                                  & ! intent(in):    indices defining model states and layers
+                      eqns_data%mpar_data_p,                                  & ! intent(in):    model parameters
+                      eqns_data%prog_data_p,                                  & ! intent(in):    model prognostic variables for a local HRU
+                      eqns_data%indx_data_p,                                  & ! intent(in):    indices defining model states and layers
                       model_decisions(iLookDECISIONS%nrgConserv)%iDecision.ne.closedForm, & ! intent(in): flag to indicate if we are using enthalpy as state variable
                       ! output: feasibility
                       feasible,                                             & ! intent(inout):   flag to denote the feasibility of the solution
@@ -520,7 +522,7 @@ stateVec)
         dt_mult = dt_diff / 2._rkind
       end if
 
-      call update_flux_sum(flux_sum,eqns_data%flux_data,flux_prev,dt_mult/dt_cur,nGRU)
+      call update_flux_sum(flux_sum,eqns_data%flux_data_p,flux_prev,dt_mult/dt_cur,nGRU)
       ! do iVar=1,size(flux_meta)
       !   flux_sum%var(iVar)%dat(:) = flux_sum%var(iVar)%dat(:) + ( eqns_data%flux_data%var(iVar)%dat(:) &
       !                                                             + flux_prev%var(iVar)%dat(:) ) * dt_mult
@@ -531,35 +533,35 @@ stateVec)
         dt_mult = dt_diff
       end if
 
-      call update_mLayerCmpress(mLayerCmpress_sum,eqns_data%deriv_data%dCompress_dPsi_m,eqns_data%mLayerMatricHeadPrime, dCompress_dPsiPrev, mLayerMatricHeadPrimePrev,nGRU,nSoil,dt_mult)                                                
+      call update_mLayerCmpress(mLayerCmpress_sum,eqns_data%deriv_data_p%dCompress_dPsi_m,eqns_data%mLayerMatricHeadPrime, dCompress_dPsiPrev, mLayerMatricHeadPrimePrev,nGRU,nSoil,dt_mult)                                                
       test_weights = test_weights + dt_diff / dt_cur
     
       call updateBalance<<<blocks,threads>>>(computNrgBalance,computMassBalance, &
-  nGRU, eqns_data%indx_data%nLayers_d, &
-  eqns_data%indx_data%ixCasNrg, eqns_data%indx_data%ixVegNrg, eqns_data%indx_data%ixVegHyd, eqns_data%indx_data%ixAqWat,&
-  eqns_data%indx_data%ixSnowSoilNrg, eqns_data%indx_data%ixSnowSoilHyd, &
+  nGRU, eqns_data%indx_data_p%nLayers, &
+  eqns_data%indx_data_p%ixCasNrg, eqns_data%indx_data_p%ixVegNrg, eqns_data%indx_data_p%ixVegHyd, eqns_data%indx_data_p%ixAqWat,&
+  eqns_data%indx_data_p%ixSnowSoilNrg, eqns_data%indx_data_p%ixSnowSoilHyd, &
   balance,eqns_data%resVec,resVecPrev,dt_mult,dt)
       ! save required quantities for next step
       eqns_data%scalarCanopyTempPrev         = eqns_data%scalarCanopyTempTrial
       eqns_data%mLayerTempPrev            = eqns_data%mLayerTempTrial
       eqns_data%mLayerMatricHeadPrev      = eqns_data%mLayerMatricHeadTrial
       mLayerMatricHeadPrimePrev           = eqns_data%mLayerMatricHeadPrime
-      dCompress_dPsiPrev                  = eqns_data%deriv_data%dCompress_dPsi_m
+      dCompress_dPsiPrev                  = eqns_data%deriv_data_p%dCompress_dPsi_m
       tretPrev                               = tret(1)
       resVecPrev                          = eqns_data%resVec
-      flux_prev                              = eqns_data%flux_data
+      flux_prev%data                              = eqns_data%flux_data_p%data
     
     enddo ! while loop on one_step mode until time dt_cur
     !****************************** End of Main Solver ***************************************
-    print*, test_weights
+
     if(idaSucceeds)then
       ! copy to output data
 
-      diag_data     = eqns_data%diag_data
-      flux_data     = eqns_data%flux_data
-      deriv_data    = eqns_data%deriv_data
+      ! diag_data     = eqns_data%diag_data
+      ! flux_data     = eqns_data%flux_data
+      ! deriv_data    = eqns_data%deriv_data
       ixSaturation  = eqns_data%ixSaturation
-      indx_data%numberFluxCalc = eqns_data%indx_data%numberFluxCalc
+      ! indx_data%numberFluxCalc = eqns_data%indx_data_p%numberFluxCalc
       ! indx_data%var(iLookINDEX%numberFluxCalc)%dat(1) = eqns_data%indx_data%var(iLookINDEX%numberFluxCalc)%dat(1) !only number of flux calculations changes in indx_data
       err           = eqns_data%err
       message       = eqns_data%message
@@ -567,8 +569,8 @@ stateVec)
 
     ! free memory
     deallocate( eqns_data%model_decisions)
-    deallocate( eqns_data%sMul )
-    deallocate( eqns_data%dMat )
+    ! deallocate( eqns_data%sMul )
+    ! deallocate( eqns_data%dMat )
     deallocate( eqns_data%dBaseflow_dMatric )
     deallocate( eqns_data%mLayerTempPrev )
     deallocate( eqns_data%mLayerMatricHeadPrev )
@@ -581,6 +583,9 @@ stateVec)
     deallocate( dCompress_dPsiPrev )
     deallocate( eqns_data%resVec )
     deallocate( eqns_data%resSink )
+    deallocate( eqns_data%ixSaturation )
+    deallocate(eqns_data%rtol); deallocate(eqns_data%atol)
+    ! deallocate( eqns_data%nSnow )
     call deallocate_device_flux_data(flux_prev)
 
     ! Get Stats from IDA

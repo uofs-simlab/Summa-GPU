@@ -65,7 +65,7 @@ contains
 ! public subroutine computThermConduct: recompute diagnostic energy variables (thermal conductivity)
 !   NOTE: does every layer regardless if layer or layer+1 is in state subset, could fix for speedup
 ! **********************************************************************************************************
-attributes(global) subroutine computThermConduct_kernel(nGRU,nLayers,nSnow,nSoil,layerType,&
+attributes(global) subroutine computThermConduct_kernel(nGRU,maxSnowLayers,nLayers,nSnow,nSoil,layerType,&
   ixRichards,ixThCondSnow,ixThCondSoil,&
   mLayerTemp,mLayerMatricHead,mLayerVolFracIce,mLayerVolFracLiq,&
   mLayerdTheta_dTk,mLayerFracLiqSnow,&
@@ -74,23 +74,25 @@ attributes(global) subroutine computThermConduct_kernel(nGRU,nLayers,nSnow,nSoil
   vGn_n,vGn_alpha,theta_res,snowfrz_scale,&
   mLayerHeight,iLayerHeight,&
   vGn_m,mLayerThermalC,iLayerThermalC,mLayerVolFracAir,&
-  dThermalC_dWatAbove,dThermalC_dWatBelow,dThermalC_dTempAbove,dThermalC_dTempBelow)
+  dThermalC_dWatAbove,dThermalC_dWatBelow,dThermalC_dTempAbove,dThermalC_dTempBelow, dThermalC_dWat, &
+dThermalC_dNrg)
   implicit none
-  integer(i4b),value,intent(in) :: nGRU
-  integer(i4b),intent(in) :: nLayers(:)
-  integer(i4b),intent(in) :: nSnow(:)
+  integer(i4b),value,intent(in) :: nGRU,maxSnowLayers
+  integer(i4b),intent(in) :: nLayers(nGRU)
+  integer(i4b),intent(in) :: nSnow(nGRU)
   integer(i4b),value,intent(in) :: nSoil
-  integer(i4b),intent(in) :: layerType(:,:)
+  integer(i4b),intent(in) :: layerType(nSoil+maxSnowLayers+1,nGRU)
   integer(i4b),intent(in) :: ixRichards,ixThCondSnow, ixThCondSoil
-  real(rkind),intent(in)  :: mLayerTemp(:,:),mLayerMatricHead(:,:),mLayerVolFracIce(:,:),mLayerVolFracLiq(:,:)
-  real(rkind),intent(in) :: mLayerdTheta_dTk(:,:),mLayerFracLiqSnow(:,:)
-  real(rkind),intent(in) :: fixedThermalCond_snow(:)
-  real(rkind),intent(in) :: iden_soil(:,:),thCond_soil(:,:),theta_sat(:,:),frac_sand(:,:),frac_silt(:,:),frac_clay(:,:)
-  real(rkind),intent(in) :: vGn_n(:,:), vGn_alpha(:,:), theta_res(:,:)
-  real(rkind),intent(in) :: snowfrz_scale(:)
-  real(rkind),intent(in) :: mLayerHeight(0:,:), iLayerHeight(0:,:)
-  real(rkind),intent(inout) :: vGn_m(:,:),mLayerThermalC(:,:),iLayerThermalC(0:,:),mLayerVolFracAir(:,:)
-  real(rkind),intent(inout) :: dThermalC_dWatAbove(0:,:),dThermalC_dWatBelow(0:,:),dThermalC_dTempAbove(0:,:),dThermalC_dTempBelow(0:,:)
+  real(rkind),intent(in)  :: mLayerTemp(nSoil+maxSnowLayers+1,nGRU),mLayerMatricHead(nSoil,nGRU),mLayerVolFracIce(nSoil+maxSnowLayers+1,nGRU),mLayerVolFracLiq(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: mLayerdTheta_dTk(nSoil+maxSnowLayers,nGRU),mLayerFracLiqSnow(maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: fixedThermalCond_snow(nGRU)
+  real(rkind),intent(in) :: iden_soil(nSoil,nGRU),thCond_soil(nSoil,nGRU),theta_sat(nSoil,nGRU),frac_sand(nSoil,nGRU),frac_silt(nSoil,nGRU),frac_clay(nSoil,nGRU)
+  real(rkind),intent(in) :: vGn_n(nSoil,nGRU), vGn_alpha(nSoil,nGRU), theta_res(nSoil,nGRU)
+  real(rkind),intent(in) :: snowfrz_scale(nGRU)
+  real(rkind),intent(in) :: mLayerHeight(0:nSoil+maxSnowLayers+1,nGRU), iLayerHeight(0:nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(inout) :: vGn_m(nSoil,nGRU),mLayerThermalC(nSoil+maxSnowLayers+1,nGRU),iLayerThermalC(0:nSoil+maxSnowLayers+1,nGRU),mLayerVolFracAir(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(inout) :: dThermalC_dWatAbove(0:nSoil+maxSnowLayers,nGRU),dThermalC_dWatBelow(0:nSoil+maxSnowLayers,nGRU),dThermalC_dTempAbove(0:nSoil+maxSnowLayers,nGRU),dThermalC_dTempBelow(0:nSoil+maxSnowLayers,nGRU)
+  real(rkind), intent(inout) :: dThermalC_dWat(nSoil+maxSnowLayers,nGRU),dThermalC_dNrg(nSoil+maxSnowLayers,nGRU)
   integer(i4b) :: err
 
 
@@ -99,25 +101,26 @@ attributes(global) subroutine computThermConduct_kernel(nGRU,nLayers,nSnow,nSoil
 
     if (iGRU .gt. nGRU) return
 
-    call computThermConduct(nLayers(iGRU),&
+    call computThermConduct(nLayers,&
       ixRichards,ixThCondSnow,ixThCondSoil, &
       mLayerTemp(:,iGRU),mLayerMatricHead(:,iGRU),mLayerVolFracIce(:,iGRU),mLayerVolFracLiq(:,iGRU), &
       mLayerdTheta_dTk(:,iGRU),mLayerFracLiqSnow(:,iGRU), &
-      fixedThermalCond_snow(iGRU),&
+      fixedThermalCond_snow,&
       iden_soil(:,iGRU),thCond_soil(:,iGRU),theta_sat(:,iGRU),frac_sand(:,iGRU),frac_silt(:,iGRU),frac_clay(:,iGRU),&
       vGn_n(:,iGRU),vGn_alpha(:,iGRU),theta_res(:,iGRU),&
-      snowfrz_scale(iGRU),&
-      nSnow(iGRU),nSoil,layerType(:,iGRU),&
+      snowfrz_scale,&
+      nSnow,nSoil,layerType(:,iGRU),&
       mLayerHeight(:,iGRU),iLayerHeight(:,iGRU), &
       vGn_m(:,iGRU),mLayerThermalC(:,iGRU),iLayerThermalC(:,iGRU),mLayerVolFracAir(:,iGRU),&
-      dThermalC_dWatAbove(:,iGRU),dThermalC_dWatBelow(:,iGRU),dThermalC_dTempAbove(:,iGRU),dThermalC_dTempBelow(:,iGRU), &
+      dThermalC_dWatAbove(:,iGRU),dThermalC_dWatBelow(:,iGRU),dThermalC_dTempAbove(:,iGRU),dThermalC_dTempBelow(:,iGRU), dThermalC_dWat(:,iGRU), &
+dThermalC_dNrg(:,iGRU), &
       err)
 
 end subroutine
 
 attributes(device) subroutine computThermConduct(&
                     ! input: control variables
-                    nLayers,                 & ! intent(in):    total number of layers
+                    nLayers_,                 & ! intent(in):    total number of layers
                     ixRichards,ixThCondSnow,ixThCondSoil, &
                     ! input: state variables
                     mLayerTemp,              & ! intent(in):    temperature at the current iteration (K)
@@ -129,12 +132,12 @@ attributes(device) subroutine computThermConduct(&
                     mLayerFracLiqSnow,       & ! intent(in):    fraction of liquid water (-)
                     ! input/output: data structures
                     ! mpar_data,               & ! intent(in):    model parameters
-                    fixedThermalCond_snow,&
+                    fixedThermalCond_snow_,&
 iden_soil,thCond_soil,theta_sat,frac_sand,frac_silt,frac_clay,&
 vGn_n,vGn_alpha,theta_res,&
-snowfrz_scale,&
+snowfrz_scale_,&
                     ! indx_data,               & ! intent(in):    model layer indices
-nSnow,nSoil,layerType,&
+nSnow_,nSoil,layerType,&
                     ! prog_data,               & ! intent(in):    model prognostic variables for a local HRU
                     mLayerHeight,iLayerHeight,&
                     ! diag_data,               & ! intent(inout): model diagnostic variables for a local HRU
@@ -144,6 +147,8 @@ nSnow,nSoil,layerType,&
                     dThermalC_dWatBelow,     & ! intent(out):   derivative in the thermal conductivity w.r.t. water state in the layer above
                     dThermalC_dTempAbove,    & ! intent(out):   derivative in the thermal conductivity w.r.t. energy state in the layer above
                     dThermalC_dTempBelow,    & ! intent(out):   derivative in the thermal conductivity w.r.t. energy state in the layer above
+                    dThermalC_dWat, &
+                    dThermalC_dNrg, &
                     ! output: error control
                     err)               ! intent(out):   error control
 
@@ -152,11 +157,12 @@ nSnow,nSoil,layerType,&
   USE soil_utils_module,only:crit_soilT     ! compute critical temperature below which ice exists
   USE soil_utils_module,only:dTheta_dPsi    ! compute derivative of the soil moisture characteristic w.r.t. psi (m-1)
   USE soil_utils_module,only:dPsi_dTheta    ! compute derivative of the soil moisture characteristic w.r.t. theta (m)
+  use initialize_device,only:get_iGRU
 
   implicit none
   ! --------------------------------------------------------------------------------------------------------------------------------------
   ! input: model control
-  integer(i4b),intent(in)              :: nLayers                  ! total number of layers in the snow+soil domain
+  integer(i4b),intent(in)              :: nLayers_(:)                  ! total number of layers in the snow+soil domain
   integer(i4b) :: ixRichards,ixThCondSnow,ixThCondSoil
   ! input: trial model state variables
   real(rkind),intent(in)               :: mLayerTemp(:)            ! temperature in each layer at the current iteration (m)
@@ -169,12 +175,12 @@ nSnow,nSoil,layerType,&
   ! input/output: data structures
   
   ! type(var_dlength),intent(in)         :: mpar_data                ! model parameters
-  real(rkind),intent(in) :: fixedThermalCond_snow
+  real(rkind),intent(in) :: fixedThermalCond_snow_(:)
   real(rkind),intent(in) :: iden_soil(:),thCond_soil(:),theta_sat(:),frac_sand(:),frac_silt(:),frac_clay(:)
   real(rkind),intent(in) :: vGn_n(:), vGn_alpha(:), theta_res(:)
-  real(rkind),intent(in) :: snowfrz_scale
+  real(rkind),intent(in) :: snowfrz_scale_(:)
   ! type(var_ilength),intent(in)         :: indx_data                ! model layer indices
-  integer(i4b),intent(in) :: nSnow,nSoil
+  integer(i4b),intent(in) :: nSnow_(:),nSoil
   integer(i4b),intent(in) :: layerType(:)
   ! type(var_dlength),intent(in)         :: prog_data                ! model prognostic variables for a local HRU
   real(rkind),intent(in) :: mLayerHeight(0:), iLayerHeight(0:)
@@ -208,8 +214,8 @@ real(rkind),intent(inout) :: mLayerVolFracAir(:)
   real(rkind)                          :: kerstenNum               ! the Kersten number (-), defining weight applied to conductivity of the wet medium
   real(rkind)                          :: den                      ! denominator in the thermal conductivity calculations
   real(rkind)                          :: Tcrit                    ! temperature where all water is unfrozen (K)
-  real(rkind),dimension(nLayers)       :: dThermalC_dWat           ! derivative in thermal conductivity w.r.t. matric head or volumetric liquid water
-  real(rkind),dimension(nLayers)       :: dThermalC_dNrg           ! derivative in thermal conductivity w.r.t. temperature
+  real(rkind),dimension(:)       :: dThermalC_dWat           ! derivative in thermal conductivity w.r.t. matric head or volumetric liquid water
+  real(rkind),dimension(:)       :: dThermalC_dNrg           ! derivative in thermal conductivity w.r.t. temperature
   real(rkind)                          :: dlambda_wet_dWat         ! derivative in thermal conductivity of wet material w.r.t.soil water state variable
   real(rkind)                          :: dlambda_wet_dTk          ! derivative in thermal conductivity of wet material w.r.t. temperature
   real(rkind)                          :: dkerstenNum_dWat         ! derivative in Kersten number w.r.t. soil water state variable
@@ -227,6 +233,8 @@ real(rkind),intent(inout) :: mLayerVolFracAir(:)
   real(rkind),parameter                :: f2=1.06_rkind            ! optimized parameter from Hansson et al. VZJ 2005 (-)
   real(rkind)                          :: fArg,xArg                ! temporary variables (see Hansson et al. VZJ 2005 for details)
   real(rkind)                          :: dxArg_dWat,dxArg_dTk     ! derivates of the temporary variables with respect to soil water state variable and temperature
+  integer(i4b) :: iGRU
+  iGRU = get_iGRU()
 
   ! --------------------------------------------------------------------------------------------------------------------------------
   ! associate variables in data structure
@@ -269,10 +277,10 @@ real(rkind),intent(inout) :: mLayerVolFracAir(:)
     iSoil=integerMissing
 
     ! loop through layers
-    do iLayer=1,nLayers
+    do iLayer=1,nLayers_(iGRU)
 
       ! get the soil layer
-      if(iLayer>nSnow) iSoil = iLayer-nSnow
+      if(iLayer>nSnow_(iGRU)) iSoil = iLayer-nSnow_(iGRU)
 
       ! compute the thermal conductivity of dry and wet soils (W m-1)
       ! NOTE: this is actually constant over the simulation, and included here for clarity
@@ -382,7 +390,7 @@ real(rkind),intent(inout) :: mLayerVolFracAir(:)
 
           ! temporally constant thermal conductivity
           if(ixThCondSnow==Smirnova2000)then
-            mLayerThermalC(iLayer) = fixedThermalCond_snow
+            mLayerThermalC(iLayer) = fixedThermalCond_snow_(iGRU)
             dThermalC_dWat(iLayer) = 0._rkind
             dThermalC_dNrg(iLayer) = 0._rkind
             ! thermal conductivity as a function of snow density
@@ -414,7 +422,7 @@ real(rkind),intent(inout) :: mLayerVolFracAir(:)
     ! *****
     ! * compute the thermal conductivity of snow at the interface of each layer...
     ! ****************************************************************************
-    do iLayer=1,nLayers-1  ! (loop through layers)
+    do iLayer=1,nLayers_(iGRU)-1  ! (loop through layers)
     ! get temporary variables
       TCn = mLayerThermalC(iLayer)    ! thermal conductivity below the layer interface (W m-1 K-1)
       TCp = mLayerThermalC(iLayer+1)  ! thermal conductivity above the layer interface (W m-1 K-1)
@@ -451,11 +459,11 @@ real(rkind),intent(inout) :: mLayerVolFracAir(:)
     dThermalC_dTempAbove(0) = realMissing
 
     ! assume the thermal conductivity at the domain boundaries is equal to the thermal conductivity of the layer
-    iLayerThermalC(nLayers) = mLayerThermalC(nLayers)
-    dThermalC_dWatAbove(nLayers) = dThermalC_dWat(nLayers)
-    dThermalC_dTempAbove(nLayers) = dThermalC_dNrg(nLayers)
-    dThermalC_dWatBelow(nLayers) = realMissing
-    dThermalC_dTempBelow(nLayers) = realMissing
+    iLayerThermalC(nLayers_(iGRU)) = mLayerThermalC(nLayers_(iGRU))
+    dThermalC_dWatAbove(nLayers_(iGRU)) = dThermalC_dWat(nLayers_(iGRU))
+    dThermalC_dTempAbove(nLayers_(iGRU)) = dThermalC_dNrg(nLayers_(iGRU))
+    dThermalC_dWatBelow(nLayers_(iGRU)) = realMissing
+    dThermalC_dTempBelow(nLayers_(iGRU)) = realMissing
 
   ! end association to variables in the data structure
 

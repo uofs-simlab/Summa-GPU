@@ -98,7 +98,7 @@ integer(c_int) function computWeight4ida(sunvec_y, sunvec_ewt, user_data) &
   ! print*, shape(stateVec)
 
   associate(rtol => tol_data%rtol, atol => tol_data%atol,nState => tol_data%nState,nGRU => tol_data%nGRU, &
-    nState_i => tol_data%indx_data%nState)
+    nState_i => tol_data%indx_data_p%nState)
   !$cuf kernel do(2) <<<*,*>>>
   do iGRU=1,nGRU
     do iState = 1,nState
@@ -212,7 +212,7 @@ subroutine popTol4ida(&
     ! number of layers
     nSnow               => indx_data%nSnow                 ,& ! intent(in) : [i4b]    number of snow layers
     nSoil               => indx_data%nSoil                 ,& ! intent(in) : [i4b]    number of soil layers
-    nLayers             => indx_data%nLayers_d                & ! intent(in) : [i4b]    total number of layers
+    nLayers             => indx_data%nLayers                & ! intent(in) : [i4b]    total number of layers
     )  ! end association with variables in the data structures
     ! --------------------------------------------------------------------------------------------------------------------------------
     ! initialize error control

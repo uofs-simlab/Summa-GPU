@@ -56,7 +56,7 @@ contains
  USE summa_type, only:summa1_type_dec                        ! master summa data type
  ! functions and subroutines
  USE def_output_module,only:def_output                       ! module to define model output
- USE modelwrite_module,only:writeParm                        ! module to write model parameters
+ USE modelwrite_module,only:writeParm,writeParm_bpar,writeParm_attr                        ! module to write model parameters
  ! global data structures
  USE globalData,only:gru_struc                               ! gru-hru mapping structures
  USE globalData,only:structInfo                              ! information on the data structures
@@ -65,6 +65,7 @@ contains
  USE globalData,only:output_fileSuffix                       ! suffix for the output file
  USE globalData,only:newOutputFile                           ! define option for new output files
  USE globalData,only:fileout                                 ! name of the output file
+ use cudafor
  ! ---------------------------------------------------------------------------------------
  ! * variables
  ! ---------------------------------------------------------------------------------------
@@ -87,7 +88,7 @@ contains
   attrStruct           => summa1_struc%attrStruct        , & ! x%gru(:)%hru(:)%var(:)     -- local attributes for each HRU
   typeStruct           => summa1_struc%typeStruct        , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
   idStruct             => summa1_struc%idStruct          , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
-  mparStruct           => summa1_struc%mparStruct_d        , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+  mparStruct           => summa1_struc%mparStruct        , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
   bparStruct           => summa1_struc%bparStruct        , & ! x%gru(:)%var(:)            -- basin-average parameters
   nGRU                 => summa1_struc%nGRU              , & ! number of grouped response units
   nHRU                 => summa1_struc%nHRU                & ! number of global hydrologic response units
@@ -132,7 +133,7 @@ contains
   do iHRU=1,gru_struc(iGRU)%hruCount
    do iStruct=1,size(structInfo)
     select case(trim(structInfo(iStruct)%structName))
-     case('attr'); call writeParm(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,attrStruct%gru(iGRU)%hru(iHRU),attr_meta,err,cmessage)
+     case('attr'); call writeParm_attr(iGRU,attrStruct,attr_meta,err,cmessage)
      case('type'); call writeParm(iGRU,typeStruct,type_meta,err,cmessage)
      case('mpar'); call writeParm(iGRU,mparStruct,mpar_meta,err,cmessage)
     end select
@@ -140,11 +141,11 @@ contains
    end do  ! (looping through structures)
   end do  ! (looping through HRUs)
 
-  ! write GRU parameters
-  call writeParm(iGRU,bparStruct%gru(iGRU),bpar_meta,err,cmessage)
-  if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
-
  end do  ! (looping through GRUs)
+
+ ! write GRU parameters
+ call writeParm_bpar(bparStruct,bpar_meta,err,cmessage)
+ if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
  ! end associate statements
  end associate summaVars

@@ -437,7 +437,7 @@ logical(lgt),device :: tooMuchMelt_d
                     dt,                      & ! intent(in):    length of the entire time step (seconds) for drainage pond rate
                     indx_data%nSnow,                   & ! intent(in):    number of snow layers
                     nSoil,                   & ! intent(in):    number of soil layers
-                    indx_data%nLayers_d,                 & ! intent(in):    total number of layers
+                    indx_data%nLayers,                 & ! intent(in):    total number of layers
                     .false.,                 & ! intent(in):    not inside Sundials solver                    
                     firstSubStep,            & ! intent(in):    flag to indicate if we are processing the first sub-step
                     firstFluxCall,           & ! intent(inout): flag to indicate if we are processing the first flux call
@@ -600,7 +600,7 @@ logical(lgt),device :: tooMuchMelt_d
     mLayerCompress     => diag_data%mLayerCompress       ,& ! change in storage associated with compression of the soil matrix (-)
     scalarSoilCompress => diag_data%scalarSoilCompress & ! total change in storage associated with compression of the soil matrix (kg m-2 s-1)
     )
-    call update_soilCompres_kernel<<<blocks,threads>>>(nGRU,indx_data%nSnow,indx_data%nLayers_d,&
+    call update_soilCompres_kernel<<<blocks,threads>>>(nGRU,indx_data%nSnow,indx_data%nLayers,&
         mLayerCompress,mLayerCmpress_sum,dt_cur,&
         scalarSoilCompress,mLayerDepth)
    end associate soilVars

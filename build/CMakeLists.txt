@@ -119,24 +119,21 @@ set(FLAGS_OPT $ENV{FLAGS_OPT}) # get optional user-specified flags from environm
 if(CMAKE_BUILD_TYPE MATCHES Debug)
     message("\nSetting SUMMA Debug Options")
     add_compile_definitions(DEBUG)
-    set(FLAGS_NOAH -O0 -g -Minfo -p  -Minline -traceback -Mfree -cuda -cuda=charstring -gpu=cuda11.8,rdc -fPIC ${FLAGS_OPT})
-    set(FLAGS_ALL  -O0 -g -Minfo -p  -Minline -traceback -Mfree -cuda -cuda=charstring -gpu=cuda11.8,rdc -fPIC -cpp ${FLAGS_OPT})
-    set(FLAGS_CXX  -O0 -g -Minfo -p  -G -fbounds-check -Mfree -gpu=cuda11.8,rdc -Wfatal-errors -std=c++17 ${FLAGS_OPT})
+    set(FLAGS_NOAH -O0 -lineinfo -g -Minfo=accel -p  -Minline=none -traceback -Mfree -cuda -cuda=charstring -gpu=cuda11.8,rdc -fPIC ${FLAGS_OPT})
+    set(FLAGS_ALL  -O0 -lineinfo -g -p -Minfo=accel -Minline=none -Mfree -cuda -cuda=charstring -gpu=cuda11.8,rdc -fPIC -cpp ${FLAGS_OPT})
+    set(FLAGS_CXX  -O0 -lineinfo -g -Minfo=acell -p  -G -fbounds-check -Mfree -gpu=cuda11.8,rdc -Wfatal-errors -std=c++17 ${FLAGS_OPT})
 
 else()
     message("\nSetting SUMMA Release Options")
-    set(FLAGS_NOAH -O3 -ffree-form -ffree-line-length-none -fmax-errors=0 -fPIC -Wfatal-errors ${FLAGS_OPT})
-    set(FLAGS_ALL  -O3 -ffree-line-length-none -fmax-errors=0 -fPIC -Wfatal-errors -cpp ${FLAGS_OPT})
+    set(FLAGS_NOAH -O3 -Mnoautoinline -Minline=none -cuda=charstring -gpu=cuda11.8,rdc -Mfreeform -fPIC ${FLAGS_OPT})
+    set(FLAGS_ALL  -O3 -Mnoautoinline -Minline=none -cuda=charstring -gpu=cuda11.8,rdc -fPIC -cpp ${FLAGS_OPT})
     set(FLAGS_CXX  -O3 -Wfatal-errors -std=c++17 ${FLAGS_OPT})
-    set(FLAGS_NOAH -O0 -mp -Minfo -g -p -Minline -traceback -Mfree -fPIC ${FLAGS_OPT})
-    set(FLAGS_ALL  -O0 -mp -Minfo -g -p -Minline -traceback -Mfree -fPIC -cpp ${FLAGS_OPT})
-    set(FLAGS_CXX  -O0 -mp  -Minfo -g -p -G -fbounds-check -Mfree -Wfatal-errors -std=c++17 ${FLAGS_OPT})
-    set(FLAGS_NOAH -O0 -g -Minfo -p  -Minline -traceback -Mfree -cuda -cuda=charstring -gpu=cuda11.8,rdc -fPIC ${FLAGS_OPT})
-    set(FLAGS_ALL  -O0 -g -Minfo -p  -Minline -traceback -Mfree -cuda -cuda=charstring -gpu=cuda11.8,rdc -fPIC -cpp ${FLAGS_OPT})
-    set(FLAGS_CXX  -O0 -g -Minfo -p  -G -fbounds-check -Mfree -gpu=cuda11.8,rdc -Wfatal-errors -std=c++17 ${FLAGS_OPT})
 
 
 endif()
+
+message("FLAGS_ALL ${FLAGS_ALL}")
+message("${CMAKE_Fortran_FLAGS}")
 
 #=========================================================================================
 # COMPILE PART 1: Define directory paths
@@ -238,6 +235,8 @@ else()
     set_property(TARGET summa PROPERTY LINKER_LANGUAGE Fortran)
     set_target_properties(summa PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
     set_property(TARGET summa PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+    get_target_property(MAIN_CFLAGS summa COMPILE_OPTIONS)
+    message("${MAIN_CFLAGS}")
 
     add_executable(${EXEC_NAME} ${MAIN_SUMMA})
     target_compile_options(${EXEC_NAME} PRIVATE ${FLAGS_ALL})

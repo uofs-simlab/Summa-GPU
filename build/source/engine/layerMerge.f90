@@ -148,7 +148,7 @@ contains
 
 
 
-    call layerMerge_kernel<<<blocks,threads>>>(nGRU,ix_snowLayers,indx_data%nSnow,indx_data%nLayers_d,indx_data%nSoil, &
+    call layerMerge_kernel<<<blocks,threads>>>(nGRU,ix_snowLayers,indx_data%nSnow,indx_data%nLayers,indx_data%nSoil, &
  prog_data%mLayerTemp,prog_data%mLayerVolFracIce,prog_data%mLayerVolFracLiq, &
 prog_data%mLayerVolFracWat,prog_data%mLayerEnthalpy,prog_data%mLayerDepth, prog_data%mLayerHeight, prog_data%iLayerHeight, &
 diag_data%mLayerVolHtCapBulk, diag_data%mLayerCm, diag_data%mLayerThermalC, diag_data%iLayerThermalC, &

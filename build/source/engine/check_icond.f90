@@ -167,7 +167,7 @@ integer(i4b)                          :: iGRU,iHRU           ! loop index
      end if
    end if
 
-       ! loop through all layers
+   ! loop through all layers
    do iLayer=1,nLayers
 
     ! *****

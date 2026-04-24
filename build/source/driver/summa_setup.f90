@@ -35,7 +35,7 @@ USE var_lookup,only:iLookPARAM          ! look-up values for local column model 
 USE var_lookup,only:iLookINDEX          ! look-up values for local column model indices
 USE var_lookup,only:iLookLOOKUP         ! look-up values for local column lookup tables
 USE var_lookup,only:iLookID             ! look-up values for local column model ids
-USE var_lookup,only:iLookBVAR           ! look-up values for basin-average model variables
+USE var_lookup,only:iLookBVAR,iLookBPAR           ! look-up values for basin-average model variables
 USE var_lookup,only:iLookDECISIONS      ! look-up values for model decisions
 USE globalData,only:urbanVegCategory    ! vegetation category for urban areas
 
@@ -128,8 +128,7 @@ use initialize_device
  real(rkind)                           :: absEnergyFac       ! multiplier for absolute value of energy state variable (for enthalpy or temperature)
  logical                               :: needLookup_soil    ! logical to decide if computing soil enthalpy lookup tables
  
- type(attr_data_device) :: attrStruct_d
- type(bvar_data_device) :: bvarStruct_d
+!  type(bvar_data_device) :: bvarStruct_d
  real(rkind),device,allocatable :: greenVegFrac_monthly_d(:)
  integer(i4b) :: soilTypeIndex, vegTypeIndex
    type(dim3) :: blocks,threads
@@ -146,7 +145,7 @@ use initialize_device
   idStruct             => summa1_struc%idStruct            , & ! x%gru(:)%hru(:)%var(:)     -- local classification of soil veg etc. for each HRU
 
   ! primary data structures (variable length vectors)
-  mparStruct           => summa1_struc%mparStruct_d          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
+  mparStruct           => summa1_struc%mparStruct          , & ! x%gru(:)%hru(:)%var(:)%dat -- model parameters
   dparStruct           => summa1_struc%dparStruct          , & ! x%gru(:)%hru(:)%var(:)     -- default model parameters
 
   ! basin-average structures
@@ -188,19 +187,23 @@ use initialize_device
  ! NOTE: Must be after ffile_info because mDecisions uses the data_step
  call mDecisions(err,cmessage)
  if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
+ call allocate_device_decisions(summa1_struc%decisions)
 
  ! decide if computing soil enthalpy lookup tables and vegetation enthalpy lookup tables
  needLookup_soil = .false.
  ! if need enthalpy for either energy backward Euler residual or IDA state variable and not using soil enthalpy hypergeometric function
  if(model_decisions(iLookDECISIONS%nrgConserv)%iDecision == enthalpyFormLU) needLookup_soil = .true. 
  ! if using IDA and enthalpy as a state variable, need temperature-enthalpy lookup tables for soil and vegetation
- 
  ! get the maximum number of snow layers
  select case(model_decisions(iLookDECISIONS%snowLayers)%iDecision)
   case(sameRulesAllLayers);    maxSnowLayers = 100
   case(rulesDependLayerIndex); maxSnowLayers = 5
   case default; err=20; message=trim(message)//'unable to identify option to combine/sub-divide snow layers'; return
  end select ! (option to combine/sub-divide snow layers)
+ call allocate_device_indx_data_snow(summa1_struc%indxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc%nGRU)
+ call allocate_device_prog_data_snow(summa1_struc%progStruct,summa1_struc%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
+ call allocate_device_diag_data_snow(summa1_struc%diagStruct,summa1_struc%nGRU,gru_struc(1)%hruInfo(1)%nSoil)
+ call allocate_device_flux_data(summa1_struc%fluxStruct,gru_struc(1)%hruInfo(1)%nSoil,summa1_struc%nGRU)
 
  ! get the maximum number of layers
  maxLayers = gru_struc(1)%hruInfo(1)%nSoil + maxSnowLayers
@@ -256,14 +259,16 @@ use initialize_device
  ! read Noah-MP vegetation tables
  call read_mp_veg_parameters(trim(SETTINGS_PATH)//trim(MPTABLE),                       & ! filename for Noah-MP table
                              trim(model_decisions(iLookDECISIONS%vegeParTbl)%cDecision)) ! classification system used for vegetation
+   call allocate_veg_parameters(summa1_struc%veg_param,summa1_struc%nGRU)
+   call allocate_veg_table(summa1_struc%veg_tables)
 
  ! define urban vegetation category
  select case(trim(model_decisions(iLookDECISIONS%vegeParTbl)%cDecision))
-  case('USGS');                     urbanVegCategory =    1
-  case('MODIFIED_IGBP_MODIS_NOAH'); urbanVegCategory =   13
-  case('plumberCABLE');             urbanVegCategory = -999
-  case('plumberCHTESSEL');          urbanVegCategory = -999
-  case('plumberSUMMA');             urbanVegCategory = -999
+  case('USGS');                     summa1_struc%decisions%urbanVegCategory =    1
+  case('MODIFIED_IGBP_MODIS_NOAH'); summa1_struc%decisions%urbanVegCategory =   13
+  case('plumberCABLE');             summa1_struc%decisions%urbanVegCategory = -999
+  case('plumberCHTESSEL');          summa1_struc%decisions%urbanVegCategory = -999
+  case('plumberSUMMA');             summa1_struc%decisions%urbanVegCategory = -999
   case default
    message=trim(message)//'unable to identify vegetation category'
    return
@@ -288,20 +293,17 @@ use initialize_device
    ! copy over to the parameter structure
    ! NOTE: constant for the dat(:) dimension (normally depth)
    do ivar=1,size(localParFallback)
-    print*, iVar, iGRU, iHRU
-    print*, mpar_meta(ivar)%varname
-    ! print*, dparStruct%gru(iGRU)%hru(iHRU)%var(ivar)
     call set_device_param_data_scalar(mparStruct, iGRU, ivar, dparStruct%gru(iGRU)%hru(iHRU)%var(ivar))
-    ! mparStruct%gru(iGRU)%hru(iHRU)%var(ivar)%dat(:) = dparStruct%gru(iGRU)%hru(iHRU)%var(ivar)
-    print*, dparStruct%gru(iGRU)%hru(iHRU)%var(ivar)
    end do  ! looping through variables
 
   end do  ! looping through HRUs
 
   ! set default for basin-average parameters
-  bparStruct%gru(iGRU)%var(:) = basinParFallback(:)%default_val
+  call bparStruct%set_fallback(iGRU,basinParFallback(:)%default_val)
+  ! bparStruct%gru(iGRU)%var(:) = basinParFallback(:)%default_val
 
  end do  ! looping through GRUs
+
 
  ! *****************************************************************************
  ! *** read trial model parameter values for each HRU, and populate initial data structures
@@ -315,10 +317,6 @@ use initialize_device
  ! loop through GRUs
  do iGRU=1,nGRU
 
-  ! calculate the fraction of runoff in future time steps
-  call fracFuture(bparStruct%gru(iGRU)%var,    &  ! vector of basin-average model parameters
-                  bvarStruct%gru(iGRU),        &  ! data structure of basin-average variables
-                  err,cmessage)                   ! error control
   if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
 
   ! compute total area of the upstream HRUS that flow into each HRU
@@ -328,14 +326,9 @@ use initialize_device
 
 
  end do ! GRU
-   call allocate_veg_parameters(summa1_struc%veg_param,summa1_struc%nGRU)
-
- call allocate_device_attr_data(attrStruct_d,attrStruct,nGRU)
- call allocate_device_bvar_data(bvarStruct_d,bvarStruct,nGRU)
-!  call allocate_device_param_data(mparStruct_d,mparStruct,nGRU)
 
  greenVegFrac_monthly_d = greenVegFrac_monthly
- call paramSetup_kernel<<<blocks,threads>>>(nGRU,model_decisions(iLookDECISIONS%LAI_method)%iDecision,model_decisions(iLookDECISIONS%snowLayers)%iDecision,needLookup_soil,bvarStruct_d%basin__totalArea,attrStruct_d%HRUarea,&
+ call paramSetup_kernel<<<blocks,threads>>>(nGRU,model_decisions(iLookDECISIONS%LAI_method)%iDecision,model_decisions(iLookDECISIONS%snowLayers)%iDecision,model_decisions(iLookDECISIONS%subRouting)%iDecision,needLookup_soil,bvarStruct%basin__totalArea,attrStruct%HRUarea,&
 typeStruct%vegTypeIndex,&
 mparStruct%heightCanopyTop_,mparStruct%heightCanopyBottom_,mparStruct%winterSAI_,mparStruct%summerLAI_,greenVegFrac_monthly_d,&
 summa1_struc%veg_param%HVT_,summa1_struc%veg_param%HVB_,summa1_struc%veg_param%SAIM_,summa1_struc%veg_param%LAIM_,&
@@ -344,8 +337,8 @@ lookupStruct%h_lookup,lookupStruct%t_lookup,&
 mparStruct%critSoilTranspire_,mparStruct%critSoilWilting_,mparStruct%fieldCapacity_,mparStruct%zMax_,mparStruct%zMin_,&
  mparStruct%zminLayer1_,mparStruct%zminLayer2_,mparStruct%zminLayer3_,mparStruct%zminLayer4_,mparStruct%zminLayer5_,&
  mparStruct%zmaxLayer1_lower_,mparStruct%zmaxLayer2_lower_,mparStruct%zmaxLayer3_lower_,mparStruct%zmaxLayer4_lower_,&
- mparStruct%zmaxLayer1_upper_,mparStruct%zmaxLayer2_upper_,mparStruct%zmaxLayer3_upper_,mparStruct%zmaxLayer4_upper_)
- call finalize_device_bvar_data(bvarStruct_d,bvarStruct)
+ mparStruct%zmaxLayer1_upper_,mparStruct%zmaxLayer2_upper_,mparStruct%zmaxLayer3_upper_,mparStruct%zmaxLayer4_upper_,&
+ bparStruct%routingGammaScale,bparStruct%routingGammaShape,bvarStruct%routingRunoffFuture,bvarStruct%routingFractionFuture,data_step)
  ! identify the end of the initialization
  call date_and_time(values=endSetup)
 
@@ -358,7 +351,7 @@ mparStruct%critSoilTranspire_,mparStruct%critSoilWilting_,mparStruct%fieldCapaci
 
  end subroutine summa_paramSetup
 
-attributes(global) subroutine paramSetup_kernel(nGRU,LAI_method,snowLayers,needLookup_soil,totalArea_,HRUarea_,&
+attributes(global) subroutine paramSetup_kernel(nGRU,LAI_method,snowLayers,subRouting,needLookup_soil,totalArea_,HRUarea_,&
 vegTypeIndex_,&
 heightCanopyTop,heightCanopyBottom,winterSAI,summerLAI,greenVegFrac_monthly,&
 HVT,HVB,SAIM,LAIM,&
@@ -366,11 +359,13 @@ snowfrz_scale_,theta_sat_,theta_res_,vGn_alpha_,vGn_n_,temperature,psiLiq_int,de
 critSoilTranspire_,critSoilWilting_,fieldCapacity_,zMax,zMin,&
  zminLayer1,zminLayer2,zminLayer3,zminLayer4,zminLayer5,&
  zmaxLayer1_lower,zmaxLayer2_lower,zmaxLayer3_lower,zmaxLayer4_lower,&
- zmaxLayer1_upper,zmaxLayer2_upper,zmaxLayer3_upper,zmaxLayer4_upper)
+ zmaxLayer1_upper,zmaxLayer2_upper,zmaxLayer3_upper,zmaxLayer4_upper,&
+ routingGammaScale,routingGammaShape,routingRunoffFuture,routingFractionFuture,data_step)
  USE nrtype                                                  ! variable types, etc.
  USE enthalpyTemp_module,only:T2L_lookup_soil_device                ! module to calculate a look-up table for the soil temperature-enthalpy conversion
  USE enthalpyTemp_module,only:T2H_lookup_snWat               ! module to calculate a look-up table for the snow temperature-enthalpy conversion
  USE paramCheck_module,only:paramCheck_device                       ! module to check consistency of model parameters
+ USE var_derive_module,only:fracFuture                       ! module to calculate the fraction of runoff in future time steps (time delay histogram)
 
  integer(i4b),intent(in),value :: nGRU,LAI_method,snowLayers
  logical(lgt),intent(in),value :: needLookup_soil
@@ -389,11 +384,21 @@ critSoilTranspire_,critSoilWilting_,fieldCapacity_,zMax,zMin,&
  real(rkind) :: zminLayer1(:),zminLayer2(:),zminLayer3(:),zminLayer4(:),zminLayer5(:)
  real(rkind) :: zmaxLayer1_lower(:),zmaxLayer2_lower(:),zmaxLayer3_lower(:),zmaxLayer4_lower(:)
  real(rkind) :: zmaxLayer1_upper(:),zmaxLayer2_upper(:),zmaxLayer3_upper(:),zmaxLayer4_upper(:)
+ integer(i4b),intent(in),value :: subRouting
+ real(rkind) :: routingGammaScale(:),routingGammaShape(:)
+ real(rkind) :: routingRunoffFuture(:,:), routingFractionFuture(:,:)
+ real(rkind),intent(in),value :: data_step
 
   integer(i4b) :: iGRU
   iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
   if (iGRU .gt. nGRU) return
 
+ ! calculate the fraction of runoff in future time steps
+  call fracFuture(subRouting,data_step,&
+  routingGammaScale(iGRU),routingGammaShape(iGRU),    &  ! vector of basin-average model parameters
+                  ! bvarStruct%gru(iGRU),        &  ! data structure of basin-average variables
+                  routingRunoffFuture(:,iGRU),routingFractionFuture(:,iGRU) &
+                  )                   ! error control
 
   call paramCheck_device(critSoilTranspire_(iGRU),critSoilWilting_(iGRU),theta_sat_(:,iGRU),theta_res_(:,iGRU),&
  heightCanopyTop(iGRU), heightCanopyBottom(iGRU),fieldCapacity_(iGRU),&
@@ -401,6 +406,7 @@ critSoilTranspire_,critSoilWilting_,fieldCapacity_,zMax,zMin,&
  zminLayer1(iGRU),zminLayer2(iGRU),zminLayer3(iGRU),zminLayer4(iGRU),zminLayer5(iGRU),&
  zmaxLayer1_lower(iGRU),zmaxLayer2_lower(iGRU),zmaxLayer3_lower(iGRU),zmaxLayer4_lower(iGRU),&
  zmaxLayer1_upper(iGRU),zmaxLayer2_upper(iGRU),zmaxLayer3_upper(iGRU),zmaxLayer4_upper(iGRU))
+  
 
   if (iGRU .eq. 1) then
        ! calculate a look-up table for the temperature-enthalpy conversion of snow for future snow layer merging

@@ -127,6 +127,7 @@ subroutine computJacobWithPrime(&
   use ieee_arithmetic
   use cudafor
   use device_data_types
+  use globalData,only:maxSnowLayers
   ! -----------------------------------------------------------------------------------------------------------------
   implicit none
   ! input: model control
@@ -163,7 +164,7 @@ subroutine computJacobWithPrime(&
   ! --------------------------------------------------------------
   ! * local variables
   ! --------------------------------------------------------------
-  real(rkind),allocatable,device              :: dMat(:,:)                    ! diagonal of the Jacobian matrix excluding fluxes, depending on the state vector
+  ! real(rkind),allocatable,device              :: dMat(:,:)                    ! diagonal of the Jacobian matrix excluding fluxes, depending on the state vector
   ! indices of model state variables
   integer(i4b)                         :: nrgState                   ! energy state variable
   integer(i4b)                         :: watState                   ! hydrology state variable
@@ -177,9 +178,9 @@ subroutine computJacobWithPrime(&
   real(rkind)                          :: LH_fu0                     ! latent heat of fusion, modified to be 0 if using enthalpy formulation and not using
   character(LEN=256)                   :: cmessage                   ! error message of downwind routine
 
-  integer(i4b) :: iGRU
-        type(dim3) :: blocks,threads
-    threads = dim3(128,1,1)
+  integer(i4b) :: iGRU, nBaseflow
+  type(dim3) :: blocks,threads
+  threads = dim3(128,1,1)
   blocks = dim3(nGRU/128+1,1,1)
 
   ! --------------------------------------------------------------
@@ -260,16 +261,16 @@ subroutine computJacobWithPrime(&
     ! *********************************************************************************************************************************************************
     ! get the number of state variables
     nState = size(dMat0,1)
-    allocate(dMat(nState,nGRU)) 
+    ! if (.not. allocated(dMat)) allocate(dMat(nState,nGRU))
+    ! if (size(dMat,1).ne.nState .or. size(dMat,2).ne.nGRU) then
+    !   deallocate(dMat)
+    !   allocate(dMat(nState,nGRU))
+    ! end if
+    ! allocate(dMat(nState,nGRU)) 
+    nBaseflow = 1
+    if (computeBaseflow) nBaseflow = nSoil
 
-    ! call allocate_device_indx_data(indx_data_d,indx_data,indx_data%var(iLookINDEX%nSnow)%dat(1),nSoil,indx_data%var(iLookINDEX%nLayers)%dat(1),nGRU)
-    ! call allocate_device_deriv_data(deriv_data_d,deriv_data,nGRU,nSoil,indx_data%var(iLookINDEX%nLayers)%dat(1),indx_data%var(iLookINDEX%nSnow)%dat(1))
-    ! initialize the Jacobian and diagonal
-    ! NOTE: this needs to be done every time, since Jacobian matrix is modified in the solver and dMat is modified below
-    ! aJac(:,:) = 0._rkind  ! analytical Jacobian matrix
-    ! dMat = dMat0 * cj ! dMat0(ixCasNrg) = Cp_air*iden_air and dMat0(Wat states) = 1.0
-
-    call computJacobWithPrime_kernel<<<blocks,threads>>>(nGRU,aJac, dMat, dMat0, cj, &
+    call computJacobWithPrime_kernel<<<blocks,threads>>>(nGRU,maxSnowLayers,nBaseflow,aJac, dMat0, cj, &
   computeVegFlux, enthalpyStateVec, ixRichards, &
   nSnow, nSoil, nLayers, indx_data%nState,&
   ixCasNrg, ixVegNrg, ixVegHyd, ixAqWat, &
@@ -313,17 +314,8 @@ subroutine computJacobWithPrime(&
 
 
     if(err/=0)then; message=trim(message)//trim(cmessage); return; endif
-    deallocate(dMat)
+    ! deallocate(dMat)
 
-    ! !$cuf kernel do(1) <<<1,1>>>
-    ! do iGRU=1,nGRU
-    !   do iLayer=1,size(aJac,1)
-    !     do jLayer=1,size(aJac,2)
-    !       print*, iLayer,jLayer,iGRU,aJac(iLayer,jLayer,iGRU)
-    !     end do
-    !   end do
-    ! end do
-    
     ! print the Jacobian
     ! if(any(ieee_is_nan(aJac)))then; message=trim(message)//'NaN in Jacobian';err=20; return; endif
 
@@ -331,7 +323,7 @@ subroutine computJacobWithPrime(&
 
 end subroutine computJacobWithPrime
 
-attributes(global)subroutine computJacobWithPrime_kernel(nGRU,aJac, dMat, dMat0, cj, &
+attributes(global)subroutine computJacobWithPrime_kernel(nGRU,maxSnowLayers,nBaseflow,aJac, dMat0, cj, &
   computeVegFlux, enthalpyStateVec, ixRichards, &
   nSnow, nSoil, nLayers, nState,&
   ixCasNrg, ixVegNrg, ixVegHyd, ixAqWat, &
@@ -372,107 +364,64 @@ attributes(global)subroutine computJacobWithPrime_kernel(nGRU,aJac, dMat, dMat0,
   dBaseflow_dMatric,&
   dTemp_dTheta,dTemp_dPsi0,dTemp_dEnthalpy,&
   dCanairTemp_dEnthalpy, dCanopyTemp_dCanWat, dCanopyTemp_dEnthalpy)
-  integer(i4b), value :: nGRU, nSoil
-  real(rkind),intent(inout) :: aJac(:,:,:)
-  real(rkind),intent(inout) :: dMat(:,:)
-  real(rkind),intent(in) :: dMat0(:,:)
+  integer(i4b), value :: nGRU, nSoil,maxSnowLayers,nBaseflow
+  real(rkind),intent(inout) :: aJac(2*(nSoil+maxSnowLayers)+4,2*(nSoil+maxSnowLayers)+4,nGRU)
+  ! real(rkind),intent(inout) :: dMat(2*(nSoil+maxSnowLayers)+4,nGRU)
+  real(rkind),intent(in) :: dMat0(2*(nSoil+maxSnowLayers)+4,nGRU)
   real(rkind),intent(in),value :: cj
-  logical(lgt),intent(in) :: computeVegFlux(:)
+  logical(lgt),intent(in) :: computeVegFlux(nGRU)
   logical(lgt),intent(in),value :: enthalpyStateVec
   integer(i4b),intent(in) :: ixRichards
-  integer(i4b),intent(in) :: nSnow(:), nLayers(:),nState(:)
-  integer(i4b),intent(in) :: ixCasNrg(:), ixVegNrg(:), ixVegHyd(:), ixAqWat(:)
-  integer(i4b),intent(in) :: ixSnowSoilNrg(:,:), ixSnowOnlyNrg(:,:), ixSoilOnlyNrg(:,:)
-  integer(i4b),intent(in) :: ixSnowSoilHyd(:,:), ixSnowOnlyHyd(:,:), ixSoilOnlyHyd(:,:)
-  real(rkind),intent(in) :: scalarBulkVolHeatCapVeg(:), dTheta_dTkCanopy(:), dVolHtCapBulk_dTkCanopy(:)
-  real(rkind),intent(in) :: scalarCanopyTempPrime(:), dCm_dTkCanopy(:), scalarCanopyWatPrime(:)
-  real(rkind),intent(in) :: canopyDepth(:), d2Theta_dTkCanopy2(:), dFracLiqVeg_dTkCanopy(:)
-  real(rkind),intent(in) :: mLayerVolHtCapBulk(:,:), mLayerdTheta_dTk(:,:)
-  real(rkind),intent(in) :: dVolHtCapBulk_dTk(:,:), mLayerTempPrime(:,:)
-  real(rkind),intent(in) :: dCm_dTk(:,:), dFracLiqWat_dTk(:,:)
-  real(rkind),intent(in) :: mLayerVolFracWatPrime(:,:), mLayerd2Theta_dTk2(:,:)
-  real(rkind),intent(in) :: dVolTot_dPsi0(:,:), d2VolTot_dPsi02(:,:), dCompress_dPsi(:,:)
-  real(rkind),intent(in) :: mLayerMatricHeadPrime(:,:), theta_sat(:,:)
-  real(rkind),intent(in) :: specificStorage(:)
-  real(rkind),intent(in) :: scalarFracLiqVeg(:), dVolHtCapBulk_dCanWat(:), scalarCanopyCm(:)
+  integer(i4b),intent(in) :: nSnow(nGRU), nLayers(nGRU),nState(nGRU)
+  integer(i4b),intent(in) :: ixCasNrg(nGRU), ixVegNrg(nGRU), ixVegHyd(nGRU), ixAqWat(nGRU)
+  integer(i4b),intent(in) :: ixSnowSoilNrg(nSoil+maxSnowLayers+1,nGRU), ixSnowOnlyNrg(maxSnowLayers+1,nGRU), ixSoilOnlyNrg(nSoil,nGRU)
+  integer(i4b),intent(in) :: ixSnowSoilHyd(nSoil+maxSnowLayers+1,nGRU), ixSnowOnlyHyd(maxSnowLayers+1,nGRU), ixSoilOnlyHyd(nSoil,nGRU)
+  real(rkind),intent(in) :: scalarBulkVolHeatCapVeg(nGRU), dTheta_dTkCanopy(nGRU), dVolHtCapBulk_dTkCanopy(nGRU)
+  real(rkind),intent(in) :: scalarCanopyTempPrime(nGRU), dCm_dTkCanopy(nGRU), scalarCanopyWatPrime(nGRU)
+  real(rkind),intent(in) :: canopyDepth(nGRU), d2Theta_dTkCanopy2(nGRU), dFracLiqVeg_dTkCanopy(nGRU)
+  real(rkind),intent(in) :: mLayerVolHtCapBulk(nSoil+maxSnowLayers+1,nGRU), mLayerdTheta_dTk(nSoil+maxSnowLayers,nGRU)
+  real(rkind),intent(in) :: dVolHtCapBulk_dTk(nSoil+maxSnowLayers+1,nGRU), mLayerTempPrime(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: dCm_dTk(nSoil+maxSnowLayers,nGRU), dFracLiqWat_dTk(nSoil+maxSnowLayers,nGRU)
+  real(rkind),intent(in) :: mLayerVolFracWatPrime(nSoil+maxSnowLayers+1,nGRU), mLayerd2Theta_dTk2(nSoil,nGRU)
+  real(rkind),intent(in) :: dVolTot_dPsi0(nSoil,nGRU), d2VolTot_dPsi02(nSoil,nGRU), dCompress_dPsi(nSoil,nGRU)
+  real(rkind),intent(in) :: mLayerMatricHeadPrime(nSoil,nGRU), theta_sat(nSoil,nGRU)
+  real(rkind),intent(in) :: specificStorage(nGRU)
+  real(rkind),intent(in) :: scalarFracLiqVeg(nGRU), dVolHtCapBulk_dCanWat(nGRU), scalarCanopyCm(nGRU)
   real(rkind),intent(in),value :: dt
-  real(rkind),intent(in) :: dCanopyNetFlux_dCanWat(:)
-  real(rkind),intent(in) :: mLayerFracLiqSnow(:,:), dVolHtCapBulk_dTheta(:,:), mLayerCm(:,:)
-  real(rkind),intent(in) :: mLayerDepth(:,:)
-  real(rkind),intent(in) :: dNrgFlux_dWatAbove(0:,:), dNrgFlux_dWatBelow(0:,:)
-  real(rkind),intent(in) :: dCm_dPsi0(:,:), dVolHtCapBulk_dPsi0(:,:)
+  real(rkind),intent(in) :: dCanopyNetFlux_dCanWat(nGRU)
+  real(rkind),intent(in) :: mLayerFracLiqSnow(maxSnowLayers+1,nGRU), dVolHtCapBulk_dTheta(nSoil+maxSnowLayers,nGRU), mLayerCm(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: mLayerDepth(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: dNrgFlux_dWatAbove(0:nSoil+maxSnowLayers,nGRU), dNrgFlux_dWatBelow(0:nSoil+maxSnowLayers,nGRU)
+  real(rkind),intent(in) :: dCm_dPsi0(nSoil,nGRU), dVolHtCapBulk_dPsi0(nSoil,nGRU)
   logical(lgt),intent(in),value :: computeBaseflow
-  integer(i4b),intent(in) :: ixTopNrg(:), ixTopHyd(:)
-  integer(i4b),intent(in) :: ixHydType(:,:)
-  real(rkind),intent(in) :: mLayerVolFracIce(:,:)
-  real(rkind),intent(in) :: scalarSoilControl(:)
-  real(rkind),intent(in) :: dCanairNetFlux_dCanairTemp(:), dCanairNetFlux_dCanopyTemp(:), dCanairNetFlux_dGroundTemp(:)
-  real(rkind),intent(in) :: dCanopyNetFlux_dCanairTemp(:),dCanopyNetFlux_dCanopyTemp(:),dCanopyNetFlux_dGroundTemp(:)
-  real(rkind),intent(in) :: dGroundNetFlux_dCanairTemp(:),dGroundNetFlux_dCanopyTemp(:),dGroundNetFlux_dCanWat(:)
-  real(rkind),intent(in) :: dCanopyEvaporation_dTCanair(:),dCanopyEvaporation_dTCanopy(:),dCanopyEvaporation_dTGround(:),dCanopyEvaporation_dCanWat(:)
-  real(rkind),intent(in) :: dGroundEvaporation_dTCanair(:),dGroundEvaporation_dTCanopy(:),dGroundEvaporation_dTGround(:),dGroundEvaporation_dCanWat(:)
-  real(rkind),intent(in) :: scalarCanopyLiqDeriv(:), dCanLiq_dTcanopy(:)
-  real(rkind),intent(in) :: dNrgFlux_dTempAbove(0:,:), dNrgFlux_dTempBelow(0:,:)
-  real(rkind),intent(in) :: mLayerdTrans_dTCanair(:,:),mLayerdTrans_dTCanopy(:,:),mLayerdTrans_dTGround(:,:),mLayerdTrans_dCanWat(:,:)
-  real(rkind),intent(in) :: dAquiferTrans_dTCanair(:),dAquiferTrans_dTCanopy(:),dAquiferTrans_dTGround(:),dAquiferTrans_dCanWat(:)
-  real(rkind),intent(in) :: iLayerLiqFluxSnowDeriv(0:,:)
-  real(rkind),intent(in) :: dq_dHydStateAbove(0:,:),dq_dHydStateBelow(0:,:),dq_dHydStateLayerSurfVec(0:,:)
-  real(rkind),intent(in) :: dBaseflow_dAquifer(:)
-  real(rkind),intent(in) :: dq_dNrgStateAbove(0:,:),dq_dNrgStateBelow(0:,:),dq_dNrgStateLayerSurfVec(0:,:)
-  real(rkind),intent(in) :: dBaseflow_dMatric(:,:,:)
-  real(rkind),intent(in) :: dTemp_dTheta(:,:), dTemp_dPsi0(:,:), dTemp_dEnthalpy(:,:)
-  real(rkind),intent(in) :: dCanairTemp_dEnthalpy(:), dCanopyTemp_dCanWat(:), dCanopyTemp_dEnthalpy(:)
+  integer(i4b),intent(in) :: ixTopNrg(nGRU), ixTopHyd(nGRU)
+  integer(i4b),intent(in) :: ixHydType(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: mLayerVolFracIce(nSoil+maxSnowLayers+1,nGRU)
+  real(rkind),intent(in) :: scalarSoilControl(nGRU)
+  real(rkind),intent(in) :: dCanairNetFlux_dCanairTemp(nGRU), dCanairNetFlux_dCanopyTemp(nGRU), dCanairNetFlux_dGroundTemp(nGRU)
+  real(rkind),intent(in) :: dCanopyNetFlux_dCanairTemp(nGRU),dCanopyNetFlux_dCanopyTemp(nGRU),dCanopyNetFlux_dGroundTemp(nGRU)
+  real(rkind),intent(in) :: dGroundNetFlux_dCanairTemp(nGRU),dGroundNetFlux_dCanopyTemp(nGRU),dGroundNetFlux_dCanWat(nGRU)
+  real(rkind),intent(in) :: dCanopyEvaporation_dTCanair(nGRU),dCanopyEvaporation_dTCanopy(nGRU),dCanopyEvaporation_dTGround(nGRU),dCanopyEvaporation_dCanWat(nGRU)
+  real(rkind),intent(in) :: dGroundEvaporation_dTCanair(nGRU),dGroundEvaporation_dTCanopy(nGRU),dGroundEvaporation_dTGround(nGRU),dGroundEvaporation_dCanWat(nGRU)
+  real(rkind),intent(in) :: scalarCanopyLiqDeriv(nGRU), dCanLiq_dTcanopy(nGRU)
+  real(rkind),intent(in) :: dNrgFlux_dTempAbove(0:nSoil+maxSnowLayers,nGRU), dNrgFlux_dTempBelow(0:nSoil+maxSnowLayers,nGRU)
+  real(rkind),intent(in) :: mLayerdTrans_dTCanair(nSoil,nGRU),mLayerdTrans_dTCanopy(nSoil,nGRU),mLayerdTrans_dTGround(nSoil,nGRU),mLayerdTrans_dCanWat(nSoil,nGRU)
+  real(rkind),intent(in) :: dAquiferTrans_dTCanair(nGRU),dAquiferTrans_dTCanopy(nGRU),dAquiferTrans_dTGround(nGRU),dAquiferTrans_dCanWat(nGRU)
+  real(rkind),intent(in) :: iLayerLiqFluxSnowDeriv(0:maxSnowLayers,nGRU)
+  real(rkind),intent(in) :: dq_dHydStateAbove(0:nSoil,nGRU),dq_dHydStateBelow(0:nSoil,nGRU),dq_dHydStateLayerSurfVec(0:nSoil,nGRU)
+  real(rkind),intent(in) :: dBaseflow_dAquifer(nGRU)
+
+  real(rkind),intent(in) :: dq_dNrgStateAbove(0:nSoil,nGRU),dq_dNrgStateBelow(0:nSoil,nGRU),dq_dNrgStateLayerSurfVec(0:nSoil,nGRU)
+  real(rkind),intent(in) :: dBaseflow_dMatric(nBaseflow,nBaseflow,nGRU)
+  real(rkind),intent(in) :: dTemp_dTheta(nSoil+maxSnowLayers,nGRU), dTemp_dPsi0(nSoil,nGRU), dTemp_dEnthalpy(nSoil+maxSnowLayers,nGRU)
+  real(rkind),intent(in) :: dCanairTemp_dEnthalpy(nGRU), dCanopyTemp_dCanWat(nGRU), dCanopyTemp_dEnthalpy(nGRU)
 
     integer(i4b) :: iGRU
   iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
 
   if (iGRU .gt. nGRU) return
 
-  call computJacobWithPrime_device(aJac, dMat(:,iGRU), dMat0(:,iGRU), cj, &
-  computeVegFlux(iGRU), enthalpyStateVec, ixRichards, &
-  nSnow(iGRU), nSoil, nLayers(iGRU), nState(iGRU),&
-  ixCasNrg(iGRU), ixVegNrg(iGRU), ixVegHyd(iGRU), ixAqWat(iGRU), &
-  ixSnowSoilNrg(:,iGRU), ixSnowOnlyNrg(:,iGRU), ixSoilOnlyNrg(:,iGRU), &
-  ixSnowSoilHyd(:,iGRU), ixSnowOnlyHyd(:,iGRU), ixSoilOnlyHyd(:,iGRU),&
-  scalarBulkVolHeatCapVeg(iGRU), dTheta_dTkCanopy(iGRU), dVolHtCapBulk_dTkCanopy(iGRU),&
-  scalarCanopyTempPrime(iGRU), dCm_dTkCanopy(iGRU), scalarCanopyWatPrime(iGRU),&
-  canopyDepth(iGRU), d2Theta_dTkCanopy2(iGRU), dFracLiqVeg_dTkCanopy(iGRU),&
-  mLayerVolHtCapBulk(:,iGRU), mLayerdTheta_dTk(:,iGRU),&
-  dVolHtCapBulk_dTk(:,iGRU), mLayerTempPrime(:,iGRU), &
-  dCm_dTk(:,iGRU), dFracLiqWat_dTk(:,iGRU), &
-  mLayerVolFracWatPrime(:,iGRU), mLayerd2Theta_dTk2(:,iGRU), &
-  dVolTot_dPsi0(:,iGRU), d2VolTot_dPsi02(:,iGRU), dCompress_dPsi(:,iGRU), &
-  mLayerMatricHeadPrime(:,iGRU), theta_sat(:,iGRU), &
-  specificStorage(iGRU), &
-  scalarFracLiqVeg(iGRU), dVolHtCapBulk_dCanWat(iGRU), scalarCanopyCm(iGRU), &
-  dt, dCanopyNetFlux_dCanWat(iGRU),&
-  mLayerFracLiqSnow(:,iGRU), dVolHtCapBulk_dTheta(:,iGRU), mLayerCm(:,iGRU), &
-  mLayerDepth(:,iGRU), &
-  dNrgFlux_dWatAbove(:,iGRU), dNrgFlux_dWatBelow(:,iGRU),&
-  dCm_dPsi0(:,iGRU), dVolHtCapBulk_dPsi0(:,iGRU),&
-  computeBaseflow, &
-  ixTopNrg(iGRU), ixTopHyd(iGRU), ixHydType(:,iGRU),&
-  mLayerVolFracIce(:,iGRU), scalarSoilControl(iGRU),&
-  dCanairNetFlux_dCanairTemp(iGRU), dCanairNetFlux_dCanopyTemp(iGRU), dCanairNetFlux_dGroundTemp(iGRU), &
-  dCanopyNetFlux_dCanairTemp(iGRU), dCanopyNetFlux_dCanopyTemp(iGRU), dCanopyNetFlux_dGroundTemp(iGRU), &
-  dGroundNetFlux_dCanairTemp(iGRU), dGroundNetFlux_dCanopyTemp(iGRU), dGroundNetFlux_dCanWat(iGRU),&
-  dCanopyEvaporation_dTCanair(iGRU),dCanopyEvaporation_dTCanopy(iGRU),dCanopyEvaporation_dTGround(iGRU),dCanopyEvaporation_dCanWat(iGRU),&
-  dGroundEvaporation_dTCanair(iGRU),dGroundEvaporation_dTCanopy(iGRU),dGroundEvaporation_dTGround(iGRU),dGroundEvaporation_dCanWat(iGRU),&
-  scalarCanopyLiqDeriv(iGRU), dCanLiq_dTcanopy(iGRU),&
-  dNrgFlux_dTempAbove(:,iGRU), dNrgFlux_dTempBelow(:,iGRU),&
-  mLayerdTrans_dTCanair(:,iGRU), mLayerdTrans_dTCanopy(:,iGRU), mLayerdTrans_dTGround(:,iGRU), mLayerdTrans_dCanWat(:,iGRU), &
-  dAquiferTrans_dTCanair(iGRU), dAquiferTrans_dTCanopy(iGRU), dAquiferTrans_dTGround(iGRU), dAquiferTrans_dCanWat(iGRU),&
-  iLayerLiqFluxSnowDeriv(:,iGRU),&
-  dq_dHydStateAbove(:,iGRU), dq_dHydStateBelow(:,iGRU), dq_dHydStateLayerSurfVec(:,iGRU), &
-  dBaseflow_dAquifer(iGRU), &
-  dq_dNrgStateAbove(:,iGRU), dq_dNrgStateBelow(:,iGRU), dq_dNrgStateLayerSurfVec(:,iGRU),&
-  dBaseflow_dMatric(:,:,iGRU),&
-  dTemp_dTheta(:,iGRU),dTemp_dPsi0(:,iGRU),dTemp_dEnthalpy(:,iGRU),&
-  dCanairTemp_dEnthalpy(iGRU), dCanopyTemp_dCanWat(iGRU), dCanopyTemp_dEnthalpy(iGRU))
-
-end subroutine
-
-attributes(device) subroutine computJacobWithPrime_device(aJac, dMat, dMat0, cj, &
+  call computJacobWithPrime_device(aJac, dMat0, cj, &
   computeVegFlux, enthalpyStateVec, ixRichards, &
   nSnow, nSoil, nLayers, nState,&
   ixCasNrg, ixVegNrg, ixVegHyd, ixAqWat, &
@@ -480,16 +429,16 @@ attributes(device) subroutine computJacobWithPrime_device(aJac, dMat, dMat0, cj,
   ixSnowSoilHyd, ixSnowOnlyHyd, ixSoilOnlyHyd,&
   scalarBulkVolHeatCapVeg, dTheta_dTkCanopy, dVolHtCapBulk_dTkCanopy,&
   scalarCanopyTempPrime, dCm_dTkCanopy, scalarCanopyWatPrime,&
-  canopyDepth, d2Theta_dTkCanopy2, dFracLiqVeg_dTkCanopy, &
+  canopyDepth, d2Theta_dTkCanopy2, dFracLiqVeg_dTkCanopy,&
   mLayerVolHtCapBulk, mLayerdTheta_dTk,&
   dVolHtCapBulk_dTk, mLayerTempPrime, &
   dCm_dTk, dFracLiqWat_dTk, &
-  mLayerVolFracWatPrime, mLayerd2Theta_dTk2,&
+  mLayerVolFracWatPrime, mLayerd2Theta_dTk2, &
   dVolTot_dPsi0, d2VolTot_dPsi02, dCompress_dPsi, &
   mLayerMatricHeadPrime, theta_sat, &
   specificStorage, &
   scalarFracLiqVeg, dVolHtCapBulk_dCanWat, scalarCanopyCm, &
-  dt, dCanopyNetFlux_dCanWat, &
+  dt, dCanopyNetFlux_dCanWat,&
   mLayerFracLiqSnow, dVolHtCapBulk_dTheta, mLayerCm, &
   mLayerDepth, &
   dNrgFlux_dWatAbove, dNrgFlux_dWatBelow,&
@@ -513,57 +462,101 @@ attributes(device) subroutine computJacobWithPrime_device(aJac, dMat, dMat0, cj,
   dBaseflow_dMatric,&
   dTemp_dTheta,dTemp_dPsi0,dTemp_dEnthalpy,&
   dCanairTemp_dEnthalpy, dCanopyTemp_dCanWat, dCanopyTemp_dEnthalpy)
+
+end subroutine
+
+attributes(device) subroutine computJacobWithPrime_device(aJac, dMat0, cj, &
+  computeVegFlux_, enthalpyStateVec, ixRichards, &
+  nSnow_, nSoil, nLayers_, nState_,&
+  ixCasNrg_, ixVegNrg_, ixVegHyd_, ixAqWat_, &
+  ixSnowSoilNrg_, ixSnowOnlyNrg_, ixSoilOnlyNrg_, &
+  ixSnowSoilHyd_, ixSnowOnlyHyd_, ixSoilOnlyHyd_,&
+  scalarBulkVolHeatCapVeg_, dTheta_dTkCanopy_, dVolHtCapBulk_dTkCanopy_,&
+  scalarCanopyTempPrime_, dCm_dTkCanopy_, scalarCanopyWatPrime_,&
+  canopyDepth_, d2Theta_dTkCanopy2_, dFracLiqVeg_dTkCanopy_, &
+  mLayerVolHtCapBulk_, mLayerdTheta_dTk_,&
+  dVolHtCapBulk_dTk_, mLayerTempPrime_, &
+  dCm_dTk_, dFracLiqWat_dTk_, &
+  mLayerVolFracWatPrime_, mLayerd2Theta_dTk2_,&
+  dVolTot_dPsi0_, d2VolTot_dPsi02_, dCompress_dPsi_, &
+  mLayerMatricHeadPrime_, theta_sat_, &
+  specificStorage_, &
+  scalarFracLiqVeg_, dVolHtCapBulk_dCanWat_, scalarCanopyCm_, &
+  dt, dCanopyNetFlux_dCanWat_, &
+  mLayerFracLiqSnow_, dVolHtCapBulk_dTheta_, mLayerCm_, &
+  mLayerDepth_, &
+  dNrgFlux_dWatAbove_, dNrgFlux_dWatBelow_,&
+  dCm_dPsi0_, dVolHtCapBulk_dPsi0_,&
+  computeBaseflow, &
+  ixTopNrg_, ixTopHyd_, ixHydType_,&
+  mLayerVolFracIce_, scalarSoilControl_,&
+  dCanairNetFlux_dCanairTemp_, dCanairNetFlux_dCanopyTemp_, dCanairNetFlux_dGroundTemp_, &
+  dCanopyNetFlux_dCanairTemp_, dCanopyNetFlux_dCanopyTemp_, dCanopyNetFlux_dGroundTemp_, &
+  dGroundNetFlux_dCanairTemp_, dGroundNetFlux_dCanopyTemp_, dGroundNetFlux_dCanWat_,&
+  dCanopyEvaporation_dTCanair_,dCanopyEvaporation_dTCanopy_,dCanopyEvaporation_dTGround_,dCanopyEvaporation_dCanWat_,&
+  dGroundEvaporation_dTCanair_,dGroundEvaporation_dTCanopy_,dGroundEvaporation_dTGround_,dGroundEvaporation_dCanWat_,&
+  scalarCanopyLiqDeriv_, dCanLiq_dTcanopy_,&
+  dNrgFlux_dTempAbove_, dNrgFlux_dTempBelow_,&
+  mLayerdTrans_dTCanair_, mLayerdTrans_dTCanopy_, mLayerdTrans_dTGround_, mLayerdTrans_dCanWat_, &
+  dAquiferTrans_dTCanair_, dAquiferTrans_dTCanopy_, dAquiferTrans_dTGround_, dAquiferTrans_dCanWat_,&
+  iLayerLiqFluxSnowDeriv_,&
+  dq_dHydStateAbove_, dq_dHydStateBelow_, dq_dHydStateLayerSurfVec_, &
+  dBaseflow_dAquifer_, &
+  dq_dNrgStateAbove_, dq_dNrgStateBelow_, dq_dNrgStateLayerSurfVec_,&
+  dBaseflow_dMatric_,&
+  dTemp_dTheta_,dTemp_dPsi0_,dTemp_dEnthalpy_,&
+  dCanairTemp_dEnthalpy_, dCanopyTemp_dCanWat_, dCanopyTemp_dEnthalpy_)
   use computJacob_module,only:fluxJacAdd
   use initialize_device,only:get_iGRU
   implicit none
   real(rkind),intent(inout) :: aJac(:,:,:)
-  real(rkind),intent(inout) :: dMat(:)
-  real(rkind),intent(in) :: dMat0(:)
+  ! real(rkind),intent(inout) :: dMat(:,:)
+  real(rkind),intent(in) :: dMat0(:,:)
   real(rkind),intent(in) :: cj
-  logical(lgt),intent(in) :: computeVegFlux, enthalpyStateVec
+  logical(lgt),intent(in) :: computeVegFlux_(:), enthalpyStateVec
   integer(i4b),intent(in) :: ixRichards
-  integer(i4b),intent(in) :: nSnow, nSoil, nLayers,nState
-  integer(i4b),intent(in) :: ixCasNrg, ixVegNrg, ixVegHyd, ixAqWat
-  integer(i4b),intent(in) :: ixSnowSoilNrg(:), ixSnowOnlyNrg(:), ixSoilOnlyNrg(:)
-  integer(i4b),intent(in) :: ixSnowSoilHyd(:), ixSnowOnlyHyd(:), ixSoilOnlyHyd(:)
-  real(rkind),intent(in) :: scalarBulkVolHeatCapVeg, dTheta_dTkCanopy, dVolHtCapBulk_dTkCanopy
-  real(rkind),intent(in) :: scalarCanopyTempPrime, dCm_dTkCanopy, scalarCanopyWatPrime
-  real(rkind),intent(in) :: canopyDepth, d2Theta_dTkCanopy2, dFracLiqVeg_dTkCanopy
-  real(rkind),intent(in) :: mLayerVolHtCapBulk(:), mLayerdTheta_dTk(:)
-  real(rkind),intent(in) :: dVolHtCapBulk_dTk(:), mLayerTempPrime(:)
-  real(rkind),intent(in) :: dCm_dTk(:), dFracLiqWat_dTk(:)
-  real(rkind),intent(in) :: mLayerVolFracWatPrime(:), mLayerd2Theta_dTk2(:)
-  real(rkind),intent(in) :: dVolTot_dPsi0(:), d2VolTot_dPsi02(:), dCompress_dPsi(:)
-  real(rkind),intent(in) :: mLayerMatricHeadPrime(:), theta_sat(:)
-  real(rkind),intent(in) :: specificStorage
-  real(rkind),intent(in) :: scalarFracLiqVeg, dVolHtCapBulk_dCanWat, scalarCanopyCm
+  integer(i4b),intent(in) :: nSnow_(:), nSoil, nLayers_(:),nState_(:)
+  integer(i4b),intent(in) :: ixCasNrg_(:), ixVegNrg_(:), ixVegHyd_(:), ixAqWat_(:)
+  integer(i4b),intent(in) :: ixSnowSoilNrg_(:,:), ixSnowOnlyNrg_(:,:), ixSoilOnlyNrg_(:,:)
+  integer(i4b),intent(in) :: ixSnowSoilHyd_(:,:), ixSnowOnlyHyd_(:,:), ixSoilOnlyHyd_(:,:)
+  real(rkind),intent(in) :: scalarBulkVolHeatCapVeg_(:), dTheta_dTkCanopy_(:), dVolHtCapBulk_dTkCanopy_(:)
+  real(rkind),intent(in) :: scalarCanopyTempPrime_(:), dCm_dTkCanopy_(:), scalarCanopyWatPrime_(:)
+  real(rkind),intent(in) :: canopyDepth_(:), d2Theta_dTkCanopy2_(:), dFracLiqVeg_dTkCanopy_(:)
+  real(rkind),intent(in) :: mLayerVolHtCapBulk_(:,:), mLayerdTheta_dTk_(:,:)
+  real(rkind),intent(in) :: dVolHtCapBulk_dTk_(:,:), mLayerTempPrime_(:,:)
+  real(rkind),intent(in) :: dCm_dTk_(:,:), dFracLiqWat_dTk_(:,:)
+  real(rkind),intent(in) :: mLayerVolFracWatPrime_(:,:), mLayerd2Theta_dTk2_(:,:)
+  real(rkind),intent(in) :: dVolTot_dPsi0_(:,:), d2VolTot_dPsi02_(:,:), dCompress_dPsi_(:,:)
+  real(rkind),intent(in) :: mLayerMatricHeadPrime_(:,:), theta_sat_(:,:)
+  real(rkind),intent(in) :: specificStorage_(:)
+  real(rkind),intent(in) :: scalarFracLiqVeg_(:), dVolHtCapBulk_dCanWat_(:), scalarCanopyCm_(:)
   real(rkind),intent(in) :: dt
-  real(rkind),intent(in) :: dCanopyNetFlux_dCanWat
-  real(rkind),intent(in) :: mLayerFracLiqSnow(:), dVolHtCapBulk_dTheta(:), mLayerCm(:)
-  real(rkind),intent(in) :: mLayerDepth(:)
-  real(rkind),intent(in) :: dNrgFlux_dWatAbove(0:), dNrgFlux_dWatBelow(0:)
-  real(rkind),intent(in) :: dCm_dPsi0(:), dVolHtCapBulk_dPsi0(:)
+  real(rkind),intent(in) :: dCanopyNetFlux_dCanWat_(:)
+  real(rkind),intent(in) :: mLayerFracLiqSnow_(:,:), dVolHtCapBulk_dTheta_(:,:), mLayerCm_(:,:)
+  real(rkind),intent(in) :: mLayerDepth_(:,:)
+  real(rkind),intent(in) :: dNrgFlux_dWatAbove_(0:,:), dNrgFlux_dWatBelow_(0:,:)
+  real(rkind),intent(in) :: dCm_dPsi0_(:,:), dVolHtCapBulk_dPsi0_(:,:)
   logical(lgt),intent(in) :: computeBaseflow
-  integer(i4b),intent(in) :: ixTopNrg, ixTopHyd
-  integer(i4b),intent(in) :: ixHydType(:)
-  real(rkind),intent(in) :: mLayerVolFracIce(:)
-  real(rkind),intent(in) :: scalarSoilControl
-  real(rkind),intent(in) :: dCanairNetFlux_dCanairTemp, dCanairNetFlux_dCanopyTemp, dCanairNetFlux_dGroundTemp
-  real(rkind),intent(in) :: dCanopyNetFlux_dCanairTemp,dCanopyNetFlux_dCanopyTemp,dCanopyNetFlux_dGroundTemp
-  real(rkind),intent(in) :: dGroundNetFlux_dCanairTemp,dGroundNetFlux_dCanopyTemp,dGroundNetFlux_dCanWat
-  real(rkind),intent(in) :: dCanopyEvaporation_dTCanair,dCanopyEvaporation_dTCanopy,dCanopyEvaporation_dTGround,dCanopyEvaporation_dCanWat
-  real(rkind),intent(in) :: dGroundEvaporation_dTCanair,dGroundEvaporation_dTCanopy,dGroundEvaporation_dTGround,dGroundEvaporation_dCanWat
-  real(rkind),intent(in) :: scalarCanopyLiqDeriv, dCanLiq_dTcanopy
-  real(rkind),intent(in) :: dNrgFlux_dTempAbove(0:), dNrgFlux_dTempBelow(0:)
-  real(rkind),intent(in) :: mLayerdTrans_dTCanair(:),mLayerdTrans_dTCanopy(:),mLayerdTrans_dTGround(:),mLayerdTrans_dCanWat(:)
-  real(rkind),intent(in) :: dAquiferTrans_dTCanair,dAquiferTrans_dTCanopy,dAquiferTrans_dTGround,dAquiferTrans_dCanWat
-  real(rkind),intent(in) :: iLayerLiqFluxSnowDeriv(0:)
-  real(rkind),intent(in) :: dq_dHydStateAbove(0:),dq_dHydStateBelow(0:),dq_dHydStateLayerSurfVec(0:)
-  real(rkind),intent(in) :: dBaseflow_dAquifer
-  real(rkind),intent(in) :: dq_dNrgStateAbove(0:),dq_dNrgStateBelow(0:),dq_dNrgStateLayerSurfVec(0:)
-  real(rkind),intent(in) :: dBaseflow_dMatric(:,:)
-  real(rkind),intent(in) :: dTemp_dTheta(:), dTemp_dPsi0(:), dTemp_dEnthalpy(:)
-  real(rkind),intent(in) :: dCanairTemp_dEnthalpy, dCanopyTemp_dCanWat, dCanopyTemp_dEnthalpy
+  integer(i4b),intent(in) :: ixTopNrg_(:), ixTopHyd_(:)
+  integer(i4b),intent(in) :: ixHydType_(:,:)
+  real(rkind),intent(in) :: mLayerVolFracIce_(:,:)
+  real(rkind),intent(in) :: scalarSoilControl_(:)
+  real(rkind),intent(in) :: dCanairNetFlux_dCanairTemp_(:), dCanairNetFlux_dCanopyTemp_(:), dCanairNetFlux_dGroundTemp_(:)
+  real(rkind),intent(in) :: dCanopyNetFlux_dCanairTemp_(:),dCanopyNetFlux_dCanopyTemp_(:),dCanopyNetFlux_dGroundTemp_(:)
+  real(rkind),intent(in) :: dGroundNetFlux_dCanairTemp_(:),dGroundNetFlux_dCanopyTemp_(:),dGroundNetFlux_dCanWat_(:)
+  real(rkind),intent(in) :: dCanopyEvaporation_dTCanair_(:),dCanopyEvaporation_dTCanopy_(:),dCanopyEvaporation_dTGround_(:),dCanopyEvaporation_dCanWat_(:)
+  real(rkind),intent(in) :: dGroundEvaporation_dTCanair_(:),dGroundEvaporation_dTCanopy_(:),dGroundEvaporation_dTGround_(:),dGroundEvaporation_dCanWat_(:)
+  real(rkind),intent(in) :: scalarCanopyLiqDeriv_(:), dCanLiq_dTcanopy_(:)
+  real(rkind),intent(in) :: dNrgFlux_dTempAbove_(0:,:), dNrgFlux_dTempBelow_(0:,:)
+  real(rkind),intent(in) :: mLayerdTrans_dTCanair_(:,:),mLayerdTrans_dTCanopy_(:,:),mLayerdTrans_dTGround_(:,:),mLayerdTrans_dCanWat_(:,:)
+  real(rkind),intent(in) :: dAquiferTrans_dTCanair_(:),dAquiferTrans_dTCanopy_(:),dAquiferTrans_dTGround_(:),dAquiferTrans_dCanWat_(:)
+  real(rkind),intent(in) :: iLayerLiqFluxSnowDeriv_(0:,:)
+  real(rkind),intent(in) :: dq_dHydStateAbove_(0:,:),dq_dHydStateBelow_(0:,:),dq_dHydStateLayerSurfVec_(0:,:)
+  real(rkind),intent(in) :: dBaseflow_dAquifer_(:)
+  real(rkind),intent(in) :: dq_dNrgStateAbove_(0:,:),dq_dNrgStateBelow_(0:,:),dq_dNrgStateLayerSurfVec_(0:,:)
+  real(rkind),intent(in) :: dBaseflow_dMatric_(:,:,:)
+  real(rkind),intent(in) :: dTemp_dTheta_(:,:), dTemp_dPsi0_(:,:), dTemp_dEnthalpy_(:,:)
+  real(rkind),intent(in) :: dCanairTemp_dEnthalpy_(:), dCanopyTemp_dCanWat_(:), dCanopyTemp_dEnthalpy_(:)
 
   integer(i4b) :: iLayer, jLayer
   real(rkind) :: LH_fu0
@@ -572,50 +565,55 @@ attributes(device) subroutine computJacobWithPrime_device(aJac, dMat, dMat0, cj,
   integer(i4b) :: iGRU
   iGRU = get_iGRU()
 
+  ! initialize the Jacobian and diagonal
+  ! NOTE: this needs to be done every time, since Jacobian matrix is modified in the solver and dMat is modified below
   aJac(:,:,iGRU) = 0._rkind
-  dMat = dMat0 * cj ! dMat0(ixCasNrg) = Cp_air*iden_air and dMat0(Wat states) = 1.0
+  ! dMat(:,iGRU) = dMat0(:,iGRU) * cj ! dMat0(ixCasNrg) = Cp_air*iden_air and dMat0(Wat states) = 1.0
+  do iLayer=1,nState_(iGRU)
+    aJac(iLayer,iLayer,iGRU) = dMat0(iLayer,iGRU) * cj
+  end do
 
-  if(computeVegFlux)then
+  if(computeVegFlux_(iGRU))then
     ! compute terms in the Jacobian for vegetation (excluding fluxes)
-    if(ixVegNrg/=integerMissing)&
-      dMat(ixVegNrg) = ( scalarBulkVolHeatCapVeg + LH_fus*iden_water*dTheta_dTkCanopy ) * cj &
-                          + dVolHtCapBulk_dTkCanopy * scalarCanopyTempPrime &
-                          + dCm_dTkCanopy * scalarCanopyWatPrime/canopyDepth &
-                          + LH_fus*iden_water * scalarCanopyTempPrime * d2Theta_dTkCanopy2 &
-                          + LH_fus * dFracLiqVeg_dTkCanopy * scalarCanopyWatPrime/canopyDepth   
+    if(ixVegNrg_(iGRU)/=integerMissing)&
+      aJac(ixVegNrg_(iGRU),ixVegNrg_(iGRU),iGRU) = ( scalarBulkVolHeatCapVeg_(iGRU) + LH_fus*iden_water*dTheta_dTkCanopy_(iGRU) ) * cj &
+                          + dVolHtCapBulk_dTkCanopy_(iGRU) * scalarCanopyTempPrime_(iGRU) &
+                          + dCm_dTkCanopy_(iGRU) * scalarCanopyWatPrime_(iGRU)/canopyDepth_(iGRU) &
+                          + LH_fus*iden_water * scalarCanopyTempPrime_(iGRU) * d2Theta_dTkCanopy2_(iGRU) &
+                          + LH_fus * dFracLiqVeg_dTkCanopy_(iGRU) * scalarCanopyWatPrime_(iGRU)/canopyDepth_(iGRU)   
   endif
 
   ! compute terms for the Jacobian for the snow and soil domains (excluding fluxes)
-    do iLayer=1,nLayers
-      if(ixSnowSoilNrg(iLayer)/=integerMissing)&
-          dMat(ixSnowSoilNrg(iLayer)) = ( mLayerVolHtCapBulk(iLayer) + LH_fus*iden_water*mLayerdTheta_dTk(iLayer) ) * cj &
-                                       + dVolHtCapBulk_dTk(iLayer) * mLayerTempPrime(iLayer) &
-                                       + dCm_dTk(iLayer) * mLayerVolFracWatPrime(iLayer) &
-                                       + LH_fus*iden_water * mLayerTempPrime(iLayer) * mLayerd2Theta_dTk2(iLayer) &
-                                       + LH_fus*iden_water * dFracLiqWat_dTk(iLayer) * mLayerVolFracWatPrime(iLayer)
+    do iLayer=1,nLayers_(iGRU)
+      if(ixSnowSoilNrg_(iLayer,iGRU)/=integerMissing)&
+          aJac(ixSnowSoilNrg_(iLayer,iGRU),ixSnowSoilNrg_(iLayer,iGRU),iGRU) = ( mLayerVolHtCapBulk_(iLayer,iGRU) + LH_fus*iden_water*mLayerdTheta_dTk_(iLayer,iGRU) ) * cj &
+                                       + dVolHtCapBulk_dTk_(iLayer,iGRU) * mLayerTempPrime_(iLayer,iGRU) &
+                                       + dCm_dTk_(iLayer,iGRU) * mLayerVolFracWatPrime_(iLayer,iGRU) &
+                                       + LH_fus*iden_water * mLayerTempPrime_(iLayer,iGRU) * mLayerd2Theta_dTk2_(iLayer,iGRU) &
+                                       + LH_fus*iden_water * dFracLiqWat_dTk_(iLayer,iGRU) * mLayerVolFracWatPrime_(iLayer,iGRU)
     end do
 
     ! compute terms for the Jacobian for the soil domain (excluding fluxes)
     do iLayer=1,nSoil
-      if(ixSoilOnlyHyd(iLayer)/=integerMissing)then ! writes over dMat(ixSoilOnlyHyd(iLayer) = 1.0 * cj above
-        dMat(ixSoilOnlyHyd(iLayer)) = ( dVolTot_dPsi0(iLayer) + dCompress_dPsi(iLayer) ) * cj + d2VolTot_dPsi02(iLayer) * mLayerMatricHeadPrime(iLayer)
+      if(ixSoilOnlyHyd_(iLayer,iGRU)/=integerMissing)then ! writes over dMat(ixSoilOnlyHyd(iLayer) = 1.0 * cj above
+        aJac(ixSoilOnlyHyd_(iLayer,iGRU),ixSoilOnlyHyd_(iLayer,iGRU),iGRU) = ( dVolTot_dPsi0_(iLayer,iGRU) + dCompress_dPsi_(iLayer,iGRU) ) * cj + d2VolTot_dPsi02_(iLayer,iGRU) * mLayerMatricHeadPrime_(iLayer,iGRU)
         if(ixRichards==mixdform)&
-            dMat(ixSoilOnlyHyd(iLayer)) = dMat(ixSoilOnlyHyd(iLayer)) + specificStorage * dVolTot_dPsi0(iLayer) * mLayerMatricHeadPrime(iLayer)/theta_sat(iLayer)
+            aJac(ixSoilOnlyHyd_(iLayer,iGRU),ixSoilOnlyHyd_(iLayer,iGRU),iGRU) = aJac(ixSoilOnlyHyd_(iLayer,iGRU),ixSoilOnlyHyd_(iLayer,iGRU),iGRU) + specificStorage_(iGRU) * dVolTot_dPsi0_(iLayer,iGRU) * mLayerMatricHeadPrime_(iLayer,iGRU)/theta_sat_(iLayer,iGRU)
       endif
     end do
 
     ! if using enthalpy as a state variable, zero out usual RHS terms and add them end of the iteration loop 
     ! NOTE: other terms on RHS that are not fluxes are zeroed out by not computing heat capacity and Cm and their derivatives
-    if(enthalpyStateVec)then 
-      if(ixCasNrg/=integerMissing) dMat(ixCasNrg) = 0._rkind
-      if(ixVegNrg/=integerMissing) dMat(ixVegNrg) = 0._rkind
-      do iLayer=1,nLayers
-        if(ixSnowSoilNrg(iLayer)/=integerMissing) dMat(ixSnowSoilNrg(iLayer)) = 0._rkind
+    ! if(enthalpyStateVec)then 
+      if(ixCasNrg_(iGRU)/=integerMissing) aJac(ixCasNrg_(iGRU),ixCasNrg_(iGRU),iGRU) = 0._rkind
+      if(ixVegNrg_(iGRU)/=integerMissing) aJac(ixVegNrg_(iGRU),ixVegNrg_(iGRU),iGRU) = 0._rkind
+      do iLayer=1,nLayers_(iGRU)
+        if(ixSnowSoilNrg_(iLayer,iGRU)/=integerMissing) aJac(ixSnowSoilNrg_(iLayer,iGRU),ixSnowSoilNrg_(iLayer,iGRU),iGRU) = 0._rkind
       end do
       LH_fu0 = 0._rkind ! set to 0 to not use RHS terms
-    else
-      LH_fu0 = LH_fus ! use regular value
-    endif
+    ! else
+    !   LH_fu0 = LH_fus ! use regular value
+    ! endif
 
     ! *********************************************************************************************************************************************************
     ! * PART 1: COMPUTE CROSS-DERIVATIVE JACOBIAN TERMS 
@@ -623,100 +621,100 @@ attributes(device) subroutine computJacobWithPrime_device(aJac, dMat, dMat0, cj,
     ! -----
     ! * cross derivatives in the vegetation...
     ! ---------------------------------------------
-    if(computeVegFlux)then ! (derivatives only defined when vegetation protrudes over the surface)
-      if(ixVegHyd/=integerMissing .and. ixVegNrg/=integerMissing)&
+    if(computeVegFlux_(iGRU))then ! (derivatives only defined when vegetation protrudes over the surface)
+      if(ixVegHyd_(iGRU)/=integerMissing .and. ixVegNrg_(iGRU)/=integerMissing)&
           ! NOTE: dIce/dLiq = (1 - scalarFracLiqVeg); dIce*LH_fu0/canopyDepth = J m-3; dLiq = kg m-2
-          aJac(ixVegNrg,ixVegHyd,iGRU) = (-1._rkind + scalarFracLiqVeg)*LH_fu0/canopyDepth * cj &
-                                                   + dVolHtCapBulk_dCanWat * scalarCanopyTempPrime + scalarCanopyCm/canopyDepth * cj &
-                                                   - (dt/canopyDepth) * dCanopyNetFlux_dCanWat &
-                                                   + LH_fu0 * scalarCanopyTempPrime * dFracLiqVeg_dTkCanopy/canopyDepth
+          aJac(ixVegNrg_(iGRU),ixVegHyd_(iGRU),iGRU) = (-1._rkind + scalarFracLiqVeg_(iGRU))*LH_fu0/canopyDepth_(iGRU) * cj &
+                                                   + dVolHtCapBulk_dCanWat_(iGRU) * scalarCanopyTempPrime_(iGRU) + scalarCanopyCm_(iGRU)/canopyDepth_(iGRU) * cj &
+                                                   - (dt/canopyDepth_(iGRU)) * dCanopyNetFlux_dCanWat_(iGRU) &
+                                                   + LH_fu0 * scalarCanopyTempPrime_(iGRU) * dFracLiqVeg_dTkCanopy_(iGRU)/canopyDepth_(iGRU)
     endif  ! if there is a need to compute energy fluxes within vegetation
 
         ! -----
     ! * cross derivatives in the snow domain...
     ! ----------------------------------------
-    if(nSnow>0)then
-      do iLayer=1,nSnow  ! loop through layers in the snow domain
+    ! if(nSnow_(iGRU)>0)then
+      do iLayer=1,nSnow_(iGRU)  ! loop through layers in the snow domain
 
         ! - check that the snow layer is desired
-        if(ixSnowOnlyNrg(iLayer)==integerMissing) cycle
+        if(ixSnowOnlyNrg_(iLayer,iGRU)==integerMissing) cycle
         ! (define the energy state)
-        nrgState = ixSnowOnlyNrg(iLayer)       ! index within the full state vector
+        nrgState = ixSnowOnlyNrg_(iLayer,iGRU)       ! index within the full state vector
         ! - define state indices for the current layer
-        watState = ixSnowOnlyHyd(iLayer)   ! hydrology state index within the state subset
+        watState = ixSnowOnlyHyd_(iLayer,iGRU)   ! hydrology state index within the state subset
 
         if(watState/=integerMissing)then       ! (water state for the current layer is within the state subset)
           ! - include derivatives of energy fluxes w.r.t water fluxes for current layer
-          aJac(nrgState,watState,iGRU) = (-1._rkind + mLayerFracLiqSnow(iLayer))*LH_fu0*iden_water * cj &
-                                      + dVolHtCapBulk_dTheta(iLayer) * mLayerTempPrime(iLayer) + mLayerCm(iLayer) * cj &
-                                      + (dt/mLayerDepth(iLayer))*(-dNrgFlux_dWatBelow(iLayer-1) + dNrgFlux_dWatAbove(iLayer)) &
-                                      + LH_fu0*iden_water * mLayerTempPrime(iLayer) * dFracLiqWat_dTk(iLayer)    ! (dF/dLiq)
+          aJac(nrgState,watState,iGRU) = (-1._rkind + mLayerFracLiqSnow_(iLayer,iGRU))*LH_fu0*iden_water * cj &
+                                      + dVolHtCapBulk_dTheta_(iLayer,iGRU) * mLayerTempPrime_(iLayer,iGRU) + mLayerCm_(iLayer,iGRU) * cj &
+                                      + (dt/mLayerDepth_(iLayer,iGRU))*(-dNrgFlux_dWatBelow_(iLayer-1,iGRU) + dNrgFlux_dWatAbove_(iLayer,iGRU)) &
+                                      + LH_fu0*iden_water * mLayerTempPrime_(iLayer,iGRU) * dFracLiqWat_dTk_(iLayer,iGRU)    ! (dF/dLiq)
         endif ! (if the water state for the current layer is within the state subset)
 
       end do ! (looping through snow layers)
-    endif ! (if there are state variables for both water and energy in the snow domain)
+    ! endif ! (if there are state variables for both water and energy in the snow domain)
 
 
         ! -----
     ! * cross derivatives in the soil domain...
     ! ----------------------------------------
-    if(nSoil>0)then
+    ! if(nSoil>0)then
       do iLayer=1,nSoil
 
         ! - check that the soil layer is desired
-        if(ixSoilOnlyNrg(iLayer)==integerMissing) cycle
+        if(ixSoilOnlyNrg_(iLayer,iGRU)==integerMissing) cycle
         ! - define indices of the soil layers
-        jLayer   = iLayer+nSnow                ! index of layer in the snow+soil vector
+        jLayer   = iLayer+nSnow_(iGRU)                ! index of layer in the snow+soil vector
         ! - define the energy state variable
-        nrgState = ixSoilOnlyNrg(iLayer)       ! index within the full state vector
+        nrgState = ixSoilOnlyNrg_(iLayer,iGRU)       ! index within the full state vector
         ! - define index of hydrology state variable within the state subset
-        watState = ixSoilOnlyHyd(iLayer)
+        watState = ixSoilOnlyHyd_(iLayer,iGRU)
 
         ! only compute derivatives if the water state for the current layer is within the state subset
         if(watState/=integerMissing)then
           ! - include derivatives in energy fluxes w.r.t. with respect to water for current layer
-          aJac(nrgState,watState,iGRU) = dVolHtCapBulk_dPsi0(iLayer) * mLayerTempPrime(jLayer) &
-                                                       + mLayerCm(jLayer) * dVolTot_dPsi0(iLayer) * cj + dCm_dPsi0(iLayer) * mLayerVolFracWatPrime(jLayer) &
-                                                       + (dt/mLayerDepth(jLayer))*(-dNrgFlux_dWatBelow(jLayer-1) + dNrgFlux_dWatAbove(jLayer)) &
-                                                       + mLayerCm(jLayer) * d2VolTot_dPsi02(iLayer) * mLayerMatricHeadPrime(iLayer)
-          if(mLayerdTheta_dTk(jLayer) > tiny(1.0_rkind))&  ! ice is present
-              aJac(nrgState,watState,iGRU) = -LH_fu0*iden_water * dVolTot_dPsi0(iLayer) * cj &
-                                                       - LH_fu0*iden_water * mLayerMatricHeadPrime(iLayer) * d2VolTot_dPsi02(iLayer) + aJac(nrgState,watState,iGRU) ! dNrg/dMat (J m-3 m-1) -- dMat changes volumetric water, and hence ice content
+          aJac(nrgState,watState,iGRU) = dVolHtCapBulk_dPsi0_(iLayer,iGRU) * mLayerTempPrime_(jLayer,iGRU) &
+                                                       + mLayerCm_(jLayer,iGRU) * dVolTot_dPsi0_(iLayer,iGRU) * cj + dCm_dPsi0_(iLayer,iGRU) * mLayerVolFracWatPrime_(jLayer,iGRU) &
+                                                       + (dt/mLayerDepth_(jLayer,iGRU))*(-dNrgFlux_dWatBelow_(jLayer-1,iGRU) + dNrgFlux_dWatAbove_(jLayer,iGRU)) &
+                                                       + mLayerCm_(jLayer,iGRU) * d2VolTot_dPsi02_(iLayer,iGRU) * mLayerMatricHeadPrime_(iLayer,iGRU)
+          if(mLayerdTheta_dTk_(jLayer,iGRU) > tiny(1.0_rkind))&  ! ice is present
+              aJac(nrgState,watState,iGRU) = -LH_fu0*iden_water * dVolTot_dPsi0_(iLayer,iGRU) * cj &
+                                                       - LH_fu0*iden_water * mLayerMatricHeadPrime_(iLayer,iGRU) * d2VolTot_dPsi02_(iLayer,iGRU) + aJac(nrgState,watState,iGRU) ! dNrg/dMat (J m-3 m-1) -- dMat changes volumetric water, and hence ice content
         endif ! (if the water state for the current layer is within the state subset)
 
       end do ! (looping through energy states in the soil domain)
-    endif ! (if there are state variables for both water and energy in the soil domain)
+    ! endif ! (if there are state variables for both water and energy in the soil domain)
 
     ! *********************************************************************************************************************************************************
     ! * PART 2: COMPUTE FLUX JACOBIAN TERMS 
     ! *********************************************************************************************************************************************************
-    call fluxJacAdd(dt,nSnow,nSoil,nLayers,computeVegFlux,computeBaseflow,&
-                    ixCasNrg, ixVegNrg, ixVegHyd, ixTopNrg, ixTopHyd, ixAqWat, &
-                    ixSnowSoilNrg, ixSnowOnlyNrg, ixSoilOnlyNrg, &
-                    ixSnowSoilHyd, ixSnowOnlyHyd, ixSoilOnlyHyd, &
-                    ixHydType, &
-                    mLayerDepth, mLayerVolFracIce, &
+    call fluxJacAdd(dt,nSnow_,nSoil,nLayers_,computeVegFlux_,computeBaseflow,&
+                    ixCasNrg_, ixVegNrg_, ixVegHyd_, ixTopNrg_, ixTopHyd_, ixAqWat_, &
+                    ixSnowSoilNrg_, ixSnowOnlyNrg_, ixSoilOnlyNrg_, &
+                    ixSnowSoilHyd_, ixSnowOnlyHyd_, ixSoilOnlyHyd_, &
+                    ixHydType_, &
+                    mLayerDepth_, mLayerVolFracIce_, &
                     ! diag_data,&
-                    mLayerFracLiqSnow, &
-                    scalarFracLiqVeg, scalarSoilControl, canopyDepth, &
+                    mLayerFracLiqSnow_, &
+                    scalarFracLiqVeg_, scalarSoilControl_, canopyDepth_, &
                     ! deriv_data,&
-                    dCanairNetFlux_dCanairTemp,dCanairNetFlux_dCanopyTemp,dCanairNetFlux_dGroundTemp,&
-                    dCanopyNetFlux_dCanairTemp,dCanopyNetFlux_dCanopyTemp,dCanopyNetFlux_dGroundTemp,&
-                    dGroundNetFlux_dCanairTemp,dGroundNetFlux_dCanopyTemp,dGroundNetFlux_dCanWat, &
-                    dCanopyEvaporation_dTCanair,dCanopyEvaporation_dTCanopy,dCanopyEvaporation_dTGround,dCanopyEvaporation_dCanWat,&
-                    dGroundEvaporation_dTCanair,dGroundEvaporation_dTCanopy,dGroundEvaporation_dTGround,dGroundEvaporation_dCanWat, &
-                    scalarCanopyLiqDeriv, dCanLiq_dTcanopy, &
-                    dNrgFlux_dTempAbove, dNrgFlux_dTempBelow, &
-                    dNrgFlux_dWatAbove, dNrgFlux_dWatBelow, &
-                    mLayerdTrans_dTCanair,mLayerdTrans_dTCanopy,mLayerdTrans_dTGround,mLayerdTrans_dCanWat, &
-                    dAquiferTrans_dTCanair,dAquiferTrans_dTCanopy,dAquiferTrans_dTGround,dAquiferTrans_dCanWat, &
-                    iLayerLiqFluxSnowDeriv, &
-                    dq_dHydStateAbove,dq_dHydStateBelow,dq_dHydStateLayerSurfVec, &
-                    dBaseflow_dAquifer, &
-                    dq_dNrgStateAbove,dq_dNrgStateBelow,dq_dNrgStateLayerSurfVec,&
-                    mLayerdTheta_dTk, &
-                    dBaseflow_dMatric,&
-                    dMat,aJac,err)
+                    dCanairNetFlux_dCanairTemp_,dCanairNetFlux_dCanopyTemp_,dCanairNetFlux_dGroundTemp_,&
+                    dCanopyNetFlux_dCanairTemp_,dCanopyNetFlux_dCanopyTemp_,dCanopyNetFlux_dGroundTemp_,&
+                    dGroundNetFlux_dCanairTemp_,dGroundNetFlux_dCanopyTemp_,dGroundNetFlux_dCanWat_, &
+                    dCanopyEvaporation_dTCanair_,dCanopyEvaporation_dTCanopy_,dCanopyEvaporation_dTGround_,dCanopyEvaporation_dCanWat_,&
+                    dGroundEvaporation_dTCanair_,dGroundEvaporation_dTCanopy_,dGroundEvaporation_dTGround_,dGroundEvaporation_dCanWat_, &
+                    scalarCanopyLiqDeriv_, dCanLiq_dTcanopy_, &
+                    dNrgFlux_dTempAbove_, dNrgFlux_dTempBelow_, &
+                    dNrgFlux_dWatAbove_, dNrgFlux_dWatBelow_, &
+                    mLayerdTrans_dTCanair_,mLayerdTrans_dTCanopy_,mLayerdTrans_dTGround_,mLayerdTrans_dCanWat_, &
+                    dAquiferTrans_dTCanair_,dAquiferTrans_dTCanopy_,dAquiferTrans_dTGround_,dAquiferTrans_dCanWat_, &
+                    iLayerLiqFluxSnowDeriv_, &
+                    dq_dHydStateAbove_,dq_dHydStateBelow_,dq_dHydStateLayerSurfVec_, &
+                    dBaseflow_dAquifer_, &
+                    dq_dNrgStateAbove_,dq_dNrgStateBelow_,dq_dNrgStateLayerSurfVec_,&
+                    mLayerdTheta_dTk_, &
+                    dBaseflow_dMatric_,&
+                    dMat0,aJac,err)
 
     ! *********************************************************************************************************************************************************
     ! * PART 3: CLEAN UP JACOBIAN (IF USING ENTHALPY AS A STATE VARIABLE) AND PRINT (IF DESIRED)
@@ -724,39 +722,44 @@ attributes(device) subroutine computJacobWithPrime_device(aJac, dMat, dMat0, cj,
     ! * if desired, modify to use enthalpy as a state variable instead of temperature 
     ! NOTE, dMat(Nrg states) was used as 0 and now 1._rkind * cj is added instead 
     ! ----------------------------------------
-    if(enthalpyStateVec)then 
+    ! if(enthalpyStateVec)then 
 
-      if(ixCasNrg/=integerMissing)then
-        aJac(:,ixCasNrg,iGRU) = aJac(:,ixCasNrg,iGRU) * dCanairTemp_dEnthalpy
-        aJac(ixCasNrg,ixCasNrg,iGRU) = aJac(ixCasNrg,ixCasNrg,iGRU) + 1._rkind * cj
+      if(ixCasNrg_(iGRU)/=integerMissing)then
+        aJac(:,ixCasNrg_(iGRU),iGRU) = aJac(:,ixCasNrg_(iGRU),iGRU) * dCanairTemp_dEnthalpy_(iGRU)
+        aJac(ixCasNrg_(iGRU),ixCasNrg_(iGRU),iGRU) = aJac(ixCasNrg_(iGRU),ixCasNrg_(iGRU),iGRU) + 1._rkind * cj
       endif
       
-      if(ixVegNrg/=integerMissing)then
-        if(ixVegHyd/=integerMissing) aJac(:,ixVegHyd,iGRU) = aJac(:,ixVegHyd,iGRU) + aJac(:,ixVegNrg,iGRU) * dCanopyTemp_dCanWat
-        aJac(:,ixVegNrg,iGRU) = aJac(:,ixVegNrg,iGRU) * dCanopyTemp_dEnthalpy
-        aJac(ixVegNrg,ixVegNrg,iGRU) = aJac(ixVegNrg,ixVegNrg,iGRU) + 1._rkind * cj
+      if(ixVegNrg_(iGRU)/=integerMissing)then
+        if(ixVegHyd_(iGRU)/=integerMissing) then
+          do iLayer=1,size(aJac,1)
+            aJac(iLayer,ixVegHyd_(iGRU),iGRU) = aJac(iLayer,ixVegHyd_(iGRU),iGRU) + aJac(iLayer,ixVegNrg_(iGRU),iGRU) * dCanopyTemp_dCanWat_(iGRU)
+          end do
+        end if
+          ! aJac(:,ixVegHyd_(iGRU),iGRU) = aJac(:,ixVegHyd_(iGRU),iGRU) + aJac(:,ixVegNrg_(iGRU),iGRU) * dCanopyTemp_dCanWat
+        aJac(:,ixVegNrg_(iGRU),iGRU) = aJac(:,ixVegNrg_(iGRU),iGRU) * dCanopyTemp_dEnthalpy_(iGRU)
+        aJac(ixVegNrg_(iGRU),ixVegNrg_(iGRU),iGRU) = aJac(ixVegNrg_(iGRU),ixVegNrg_(iGRU),iGRU) + 1._rkind * cj
       endif
       
-      if(nLayers>0)then
-        do iLayer=1,nLayers
-          nrgState = ixSnowSoilNrg(iLayer)       
+      ! if(nLayers_(iGRU)>0)then
+        do iLayer=1,nLayers_(iGRU)
+          nrgState = ixSnowSoilNrg_(iLayer,iGRU)       
           if(nrgState==integerMissing) cycle
-          watState = ixSnowSoilHyd(iLayer)
+          watState = ixSnowSoilHyd_(iLayer,iGRU)
           if(watState/=integerMissing)then 
-            if(iLayer<=nSnow)then
-              aJac(:,watState,iGRU) = aJac(:,watState,iGRU) + aJac(:,nrgState,iGRU) * dTemp_dTheta(iLayer)
+            if(iLayer<=nSnow_(iGRU))then
+              aJac(:,watState,iGRU) = aJac(:,watState,iGRU) + aJac(:,nrgState,iGRU) * dTemp_dTheta_(iLayer,iGRU)
             else
-              aJac(:,watState,iGRU) = aJac(:,watState,iGRU) + aJac(:,nrgState,iGRU) * dTemp_dPsi0(iLayer-nSnow)
+              aJac(:,watState,iGRU) = aJac(:,watState,iGRU) + aJac(:,nrgState,iGRU) * dTemp_dPsi0_(iLayer-nSnow_(iGRU),iGRU)
             endif
           endif
-          aJac(:,nrgState,iGRU) = aJac(:,nrgState,iGRU) * dTemp_dEnthalpy(iLayer)
+          aJac(:,nrgState,iGRU) = aJac(:,nrgState,iGRU) * dTemp_dEnthalpy_(iLayer,iGRU)
           aJac(nrgState,nrgState,iGRU) = aJac(nrgState,nrgState,iGRU) + 1._rkind * cj
         enddo
-      endif
-    endif
+      ! endif
+    ! endif
 
-  do iLayer=nState+1,size(aJac,1)
-    do jLayer=nState+1,size(aJac,2)
+  do iLayer=nState_(iGRU)+1,size(aJac,1)
+    do jLayer=nState_(iGRU)+1,size(aJac,2)
       aJac(iLayer,jLayer,iGRU) = 0._rkind
     end do
     aJac(iLayer,iLayer,iGRU) = 1._rkind
@@ -822,20 +825,20 @@ integer(c_int) function computJacob4ida(t, cj, sunvec_y, sunvec_yp, sunvec_r, &
                 ! input: model control
                 cj,                                       & ! intent(in):    this scalar changes whenever the step size or method order changes
                 1._qp,                                    & ! intent(in):    length of the time step (seconds)
-                eqns_data%nSnow,                          & ! intent(in):    number of snow layers
+                eqns_data%nSnow_p,                          & ! intent(in):    number of snow layers
                 eqns_data%nSoil,                          & ! intent(in):    number of soil layers
-                eqns_data%nLayers,                        & ! intent(in):    total number of layers
-                eqns_data%computeVegFlux,                 & ! intent(in):    flag to indicate if we need to compute fluxes over vegetation
+                eqns_data%nLayers_p,                        & ! intent(in):    total number of layers
+                eqns_data%computeVegFlux_p,                 & ! intent(in):    flag to indicate if we need to compute fluxes over vegetation
                 eqns_data%model_decisions(iLookDECISIONS%groundwatr)%iDecision==qbaseTopmodel, & ! intent(in): flag to indicate if we need to compute baseflow
-                eqns_data%mpar_data%specificStorage_,                    & ! intent(in): specific storage coefficient (m-1)
-                eqns_data%mpar_data%theta_sat_,                             & ! intent(in): soil porosity (-)
-                eqns_data%decisions%f_Richards,                & ! intent(in): choice of option for Richards' equation
+                eqns_data%mpar_data_p%specificStorage_,                    & ! intent(in): specific storage coefficient (m-1)
+                eqns_data%mpar_data_p%theta_sat_,                             & ! intent(in): soil porosity (-)
+                eqns_data%decisions_p%f_Richards,                & ! intent(in): choice of option for Richards' equation
                 eqns_data%model_decisions(iLookDECISIONS%nrgConserv)%iDecision.ne.closedForm,  & ! intent(in): flag if enthalpy is state variable
                 ! input: data structures
-                eqns_data%indx_data,                      & ! intent(in):    index data
-                eqns_data%prog_data,                      & ! intent(in):    model prognostic variables for a local HRU
-                eqns_data%diag_data,                      & ! intent(in):    model diagnostic variables for a local HRU
-                eqns_data%deriv_data,                     & ! intent(in):    derivatives in model fluxes w.r.t. relevant state variables
+                eqns_data%indx_data_p,                      & ! intent(in):    index data
+                eqns_data%prog_data_p,                      & ! intent(in):    model prognostic variables for a local HRU
+                eqns_data%diag_data_p,                      & ! intent(in):    model diagnostic variables for a local HRU
+                eqns_data%deriv_data_p,                     & ! intent(in):    derivatives in model fluxes w.r.t. relevant state variables
                 eqns_data%dBaseflow_dMatric,              & ! intent(in):    derivative in baseflow w.r.t. matric head (s-1)
                 ! input: state variables
                 eqns_data%mLayerTempPrime,                & ! intent(in):    derivative value for temperature of each snow+soil layer (K)
@@ -844,12 +847,14 @@ integer(c_int) function computJacob4ida(t, cj, sunvec_y, sunvec_yp, sunvec_r, &
                 eqns_data%scalarCanopyTempPrime,          & ! intent(in):    derivative value for temperature of the vegetation canopy (K)
                 eqns_data%scalarCanopyWatPrime,           & ! intent(in):    derivative value for total water content of the vegetation canopy (kg m-2)
                 ! input-output: Jacobian and its diagonal
-                eqns_data%dMat,                           & ! intent(in):    diagonal of the Jacobian matrix excluding fluxes, not depending on the state vector
+                eqns_data%dMat_p,                           & ! intent(in):    diagonal of the Jacobian matrix excluding fluxes, not depending on the state vector
                 Jac,                                      & ! intent(out):   Jacobian matrix
                 ! output: error control
                 eqns_data%err,eqns_data%message)            ! intent(out):   error code and error message
   if(eqns_data%err > 0)then; eqns_data%message=trim(eqns_data%message); ierr=-1; return; endif
   if(eqns_data%err < 0)then; eqns_data%message=trim(eqns_data%message); ierr=1; return; endif
+
+  ! ierr = cudaDeviceSynchronize()
 
   ! return success
   ierr = 0

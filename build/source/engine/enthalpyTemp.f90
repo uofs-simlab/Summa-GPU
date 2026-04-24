@@ -275,9 +275,9 @@ attributes(device) subroutine T2L_lookup_soil_device(snowfrz_scale,theta_sat_,th
   integer(i4b),intent(inout) :: nSoil
 
   integer(i4b),parameter        :: nLook=500            ! number of elements in the lookup table
-  integer(i4b),parameter        :: nIntegr8=10000       ! number of points used in the numerical integration
+  integer(i4b),parameter        :: nIntegr8=500       ! number of points used in the numerical integration
   real(rkind),parameter         :: T_lower=260.0_rkind  ! lowest temperature value where all liquid water is assumed frozen (K)
-  real(rkind),dimension(nLook)  :: xTemp                ! temporary vector
+  ! real(rkind),dimension(nLook)  :: xTemp                ! temporary vector
   real(rkind)                   :: xIncr                ! temporary increment
   real(rkind)                   :: T_incr               ! temperature increment
   real(rkind)                   :: dL                   ! derivative of integral with temperature at T_test
@@ -292,14 +292,13 @@ attributes(device) subroutine T2L_lookup_soil_device(snowfrz_scale,theta_sat_,th
 
   ! get the values of temperature for the lookup table
   xIncr = 1._rkind/real(nLook-1, kind(rkind))
-  do iLook=1,nLook
-    xTemp(iLook) = T_lower + (Tfreeze - T_lower)*sqrt(sqrt(xIncr*(iLook-1)))
-  end do
+  ! do iLook=1,nLook
+  !   xTemp(iLook) = (T_lower + (Tfreeze - T_lower)*sqrt(sqrt(xIncr*(iLook-1))))
+  ! end do
   ! xTemp = T_lower + (Tfreeze - T_lower)*sqrt(sqrt(arth(0._rkind,xIncr,nLook))) ! use sqrt(sqrt()) to give more values near freezing
 
   ! loop through soil layers
   do iSoil=1,nSoil
-    ! print*, iSoil
 
     ! -----
     ! * make association to variables in the data structures...
@@ -337,7 +336,7 @@ attributes(device) subroutine T2L_lookup_soil_device(snowfrz_scale,theta_sat_,th
         psiLiq_int(iLook,iSoil) = psiLiq_int(iLook+1,iSoil)
 
         ! get the temperature increment for the numerical integration
-        T_incr = (xTemp(iLook)-xTemp(iLook+1))/real(nIntegr8, kind(rkind))
+        T_incr = (Tfreeze - T_lower) * ((sqrt(sqrt(xIncr*(iLook-1))))-(sqrt(sqrt(xIncr*(iLook)))))/real(nIntegr8, kind(rkind))
 
         ! numerical integration between different values of the lookup table
         do jIntegr8=1,nIntegr8

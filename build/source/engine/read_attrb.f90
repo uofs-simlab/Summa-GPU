@@ -209,13 +209,14 @@ end subroutine read_dimension
  USE get_ixname_module,only:get_ixAttr,get_ixType,get_ixId  ! access function to find index of elements in structure
  use device_data_types
    USE var_lookup,only:iLookTYPE
+   use initialize_device
 
  implicit none
 
  ! io vars
  character(*)                         :: attrFile           ! input filename
  integer(i4b),intent(in)              :: nGRU               ! number of grouped response units
- type(gru_hru_double),intent(inout)   :: attrStruct         ! local attributes for each HRU
+ type(attr_data_device),intent(inout)   :: attrStruct         ! local attributes for each HRU
  type(type_data_device),intent(inout)      :: typeStruct         ! local classification of soil veg etc. for each HRU
  type(gru_hru_int8),intent(inout)     :: idStruct           ! local classification of hru and gru IDs
  integer(i4b),intent(out)             :: err                ! error code
@@ -346,7 +347,8 @@ end subroutine read_dimension
      do iHRU = 1, gru_struc(iGRU)%hruCount
       err = nf90_get_var(ncID,iVar,numeric_var,start=(/gru_struc(iGRU)%hruInfo(iHRU)%hru_nc/),count=(/1/))
       if(err/=nf90_noerr)then; message=trim(message)//'problem reading: '//trim(varName); return; end if
-      attrStruct%gru(iGRU)%hru(iHRU)%var(varIndx) = numeric_var(1)
+      call set_device_attr_data(attrStruct, varIndx, iGRU, numeric_var(1))
+      ! attrStruct%gru(iGRU)%hru(iHRU)%var(varIndx) = numeric_var(1)
      end do
     end do
 
@@ -372,7 +374,8 @@ end subroutine read_dimension
 
    do iGRU=1,nGRU
     do iHRU = 1, gru_struc(iGRU)%hruCount
-     attrStruct%gru(iGRU)%hru(iHRU)%var(varIndx) = nr_realMissing      ! populate variable with out-of-range value, used later
+      call set_device_attr_data(attrStruct, varIndx, iGRU, nr_realMissing)
+    !  attrStruct%gru(iGRU)%hru(iHRU)%var(varIndx) = nr_realMissing      ! populate variable with out-of-range value, used later
     end do
    end do
    checkAttr(varIndx) = .true.

@@ -92,6 +92,7 @@ subroutine ssdNrgFlux(&
   ! -------------------------------------------------------------------------------------------------------------------------------------------------
   use cudafor
   use device_data_types
+  use globalData,only:maxSnowLayers
   implicit none
   ! input: model control, fluxes, trial variables, and  derivatives
   integer(i4b) :: nGRU
@@ -153,7 +154,7 @@ subroutine ssdNrgFlux(&
     ix_bcUpprTdyn           => decisions%bcUpprTdyn, & ! intent(in):  method used to calculate the upper boundary condition for thermodynamics
     ix_bcLowrTdyn           => decisions%bcLowrTdyn, & ! intent(in):  method used to calculate the lower boundary condition for thermodynamics
     ! input: coordinate variables
-    nLayers => indx_data%nLayers_d, &
+    nLayers => indx_data%nLayers, &
     nSnow                   => indx_data%nSnow,               & ! intent(in):  number of snow layers
     layerType               => indx_data%layerType,              & ! intent(in):  layer type (iname_soil or iname_snow)
     mLayerDepth             => prog_data%mLayerDepth,             & ! intent(in):  depth of each layer (m)
@@ -182,7 +183,7 @@ subroutine ssdNrgFlux(&
     ! initialize error control
     err=0; message='ssdNrgFlux/'
 
-    call ssdNrgFlux_kernel<<<blocks,threads>>>(nGRU,flux_data%data,groundNetFlux,dGroundNetFlux_dGroundTemp,&
+    call ssdNrgFlux_kernel<<<blocks,threads>>>(nGRU,flux_data%numFluxData,maxSnowLayers,indx_data%nSoil,flux_data%data,groundNetFlux,dGroundNetFlux_dGroundTemp,&
   iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end,iLayerLiqFluxSoil_start,iLayerLiqFluxSoil_end,&
   mLayerTempTrial,&
   dThermalC_dWatAbove,dThermalC_dWatBelow,dThermalC_dTempAbove,dThermalC_dTempBelow,&
@@ -304,7 +305,7 @@ subroutine ssdNrgFlux(&
 
 end subroutine ssdNrgFlux
 
-attributes(global) subroutine ssdNrgFlux_kernel(nGRU,flux_data,groundNetFlux,dGroundNetFlux_dGroundTemp,&
+attributes(global) subroutine ssdNrgFlux_kernel(nGRU,numFluxData,maxSnowLayers,nSoil,flux_data,groundNetFlux,dGroundNetFlux_dGroundTemp,&
   iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end,iLayerLiqFluxSoil_start,iLayerLiqFluxSoil_end,&
   mLayerTempTrial,&
   dThermalC_dWatAbove,dThermalC_dWatBelow,dThermalC_dTempAbove,dThermalC_dTempBelow,&
@@ -313,143 +314,147 @@ attributes(global) subroutine ssdNrgFlux_kernel(nGRU,flux_data,groundNetFlux,dGr
   upperBoundTemp,lowerBoundTemp,iLayerThermalC,&
   iLayerConductiveFlux_start,iLayerConductiveFlux_end,iLayerAdvectiveFlux_start,iLayerAdvectiveFlux_end,&
   iLayerNrgFlux_start,iLayerNrgFlux_end,dFlux_dTempAbove,dFlux_dTempBelow,dFlux_dWatAbove,dFlux_dWatBelow)
+  use initialize_device,only:get_iGRU
 implicit none
-  integer(i4b),value :: nGRU
+  integer(i4b),value :: nGRU,numFluxData,maxSnowLayers,nSoil
     ! input: fluxes and derivatives at the upper boundary
-  real(rkind),intent(inout) :: flux_data(:,:)
+  real(rkind),intent(inout) :: flux_data(numFluxData,nGRU)
     integer(i4b),intent(in),value :: groundNetFlux               ! intent(in):    net energy flux for the ground surface (W m-2)
-    real(rkind),intent(inout) :: dGroundNetFlux_dGroundTemp(:)  ! intent(inout): derivative in net ground flux w.r.t. ground temperature (W m-2 K-1)
+    real(rkind),intent(inout) :: dGroundNetFlux_dGroundTemp(nGRU)  ! intent(inout): derivative in net ground flux w.r.t. ground temperature (W m-2 K-1)
     ! input: liquid water fluxes
     integer(i4b),intent(in),value :: iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end           ! intent(in):    liquid flux at the interface of each snow layer (m s-1)
     integer(i4b),intent(in),value :: iLayerLiqFluxSoil_start,iLayerLiqFluxSoil_end           ! intent(in):    liquid flux at the interface of each soil layer (m s-1)
     ! input: trial model state variables
-    real(rkind),intent(in) :: mLayerTempTrial(:,:)             ! intent(in):     temperature in each layer at the current iteration (m)
+    real(rkind),intent(in) :: mLayerTempTrial(maxSnowLayers+nSoil+1,nGRU)             ! intent(in):     temperature in each layer at the current iteration (m)
     ! input: derivatives
-    real(rkind),intent(in) :: dThermalC_dWatAbove(0:,:)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
-    real(rkind),intent(in) :: dThermalC_dWatBelow(0:,:)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
-    real(rkind),intent(in) :: dThermalC_dTempAbove(0:,:)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
-    real(rkind),intent(in) :: dThermalC_dTempBelow(0:,:)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
+    real(rkind),intent(in) :: dThermalC_dWatAbove(0:nSoil+maxSnowLayers,nGRU)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
+    real(rkind),intent(in) :: dThermalC_dWatBelow(0:nSoil+maxSnowLayers,nGRU)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
+    real(rkind),intent(in) :: dThermalC_dTempAbove(0:nSoil+maxSnowLayers,nGRU)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
+    real(rkind),intent(in) :: dThermalC_dTempBelow(0:nSoil+maxSnowLayers,nGRU)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
     ! input: boundary conditions
     integer(i4b),intent(in) :: ix_bcUpprTdyn            ! intent(in):  method used to calculate the upper boundary condition for thermodynamics
     integer(i4b),intent(in) :: ix_bcLowrTdyn            ! intent(in):  method used to calculate the lower boundary condition for thermodynamics
     ! input: coordinate variables
-    integer(i4b),intent(in) :: nSnow(:) ! intent(in):  number of snow layers
-    integer(i4b) :: nLayers(:)
-    integer(i4b),intent(in) :: layerType(:,:)                ! intent(in):  layer type (iname_soil or iname_snow)
-    real(rkind),intent(in) :: mLayerDepth(:,:)              ! intent(in):  depth of each layer (m)
-    real(rkind),intent(in) :: mLayerHeight(0:,:)             ! intent(in):  height at the mid-point of each layer (m)
+    integer(i4b),intent(in) :: nSnow(nGRU) ! intent(in):  number of snow layers
+    integer(i4b) :: nLayers(nGRU)
+    integer(i4b),intent(in) :: layerType(maxSnowLayers+nSoil+1,nGRU)                ! intent(in):  layer type (iname_soil or iname_snow)
+    real(rkind),intent(in) :: mLayerDepth(maxSnowLayers+nSoil+1,nGRU)              ! intent(in):  depth of each layer (m)
+    real(rkind),intent(in) :: mLayerHeight(0:maxSnowLayers+nSoil+1,nGRU)             ! intent(in):  height at the mid-point of each layer (m)
     ! input: thermal properties
-    real(rkind),intent(in) :: upperBoundTemp(:)           ! intent(in):  temperature of the upper boundary (K)
-    real(rkind),intent(in) :: lowerBoundTemp(:)           ! intent(in):  temperature of the lower boundary (K)
-    real(rkind),intent(in) :: iLayerThermalC(0:,:)           ! intent(in):  thermal conductivity at the interface of each layer (W m-1 K-1)
+    real(rkind),intent(in) :: upperBoundTemp(nGRU)           ! intent(in):  temperature of the upper boundary (K)
+    real(rkind),intent(in) :: lowerBoundTemp(nGRU)           ! intent(in):  temperature of the lower boundary (K)
+    real(rkind),intent(in) :: iLayerThermalC(0:maxSnowLayers+nSoil+1,nGRU)           ! intent(in):  thermal conductivity at the interface of each layer (W m-1 K-1)
      ! output: diagnostic fluxes
     integer(i4b),intent(in),value :: iLayerConductiveFlux_start,iLayerConductiveFlux_end  ! intent(out): conductive energy flux at layer interfaces at end of time step (W m-2)
     integer(i4b),intent(in),value :: iLayerAdvectiveFlux_start,iLayerAdvectiveFlux_end   ! intent(out): advective energy flux at layer interfaces at end of time step (W m-2)
     ! output: fluxes and derivatives at all layer interfaces
     integer(i4b),intent(in),value :: iLayerNrgFlux_start,iLayerNrgFlux_end         ! intent(out): energy flux at the layer interfaces (W m-2)
-    real(rkind),intent(inout) :: dFlux_dTempAbove(0:,:)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer above (J m-2 s-1 K-1)
-    real(rkind),intent(inout) :: dFlux_dTempBelow(0:,:)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer below (J m-2 s-1 K-1)
-    real(rkind),intent(inout) :: dFlux_dWatAbove(0:,:)       ! intent(out): derivatives in the flux w.r.t. water state in the layer above (J m-2 s-1 K-1)
-    real(rkind),intent(inout) :: dFlux_dWatBelow(0:,:)       ! intent(out): derivatives in the flux w.r.t. water state in the layer below (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dTempAbove(0:nSoil+maxSnowLayers,nGRU)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer above (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dTempBelow(0:nSoil+maxSnowLayers,nGRU)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer below (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dWatAbove(0:nSoil+maxSnowLayers,nGRU)       ! intent(out): derivatives in the flux w.r.t. water state in the layer above (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dWatBelow(0:nSoil+maxSnowLayers,nGRU)       ! intent(out): derivatives in the flux w.r.t. water state in the layer below (J m-2 s-1 K-1)
 
     integer(i4b) :: iGRU
-  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  iGRU = get_iGRU()
 
   if (iGRU .gt. nGRU) return
 
-  call ssdNrgFlux_device(flux_data(groundNetFlux,iGRU),dGroundNetFlux_dGroundTemp(iGRU),&
-  flux_data(iLayerLiqFluxSnow_start:iLayerLiqFluxSnow_end,iGRU),flux_data(iLayerLiqFluxSoil_start:iLayerLiqFluxSoil_end,iGRU),&
-  mLayerTempTrial(:,iGRU),&
-  dThermalC_dWatAbove(:,iGRU),dThermalC_dWatBelow(:,iGRU),dThermalC_dTempAbove(:,iGRU),dThermalC_dTempBelow(:,iGRU),&
-  ix_bcUpprTdyn,ix_bcLowrTdyn,&
-  nSnow(iGRU),nLayers(iGRU),layerType(:,iGRU),mLayerDepth(:,iGRU),mLayerHeight(:,iGRU),&
-  upperBoundTemp(iGRU),lowerBoundTemp(iGRU),iLayerThermalC(:,iGRU),&
-  flux_data(iLayerConductiveFlux_start:iLayerConductiveFlux_end,iGRU),flux_data(iLayerAdvectiveFlux_start:iLayerAdvectiveFlux_end,iGRU),&
-  flux_data(iLayerNrgFlux_start:iLayerNrgFlux_end,iGRU),dFlux_dTempAbove(:,iGRU),dFlux_dTempBelow(:,iGRU),dFlux_dWatAbove(:,iGRU),dFlux_dWatBelow(:,iGRU))
-end subroutine
-
-attributes(device) subroutine ssdNrgFlux_device(groundNetFlux,dGroundNetFlux_dGroundTemp,&
-  iLayerLiqFluxSnow,iLayerLiqFluxSoil,&
+  call ssdNrgFlux_device(flux_data,groundNetFlux,dGroundNetFlux_dGroundTemp,&
+  iLayerLiqFluxSnow_start,iLayerLiqFluxSoil_start,&
   mLayerTempTrial,&
   dThermalC_dWatAbove,dThermalC_dWatBelow,dThermalC_dTempAbove,dThermalC_dTempBelow,&
   ix_bcUpprTdyn,ix_bcLowrTdyn,&
   nSnow,nLayers,layerType,mLayerDepth,mLayerHeight,&
   upperBoundTemp,lowerBoundTemp,iLayerThermalC,&
-  iLayerConductiveFlux,iLayerAdvectiveFlux,&
-  iLayerNrgFlux,dFlux_dTempAbove,dFlux_dTempBelow,dFlux_dWatAbove,dFlux_dWatBelow)
+  iLayerConductiveFlux_start,iLayerAdvectiveFlux_start,&
+  iLayerNrgFlux_start,dFlux_dTempAbove,dFlux_dTempBelow,dFlux_dWatAbove,dFlux_dWatBelow)
+end subroutine
+
+attributes(device) subroutine ssdNrgFlux_device(flux_data,groundNetFlux_,dGroundNetFlux_dGroundTemp_,&
+  iLayerLiqFluxSnow_,iLayerLiqFluxSoil_,&
+  mLayerTempTrial_,&
+  dThermalC_dWatAbove_,dThermalC_dWatBelow_,dThermalC_dTempAbove_,dThermalC_dTempBelow_,&
+  ix_bcUpprTdyn,ix_bcLowrTdyn,&
+  nSnow_,nLayers_,layerType_,mLayerDepth_,mLayerHeight_,&
+  upperBoundTemp_,lowerBoundTemp_,iLayerThermalC_,&
+  iLayerConductiveFlux_,iLayerAdvectiveFlux_,&
+  iLayerNrgFlux_,dFlux_dTempAbove_,dFlux_dTempBelow_,dFlux_dWatAbove_,dFlux_dWatBelow_)
+  use initialize_device,only:get_iGRU
     ! input: fluxes and derivatives at the upper boundary
-    real(rkind),intent(in) :: groundNetFlux               ! intent(in):    net energy flux for the ground surface (W m-2)
-    real(rkind),intent(inout) :: dGroundNetFlux_dGroundTemp  ! intent(inout): derivative in net ground flux w.r.t. ground temperature (W m-2 K-1)
+    real(rkind),intent(inout) :: flux_data(:,:)
+    integer(i4b),intent(in) :: groundNetFlux_               ! intent(in):    net energy flux for the ground surface (W m-2)
+    real(rkind),intent(inout) :: dGroundNetFlux_dGroundTemp_(:)  ! intent(inout): derivative in net ground flux w.r.t. ground temperature (W m-2 K-1)
     ! input: liquid water fluxes
-    real(rkind),intent(in) :: iLayerLiqFluxSnow(0:)           ! intent(in):    liquid flux at the interface of each snow layer (m s-1)
-    real(rkind),intent(in) :: iLayerLiqFluxSoil(0:)           ! intent(in):    liquid flux at the interface of each soil layer (m s-1)
+    integer(i4b),intent(in) :: iLayerLiqFluxSnow_           ! intent(in):    liquid flux at the interface of each snow layer (m s-1)
+    integer(i4b),intent(in) :: iLayerLiqFluxSoil_           ! intent(in):    liquid flux at the interface of each soil layer (m s-1)
     ! input: trial model state variables
-    real(rkind),intent(in) :: mLayerTempTrial(:)             ! intent(in):     temperature in each layer at the current iteration (m)
+    real(rkind),intent(in) :: mLayerTempTrial_(:,:)             ! intent(in):     temperature in each layer at the current iteration (m)
     ! input: derivatives
-    real(rkind),intent(in) :: dThermalC_dWatAbove(0:)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
-    real(rkind),intent(in) :: dThermalC_dWatBelow(0:)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
-    real(rkind),intent(in) :: dThermalC_dTempAbove(0:)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
-    real(rkind),intent(in) :: dThermalC_dTempBelow(0:)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
+    real(rkind),intent(in) :: dThermalC_dWatAbove_(0:,:)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
+    real(rkind),intent(in) :: dThermalC_dWatBelow_(0:,:)         ! intent(in): derivative in the thermal conductivity w.r.t. water state in the layer above
+    real(rkind),intent(in) :: dThermalC_dTempAbove_(0:,:)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
+    real(rkind),intent(in) :: dThermalC_dTempBelow_(0:,:)        ! intent(in): derivative in the thermal conductivity w.r.t. energy state in the layer above
     ! input: boundary conditions
     integer(i4b),intent(in) :: ix_bcUpprTdyn            ! intent(in):  method used to calculate the upper boundary condition for thermodynamics
     integer(i4b),intent(in) :: ix_bcLowrTdyn            ! intent(in):  method used to calculate the lower boundary condition for thermodynamics
     ! input: coordinate variables
-    integer(i4b),intent(in) :: nSnow ! intent(in):  number of snow layers
-    integer(i4b) :: nLayers
-    integer(i4b),intent(in) :: layerType(:)                ! intent(in):  layer type (iname_soil or iname_snow)
-    real(rkind),intent(in) :: mLayerDepth(:)              ! intent(in):  depth of each layer (m)
-    real(rkind),intent(in) :: mLayerHeight(0:)             ! intent(in):  height at the mid-point of each layer (m)
+    integer(i4b),intent(in) :: nSnow_(:) ! intent(in):  number of snow layers
+    integer(i4b) :: nLayers_(:)
+    integer(i4b),intent(in) :: layerType_(:,:)                ! intent(in):  layer type (iname_soil or iname_snow)
+    real(rkind),intent(in) :: mLayerDepth_(:,:)              ! intent(in):  depth of each layer (m)
+    real(rkind),intent(in) :: mLayerHeight_(0:,:)             ! intent(in):  height at the mid-point of each layer (m)
     ! input: thermal properties
-    real(rkind),intent(in) :: upperBoundTemp           ! intent(in):  temperature of the upper boundary (K)
-    real(rkind),intent(in) :: lowerBoundTemp           ! intent(in):  temperature of the lower boundary (K)
-    real(rkind),intent(in) :: iLayerThermalC(0:)           ! intent(in):  thermal conductivity at the interface of each layer (W m-1 K-1)
+    real(rkind),intent(in) :: upperBoundTemp_(:)           ! intent(in):  temperature of the upper boundary (K)
+    real(rkind),intent(in) :: lowerBoundTemp_(:)           ! intent(in):  temperature of the lower boundary (K)
+    real(rkind),intent(in) :: iLayerThermalC_(0:,:)           ! intent(in):  thermal conductivity at the interface of each layer (W m-1 K-1)
      ! output: diagnostic fluxes
-    real(rkind),intent(inout) :: iLayerConductiveFlux(0:)  ! intent(out): conductive energy flux at layer interfaces at end of time step (W m-2)
-    real(rkind),intent(inout) :: iLayerAdvectiveFlux(0:)   ! intent(out): advective energy flux at layer interfaces at end of time step (W m-2)
+    integer(i4b),intent(inout) :: iLayerConductiveFlux_  ! intent(out): conductive energy flux at layer interfaces at end of time step (W m-2)
+    integer(i4b),intent(inout) :: iLayerAdvectiveFlux_   ! intent(out): advective energy flux at layer interfaces at end of time step (W m-2)
     ! output: fluxes and derivatives at all layer interfaces
-    real(rkind),intent(inout) :: iLayerNrgFlux(0:)         ! intent(out): energy flux at the layer interfaces (W m-2)
-    real(rkind),intent(inout) :: dFlux_dTempAbove(0:)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer above (J m-2 s-1 K-1)
-    real(rkind),intent(inout) :: dFlux_dTempBelow(0:)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer below (J m-2 s-1 K-1)
-    real(rkind),intent(inout) :: dFlux_dWatAbove(0:)       ! intent(out): derivatives in the flux w.r.t. water state in the layer above (J m-2 s-1 K-1)
-    real(rkind),intent(inout) :: dFlux_dWatBelow(0:)       ! intent(out): derivatives in the flux w.r.t. water state in the layer below (J m-2 s-1 K-1)
+    integer(i4b),intent(inout) :: iLayerNrgFlux_         ! intent(out): energy flux at the layer interfaces (W m-2)
+    real(rkind),intent(inout) :: dFlux_dTempAbove_(0:,:)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer above (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dTempBelow_(0:,:)      ! intent(out): derivatives in the flux w.r.t. temperature in the layer below (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dWatAbove_(0:,:)       ! intent(out): derivatives in the flux w.r.t. water state in the layer above (J m-2 s-1 K-1)
+    real(rkind),intent(inout) :: dFlux_dWatBelow_(0:,:)       ! intent(out): derivatives in the flux w.r.t. water state in the layer below (J m-2 s-1 K-1)
     real(rkind)                         :: qFlux                      ! liquid flux at layer interfaces (m s-1)
     real(rkind)                         :: dz                         ! height difference (m)
-    integer(i4b) :: iLayer
+    integer(i4b) :: iLayer,iGRU
+    iGRU = get_iGRU()
 
 
       ! set conductive and advective fluxes to missing in the upper boundary
-    iLayerConductiveFlux(0) = realMissing
-    iLayerAdvectiveFlux(0)  = realMissing  !included in the ground heat flux
+    flux_data(iLayerConductiveFlux_,iGRU) = realMissing
+    flux_data(iLayerAdvectiveFlux_,iGRU)  = realMissing  !included in the ground heat flux
 
     ! -------------------------------------------------------------------------------------------------------------------------
     ! ***** compute the conductive fluxes at layer interfaces *****
     ! -------------------------------------------------------------------------------------------------------------------------
-    do iLayer=1,nLayers
-      if (iLayer==nLayers) then ! lower boundary fluxes -- positive downwards
+    do iLayer=1,nLayers_(iGRU)
+      if (iLayer==nLayers_(iGRU)) then ! lower boundary fluxes -- positive downwards
       ! flux depends on the type of lower boundary condition
         select case(ix_bcLowrTdyn) ! identify the lower boundary condition for thermodynamics
-          case(prescribedTemp); iLayerConductiveFlux(iLayer) = -iLayerThermalC(iLayer)*(lowerBoundTemp - mLayerTempTrial(iLayer))/(mLayerDepth(iLayer)*0.5_rkind)
-          case(zeroFlux);       iLayerConductiveFlux(iLayer) = 0._rkind
+          case(prescribedTemp); flux_data(iLayerConductiveFlux_+iLayer,iGRU) = -iLayerThermalC_(iLayer,iGRU)*(lowerBoundTemp_(iGRU) - mLayerTempTrial_(iLayer,iGRU))/(mLayerDepth_(iLayer,iGRU)*0.5_rkind)
+          case(zeroFlux);       flux_data(iLayerConductiveFlux_+iLayer,iGRU) = 0._rkind
         end select  ! identifying the lower boundary condition for thermodynamics
       else ! domain boundary fluxes -- positive downwards
-        iLayerConductiveFlux(iLayer)  = -iLayerThermalC(iLayer)*(mLayerTempTrial(iLayer+1) - mLayerTempTrial(iLayer)) / &
-                                        (mLayerHeight(iLayer+1) - mLayerHeight(iLayer))
+        flux_data(iLayerConductiveFlux_+iLayer,iGRU)  = -iLayerThermalC_(iLayer,iGRU)*(mLayerTempTrial_(iLayer+1,iGRU) - mLayerTempTrial_(iLayer,iGRU)) / &
+                                        (mLayerHeight_(iLayer+1,iGRU) - mLayerHeight_(iLayer,iGRU))
       end if ! the type of layer
     end do  ! end looping through layers
 
     ! -------------------------------------------------------------------------------------------------------------------------
     ! ***** compute the advective fluxes at layer interfaces *****
     ! -------------------------------------------------------------------------------------------------------------------------
-    do iLayer=1,nLayers
-      select case(layerType(iLayer)) ! get the liquid flux at layer interfaces
-        case(iname_snow); qFlux = iLayerLiqFluxSnow(iLayer)
-        case(iname_soil); qFlux = iLayerLiqFluxSoil(iLayer-nSnow)
+    do iLayer=1,nLayers_(iGRU)
+      select case(layerType_(iLayer,iGRU)) ! get the liquid flux at layer interfaces
+        case(iname_snow); qFlux = flux_data(iLayerLiqFluxSnow_+iLayer,iGRU)
+        case(iname_soil); qFlux = flux_data(iLayerLiqFluxSoil_+iLayer-nSnow_(iGRU),iGRU)
         ! case default; err=20; message=trim(message)//'unable to identify layer type'; return
       end select
-      if (iLayer==nLayers) then ! compute fluxes at the lower boundary -- positive downwards
-        iLayerAdvectiveFlux(iLayer) = -Cp_water*iden_water*qFlux*(lowerBoundTemp - mLayerTempTrial(iLayer))
+      if (iLayer==nLayers_(iGRU)) then ! compute fluxes at the lower boundary -- positive downwards
+        flux_data(iLayerAdvectiveFlux_+iLayer,iGRU) = -Cp_water*iden_water*qFlux*(lowerBoundTemp_(iGRU) - mLayerTempTrial_(iLayer,iGRU))
       else ! compute fluxes within the domain -- positive downwards
-        iLayerAdvectiveFlux(iLayer) = -Cp_water*iden_water*qFlux*(mLayerTempTrial(iLayer+1) - mLayerTempTrial(iLayer))
+        flux_data(iLayerAdvectiveFlux_+iLayer,iGRU) = -Cp_water*iden_water*qFlux*(mLayerTempTrial_(iLayer+1,iGRU) - mLayerTempTrial_(iLayer,iGRU))
       end if
     end do  ! end looping through layers
 
@@ -457,8 +462,10 @@ attributes(device) subroutine ssdNrgFlux_device(groundNetFlux,dGroundNetFlux_dGr
     ! ***** compute the total fluxes at layer interfaces *****
     ! -------------------------------------------------------------------------------------------------------------------------
     ! NOTE: ignore advective fluxes for now
-    iLayerNrgFlux(0)           = groundNetFlux ! from vegNrgFlux module
-    iLayerNrgFlux(1:nLayers) = iLayerConductiveFlux(1:nLayers)
+    flux_data(iLayerNrgFlux_,iGRU)           = flux_data(groundNetFlux_,iGRU) ! from vegNrgFlux module
+    do iLayer=1,nLayers_(iGRU)
+      flux_data(iLayerNrgFlux_+iLayer,iGRU) = flux_data(iLayerConductiveFlux_+iLayer,iGRU)
+    end do
 
     ! -------------------------------------------------------------------------------------------------------------------
     ! ***** compute the derivative in fluxes at layer interfaces w.r.t state in the layer above and the layer below *****
@@ -466,59 +473,59 @@ attributes(device) subroutine ssdNrgFlux_device(groundNetFlux,dGroundNetFlux_dGr
 
     ! initialize un-used elements
     ! ***** the upper boundary
-    dFlux_dTempAbove(0) = 0._rkind ! this will be in canopy
-    dFlux_dWatAbove(0) = 0._rkind ! this will be in canopy
+    dFlux_dTempAbove_(0,iGRU) = 0._rkind ! this will be in canopy
+    dFlux_dWatAbove_(0,iGRU) = 0._rkind ! this will be in canopy
 
     ! ***** the lower boundary
-    dFlux_dTempBelow(nLayers) = -huge(lowerBoundTemp)  ! don't expect this to be used, so deliberately set to a ridiculous value to cause problems
-    dFlux_dWatBelow(nLayers) = -huge(lowerBoundTemp)  ! don't expect this to be used, so deliberately set to a ridiculous value to cause problems
+    dFlux_dTempBelow_(nLayers_(iGRU),iGRU) = -huge(lowerBoundTemp_(iGRU))  ! don't expect this to be used, so deliberately set to a ridiculous value to cause problems
+    dFlux_dWatBelow_(nLayers_(iGRU),iGRU) = -huge(lowerBoundTemp_(iGRU))  ! don't expect this to be used, so deliberately set to a ridiculous value to cause problems
 
     ! ***** the upper boundary, always do
     select case(ix_bcUpprTdyn)
 
       ! * prescribed temperature at the upper boundary
       case(prescribedTemp)
-        dz = mLayerHeight(1)*0.5_rkind
-        dFlux_dWatBelow(0)  = -dThermalC_dWatBelow(0) * ( mLayerTempTrial(1) - upperBoundTemp )/dz
-        dFlux_dTempBelow(0) = -dThermalC_dTempBelow(0) * ( mLayerTempTrial(1) - upperBoundTemp )/dz - iLayerThermalC(0)/dz
+        dz = mLayerHeight_(1,iGRU)*0.5_rkind
+        dFlux_dWatBelow_(0,iGRU)  = -dThermalC_dWatBelow_(0,iGRU) * ( mLayerTempTrial_(1,iGRU) - upperBoundTemp_(iGRU) )/dz
+        dFlux_dTempBelow_(0,iGRU) = -dThermalC_dTempBelow_(0,iGRU) * ( mLayerTempTrial_(1,iGRU) - upperBoundTemp_(iGRU) )/dz - iLayerThermalC_(0,iGRU)/dz
 
       ! * zero flux at the upper boundary
       case(zeroFlux)
-        dFlux_dWatBelow(0) = 0._rkind
-        dFlux_dTempBelow(0) = 0._rkind
+        dFlux_dWatBelow_(0,iGRU) = 0._rkind
+        dFlux_dTempBelow_(0,iGRU) = 0._rkind
 
       ! * compute flux inside vegetation energy flux routine, use here
       case(energyFlux)
-        dFlux_dWatBelow(0) = 0._rkind
-        dFlux_dTempBelow(0) = dGroundNetFlux_dGroundTemp
+        dFlux_dWatBelow_(0,iGRU) = 0._rkind
+        dFlux_dTempBelow_(0,iGRU) = dGroundNetFlux_dGroundTemp_(iGRU)
 
       ! case default; err=20; message=trim(message)//'unable to identify upper boundary condition for thermodynamics'; return
 
     end select  ! end identifying the upper boundary condition for thermodynamics
-    dGroundNetFlux_dGroundTemp = dFlux_dTempBelow(0) ! may need this in vegNrgFlux
+    dGroundNetFlux_dGroundTemp_(iGRU) = dFlux_dTempBelow_(0,iGRU) ! may need this in vegNrgFlux
 
     ! loop through INTERFACES...
-    do iLayer=1,nLayers
+    do iLayer=1,nLayers_(iGRU)
       ! ***** the lower boundary
-      if (iLayer==nLayers) then  ! if lower boundary
+      if (iLayer==nLayers_(iGRU)) then  ! if lower boundary
         ! identify the lower boundary condition
         select case(ix_bcLowrTdyn) ! prescribed temperature at the lower boundary
           case(prescribedTemp)
-            dz = mLayerDepth(iLayer)*0.5_rkind
-            dFlux_dWatAbove(iLayer)  = -dThermalC_dWatAbove(iLayer) * ( lowerBoundTemp - mLayerTempTrial(iLayer) )/dz
-            dFlux_dTempAbove(iLayer) = -dThermalC_dTempAbove(iLayer) * ( lowerBoundTemp - mLayerTempTrial(iLayer) )/dz + iLayerThermalC(iLayer)/dz
+            dz = mLayerDepth_(iLayer,iGRU)*0.5_rkind
+            dFlux_dWatAbove_(iLayer,iGRU)  = -dThermalC_dWatAbove_(iLayer,iGRU) * ( lowerBoundTemp_(iGRU) - mLayerTempTrial_(iLayer,iGRU) )/dz
+            dFlux_dTempAbove_(iLayer,iGRU) = -dThermalC_dTempAbove_(iLayer,iGRU) * ( lowerBoundTemp_(iGRU) - mLayerTempTrial_(iLayer,iGRU) )/dz + iLayerThermalC_(iLayer,iGRU)/dz
           case(zeroFlux)  ! zero flux at the lower boundary
-            dFlux_dWatAbove(iLayer) = 0._rkind
-            dFlux_dTempAbove(iLayer) = 0._rkind
+            dFlux_dWatAbove_(iLayer,iGRU) = 0._rkind
+            dFlux_dTempAbove_(iLayer,iGRU) = 0._rkind
           ! case default; err=20; message=trim(message)//'unable to identify lower boundary condition for thermodynamics'; return
         end select  ! end identifying the lower boundary condition for thermodynamics
       ! ***** internal layers
       else
-        dz = (mLayerHeight(iLayer+1) - mLayerHeight(iLayer))
-        dFlux_dWatAbove(iLayer)  = -dThermalC_dWatAbove(iLayer) * ( mLayerTempTrial(iLayer+1) - mLayerTempTrial(iLayer) )/dz
-        dFlux_dWatBelow(iLayer)  = -dThermalC_dWatBelow(iLayer) * ( mLayerTempTrial(iLayer+1) - mLayerTempTrial(iLayer) )/dz
-        dFlux_dTempAbove(iLayer) = -dThermalC_dTempAbove(iLayer) * ( mLayerTempTrial(iLayer+1) - mLayerTempTrial(iLayer) )/dz + iLayerThermalC(iLayer)/dz
-        dFlux_dTempBelow(iLayer) = -dThermalC_dTempBelow(iLayer) * ( mLayerTempTrial(iLayer+1) - mLayerTempTrial(iLayer) )/dz - iLayerThermalC(iLayer)/dz
+        dz = (mLayerHeight_(iLayer+1,iGRU) - mLayerHeight_(iLayer,iGRU))
+        dFlux_dWatAbove_(iLayer,iGRU)  = -dThermalC_dWatAbove_(iLayer,iGRU) * ( mLayerTempTrial_(iLayer+1,iGRU) - mLayerTempTrial_(iLayer,iGRU) )/dz
+        dFlux_dWatBelow_(iLayer,iGRU)  = -dThermalC_dWatBelow_(iLayer,iGRU) * ( mLayerTempTrial_(iLayer+1,iGRU) - mLayerTempTrial_(iLayer,iGRU) )/dz
+        dFlux_dTempAbove_(iLayer,iGRU) = -dThermalC_dTempAbove_(iLayer,iGRU) * ( mLayerTempTrial_(iLayer+1,iGRU) - mLayerTempTrial_(iLayer,iGRU) )/dz + iLayerThermalC_(iLayer,iGRU)/dz
+        dFlux_dTempBelow_(iLayer,iGRU) = -dThermalC_dTempBelow_(iLayer,iGRU) * ( mLayerTempTrial_(iLayer+1,iGRU) - mLayerTempTrial_(iLayer,iGRU) )/dz - iLayerThermalC_(iLayer,iGRU)/dz
       end if  ! type of layer (upper, internal, or lower)
     end do  ! end looping through layers
   end subroutine

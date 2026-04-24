@@ -62,7 +62,7 @@ contains
  ! associate to elements in the data structure
  summaVars: associate(&
   timeStruct           => summa1_struc%timeStruct          , & ! x%var(:)                   -- model time data
-  forcStruct           => summa1_struc%forcStruct_d            & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
+  forcStruct           => summa1_struc%forcStruct            & ! x%gru(:)%hru(:)%var(:)     -- model forcing data
  ) ! assignment to variables in the data structures
  ! ---------------------------------------------------------------------------------------
  ! initialize error control

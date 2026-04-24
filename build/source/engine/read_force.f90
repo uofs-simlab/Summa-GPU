@@ -201,11 +201,11 @@ contains
  fracJulDay = currentJulDay - startJulDay
  ! set timing of current forcing vector (in seconds since reference day)
  ! NOTE: It is a bit silly to have time information for each HRU and GRU
- do iGRU=1,size(gru_struc)
-  do iHRU=1,gru_struc(iGRU)%hruCount
-   forcStruct%time(iGRU) = (currentJulDay-refJulDay)*secprday
-  end do  ! looping through HRUs
- end do  ! looping through GRUs
+!  do iGRU=1,size(gru_struc)
+!   do iHRU=1,gru_struc(iGRU)%hruCount
+   forcStruct%time_h = (currentJulDay-refJulDay)*secprday
+!   end do  ! looping through HRUs
+!  end do  ! looping through GRUs
 
  ! compute the number of days in the current year
  yearLength = 365
@@ -438,8 +438,8 @@ contains
  real(rkind)                       :: varTime(1)       ! time variable of current forcing data step being read
  ! other local variables
  integer(i4b)                      :: iGRU,iHRU        ! index of GRU and HRU
- integer(i4b)                      :: iHRU_global      ! index of HRU in the NetCDF file
- integer(i4b)                      :: iHRU_local       ! index of HRU in the data subset
+ integer(i4b)                      :: iHRU_global,iHRU_global_end      ! index of HRU in the NetCDF file
+ integer(i4b)                      :: iHRU_local,iHRU_local_end       ! index of HRU in the data subset
  integer(i4b)                      :: iline            ! loop through lines in the file
  integer(i4b)                      :: iNC              ! loop through variables in forcing file
  integer(i4b)                      :: iVar             ! index of forcing variable in forcing data vector
@@ -504,27 +504,31 @@ contains
   if(err/=nf90_noerr)then; message=trim(message)//'problem reading forcing variable name from netCDF: '//trim(nf90_strerror(err)); return; endif
 
   ! read forcing data for all HRUs
-  if(simultaneousRead)then
+  ! if(simultaneousRead)then
    err=nf90_get_var(ncid,forcFileInfo(iFile)%data_id(ivar),dataVec,start=(/ixHRUfile_min,iRead/),count=(/nHRUlocal,1/))
    if(err/=nf90_noerr)then; message=trim(message)//'problem reading forcing data: '//trim(varName)//'/'//trim(nf90_strerror(err)); return; endif
-  endif
+  !  print*, size(dataVec)
+
+  ! endif
 
   ! loop through GRUs and HRUs
-  do iGRU=1,size(gru_struc)
-   do iHRU=1,gru_struc(iGRU)%hruCount
+  ! do iGRU=1,size(gru_struc)
+  !  do iHRU=1,gru_struc(iGRU)%hruCount
 
     ! define global HRU
-    iHRU_global = gru_struc(iGRU)%hruInfo(iHRU)%hru_nc
+    iHRU_global = gru_struc(1)%hruInfo(1)%hru_nc
+    iHRU_global_end = gru_struc(size(gru_struc))%hruInfo(1)%hru_nc
     iHRU_local  = (iHRU_global - ixHRUfile_min)+1
+    iHRU_local_end  = (iHRU_global_end - ixHRUfile_min)+1
 
-    ! read forcing data for a single HRU
-    if(.not.simultaneousRead)then
-     err=nf90_get_var(ncid,forcFileInfo(iFile)%data_id(ivar),dataVal,start=(/iHRU_global,iRead/))
-     if(err/=nf90_noerr)then; message=trim(message)//'problem reading forcing data: '//trim(varName)//'/'//trim(nf90_strerror(err)); return; endif
-    endif
+    ! ! read forcing data for a single HRU
+    ! if(.not.simultaneousRead)then
+    !  err=nf90_get_var(ncid,forcFileInfo(iFile)%data_id(ivar),dataVal,start=(/iHRU_global,iRead/))
+    !  if(err/=nf90_noerr)then; message=trim(message)//'problem reading forcing data: '//trim(varName)//'/'//trim(nf90_strerror(err)); return; endif
+    ! endif
 
     ! check the number of HRUs
-    if(iHRU_global > nHRUfile)then
+    if(iHRU_global_end > nHRUfile)then
      message=trim(message)//'HRU index exceeds the number of HRUs in the forcing data file'
      err=20; return
     endif
@@ -540,18 +544,19 @@ contains
 
     ! put the data into structures
     select case(iVar)
-    case(iLookFORCE%time); forcStruct%time(iGRU) = dataVal(1)
-    case(iLookFORCE%pptrate); forcStruct%pptrate(iGRU) = dataVal(1)
-    case(iLookFORCE%airtemp); forcStruct%airtemp_d(iGRU) = dataVal(1)
-    case(iLookFORCE%spechum); forcStruct%spechum(iGRU) = dataVal(1)
-    case(iLookFORCE%windspd); forcStruct%windspd_d(iGRU) = dataVal(1)
-    case(iLookFORCE%SWRadAtm); forcStruct%SWRadAtm(iGRU) = dataVal(1)
-    case(iLookFORCE%LWRadAtm); forcStruct%LWRadAtm_d(iGRU) = dataVal(1)
-    case(iLookFORCE%airpres); forcStruct%airpres_d(iGRU) = dataVal(1)
+    ! case(iLookFORCE%time); forcStruct%time_h = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%time); forcStruct%time_h = dataVec(iHRU_local)
+    case(iLookFORCE%pptrate); forcStruct%pptrate = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%airtemp); forcStruct%airtemp = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%spechum); forcStruct%spechum = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%windspd); forcStruct%windspd = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%SWRadAtm); forcStruct%SWRadAtm = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%LWRadAtm); forcStruct%LWRadAtm = dataVec(iHRU_local:iHRU_local_end)
+    case(iLookFORCE%airpres); forcStruct%airpres = dataVec(iHRU_local:iHRU_local_end)
     end select
 
-   end do  ! looping through HRUs within a given GRU
-  end do  ! looping through GRUs
+  !  end do  ! looping through HRUs within a given GRU
+  ! end do  ! looping through GRUs
 
  end do  ! loop through forcing variables
 

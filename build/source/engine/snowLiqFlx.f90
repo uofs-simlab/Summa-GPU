@@ -65,6 +65,7 @@ subroutine snowLiqFlx(&
                       out_snowLiqFlx)            ! intent(out):   error control
   use device_data_types
   use cudafor
+  use globalData,only:maxSnowLayers
   implicit none
 
   ! input: model control, forcing, and model state vector
@@ -138,7 +139,7 @@ subroutine snowLiqFlx(&
     ! ixTop = 1
     ! ixBot = nSnow
 
-    call snowLiqFlx_kernel<<<blocks,threads>>>(nGRU,firstFluxCall,&
+    call snowLiqFlx_kernel<<<blocks,threads>>>(nGRU,indx_data%nSoil,flux_data%numFluxData,maxSnowLayers,firstFluxCall,&
   nSnow,&
   flux_data%data, &
   scalarThroughfallRain,scalarCanopyLiqDrainage,&
@@ -154,7 +155,7 @@ end subroutine snowLiqFlx
 
 
 
-attributes(global) subroutine snowLiqFlx_kernel(nGRU,firstFluxCall,&
+attributes(global) subroutine snowLiqFlx_kernel(nGRU,nSoil,numFluxData,maxSnowLayers,firstFluxCall,&
   nSnow,&
   flux_data, &
   scalarThroughfallRain,scalarCanopyLiqDrainage,&
@@ -162,69 +163,73 @@ attributes(global) subroutine snowLiqFlx_kernel(nGRU,firstFluxCall,&
   mLayerVolFracIce,Fcapil,k_snow,mw_exp,&
   mLayerPoreSpace,mLayerThetaResid,&
   iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end,iLayerLiqFluxSnowDeriv)
-  integer(i4b),value :: nGRU
+  use initialize_device,only:get_iGRU
+  integer(i4b),value :: nGRU,nSoil,numFluxData,maxSnowLayers
   logical(lgt),value :: firstFluxCall
-  integer(i4b) :: nSnow(:)
-  real(rkind),intent(inout) :: flux_data(:,:)
+  integer(i4b) :: nSnow(nGRU)
+  real(rkind),intent(inout) :: flux_data(numFluxData,nGRU)
       ! input: forcing for the snow domain
     integer(i4b),intent(in),value :: scalarThroughfallRain    ! intent(in): computed throughfall rate (kg m-2 s-1)
     integer(i4b),intent(in),value :: scalarCanopyLiqDrainage  ! intent(in): computed drainage of liquid water (kg m-2 s-1)
     ! input: model state vector
-    real(rkind) :: mLayerVolFracLiqTrial(:,:) ! intent(in): trial value of volumetric fraction of liquid water at the current iteration (-)
+    real(rkind) :: mLayerVolFracLiqTrial(nSoil+maxSnowLayers+1,nGRU) ! intent(in): trial value of volumetric fraction of liquid water at the current iteration (-)
     ! input: snow properties and parameters
-    real(rkind) :: mLayerVolFracIce(:,:) ! intent(in):    volumetric ice content at the start of the time step (-)
-    real(rkind) :: Fcapil(:)              ! intent(in):    capillary retention as a fraction of the total pore volume (-)
-    real(rkind) :: k_snow(:)              ! intent(in):    hydraulic conductivity of snow (m s-1), 0.0055 = approx. 20 m/hr, from UEB
-    real(rkind) :: mw_exp(:)              ! intent(in):    exponent for meltwater flow (-)
+    real(rkind) :: mLayerVolFracIce(nSoil+maxSnowLayers+1,nGRU) ! intent(in):    volumetric ice content at the start of the time step (-)
+    real(rkind) :: Fcapil(nGRU)              ! intent(in):    capillary retention as a fraction of the total pore volume (-)
+    real(rkind) :: k_snow(nGRU)              ! intent(in):    hydraulic conductivity of snow (m s-1), 0.0055 = approx. 20 m/hr, from UEB
+    real(rkind) :: mw_exp(nGRU)              ! intent(in):    exponent for meltwater flow (-)
     ! input-output: diagnostic variables -- only computed for the first iteration
-    real(rkind) :: mLayerPoreSpace(:,:)   ! intent(inout): pore space in each snow layer (-)
-    real(rkind) :: mLayerThetaResid(:,:)  ! intent(inout): esidual volumetric liquid water content in each snow layer (-)
+    real(rkind) :: mLayerPoreSpace(maxSnowLayers+1,nGRU)   ! intent(inout): pore space in each snow layer (-)
+    real(rkind) :: mLayerThetaResid(maxSnowLayers+1,nGRU)  ! intent(inout): esidual volumetric liquid water content in each snow layer (-)
     ! input-output: fluxes and derivatives
     integer(i4b),intent(in),value :: iLayerLiqFluxSnow_start,iLayerLiqFluxSnow_end       ! intent(inout): vertical liquid water flux at layer interfaces (m s-1)
-    real(rkind) :: iLayerLiqFluxSnowDeriv(0:,:)  ! intent(inout): derivative in vertical liquid water flux at layer interfaces (m s-1)
+    real(rkind) :: iLayerLiqFluxSnowDeriv(0:maxSnowLayers,nGRU)  ! intent(inout): derivative in vertical liquid water flux at layer interfaces (m s-1)
 
     integer(i4b) :: iGRU
-  iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
+  iGRU = get_iGRU()
   if (iGRU .gt. nGRU) return
 
   if (nSnow(iGRU) .eq. 0) return
 
-  call snowLiqFlx_device(firstFluxCall,nSnow(iGRU),&
-  flux_data(scalarThroughfallRain,iGRU),flux_data(scalarCanopyLiqDrainage,iGRU),&
-  mLayerVolFracLiqTrial(:,iGRU), &
-  mLayerVolFracIce(:,iGRU),Fcapil(iGRU),k_snow(iGRU),mw_exp(iGRU),&
-  mLayerPoreSpace(:,iGRU),mLayerThetaResid(:,iGRU),&
-  flux_data(iLayerLiqFluxSnow_start:iLayerLiqFluxSnow_end,iGRU),iLayerLiqFluxSnowDeriv(:,iGRU))
-
-end subroutine
-
-attributes(device) subroutine snowLiqFlx_device(firstFluxCall,nSnow,&
+  call snowLiqFlx_device(firstFluxCall,nSnow,flux_data,&
   scalarThroughfallRain,scalarCanopyLiqDrainage,&
   mLayerVolFracLiqTrial, &
   mLayerVolFracIce,Fcapil,k_snow,mw_exp,&
   mLayerPoreSpace,mLayerThetaResid,&
-  iLayerLiqFluxSnow,iLayerLiqFluxSnowDeriv)
+  iLayerLiqFluxSnow_start,iLayerLiqFluxSnowDeriv)
+  ! flux_data(iLayerLiqFluxSnow_start:iLayerLiqFluxSnow_end,iGRU),iLayerLiqFluxSnowDeriv)
+
+end subroutine
+
+attributes(device) subroutine snowLiqFlx_device(firstFluxCall,nSnow_,flux_data,&
+  scalarThroughfallRain_,scalarCanopyLiqDrainage_,&
+  mLayerVolFracLiqTrial_, &
+  mLayerVolFracIce_,Fcapil_,k_snow_,mw_exp_,&
+  mLayerPoreSpace_,mLayerThetaResid_,&
+  iLayerLiqFluxSnow_,iLayerLiqFluxSnowDeriv_)
+  use initialize_device,only:get_iGRU
   implicit none
     ! input: model control
     logical(lgt) :: firstFluxCall           ! intent(in): the first flux call
     ! logical(lgt) :: scalarSolution          ! intent(in): flag to denote if implementing the scalar solution
-    integer(i4b) :: nSnow
+    integer(i4b) :: nSnow_(:)
+    real(rkind) :: flux_data(:,:)
     ! input: forcing for the snow domain
-    real(rkind) :: scalarThroughfallRain    ! intent(in): computed throughfall rate (kg m-2 s-1)
-    real(rkind) :: scalarCanopyLiqDrainage  ! intent(in): computed drainage of liquid water (kg m-2 s-1)
+    integer(i4b) :: scalarThroughfallRain_    ! intent(in): computed throughfall rate (kg m-2 s-1)
+    integer(i4b) :: scalarCanopyLiqDrainage_  ! intent(in): computed drainage of liquid water (kg m-2 s-1)
     ! input: model state vector
-    real(rkind) :: mLayerVolFracLiqTrial(:) ! intent(in): trial value of volumetric fraction of liquid water at the current iteration (-)
+    real(rkind) :: mLayerVolFracLiqTrial_(:,:) ! intent(in): trial value of volumetric fraction of liquid water at the current iteration (-)
     ! input: snow properties and parameters
-    real(rkind) :: mLayerVolFracIce(:) ! intent(in):    volumetric ice content at the start of the time step (-)
-    real(rkind) :: Fcapil              ! intent(in):    capillary retention as a fraction of the total pore volume (-)
-    real(rkind) :: k_snow              ! intent(in):    hydraulic conductivity of snow (m s-1), 0.0055 = approx. 20 m/hr, from UEB
-    real(rkind) :: mw_exp              ! intent(in):    exponent for meltwater flow (-)
+    real(rkind) :: mLayerVolFracIce_(:,:) ! intent(in):    volumetric ice content at the start of the time step (-)
+    real(rkind) :: Fcapil_(:)              ! intent(in):    capillary retention as a fraction of the total pore volume (-)
+    real(rkind) :: k_snow_(:)              ! intent(in):    hydraulic conductivity of snow (m s-1), 0.0055 = approx. 20 m/hr, from UEB
+    real(rkind) :: mw_exp_(:)              ! intent(in):    exponent for meltwater flow (-)
     ! input-output: diagnostic variables -- only computed for the first iteration
-    real(rkind) :: mLayerPoreSpace(:)   ! intent(inout): pore space in each snow layer (-)
-    real(rkind) :: mLayerThetaResid(:)  ! intent(inout): esidual volumetric liquid water content in each snow layer (-)
+    real(rkind) :: mLayerPoreSpace_(:,:)   ! intent(inout): pore space in each snow layer (-)
+    real(rkind) :: mLayerThetaResid_(:,:)  ! intent(inout): esidual volumetric liquid water content in each snow layer (-)
     ! input-output: fluxes and derivatives
-    real(rkind) :: iLayerLiqFluxSnow(0:)       ! intent(inout): vertical liquid water flux at layer interfaces (m s-1)
-    real(rkind) :: iLayerLiqFluxSnowDeriv(0:)  ! intent(inout): derivative in vertical liquid water flux at layer interfaces (m s-1)
+    integer(i4b) :: iLayerLiqFluxSnow_       ! intent(inout): vertical liquid water flux at layer interfaces (m s-1)
+    real(rkind) :: iLayerLiqFluxSnowDeriv_(0:,:)  ! intent(inout): derivative in vertical liquid water flux at layer interfaces (m s-1)
 
     integer(i4b)                      :: iLayer                     ! layer index
     real(rkind)                       :: multResid                  ! multiplier for the residual water content (-)
@@ -233,35 +238,37 @@ attributes(device) subroutine snowLiqFlx_device(firstFluxCall,nSnow,&
     real(rkind)                       :: availCap                   ! available storage capacity [0,1] (-)
     real(rkind)                       :: relSaturn                  ! relative saturation [0,1] (-)
 
+    integer(i4b) :: iGRU
+    iGRU = get_iGRU()
       ! define the liquid flux at the upper boundary (m s-1)
-    iLayerLiqFluxSnow(0)      = (scalarThroughfallRain + scalarCanopyLiqDrainage)/iden_water
-    iLayerLiqFluxSnowDeriv(0) = 0._rkind !computed inside computJacob
+    flux_data(iLayerLiqFluxSnow_,iGRU)      = (flux_data(scalarThroughfallRain_,iGRU) + flux_data(scalarCanopyLiqDrainage_,iGRU))/iden_water
+    iLayerLiqFluxSnowDeriv_(0,iGRU) = 0._rkind !computed inside computJacob
 
     ! compute properties fixed over the time step
     if (firstFluxCall) then
       ! loop through snow layers
-      do iLayer=1,nSnow ! loop through snow layers
-        multResid = 1._rkind/(1._rkind + exp((mLayerVolFracIce(iLayer)*iden_ice - residThrs)/residScal)) ! compute the reduction in liquid water holding capacity at high snow density (-)
-        mLayerPoreSpace(iLayer)  = 1._rkind - mLayerVolFracIce(iLayer) ! compute the pore space (-)
-        mLayerThetaResid(iLayer) = Fcapil*mLayerPoreSpace(iLayer)*multResid ! compute the residual volumetric liquid water content (-)
+      do iLayer=1,nSnow_(iGRU) ! loop through snow layers
+        multResid = 1._rkind/(1._rkind + exp((mLayerVolFracIce_(iLayer,iGRU)*iden_ice - residThrs)/residScal)) ! compute the reduction in liquid water holding capacity at high snow density (-)
+        mLayerPoreSpace_(iLayer,iGRU)  = 1._rkind - mLayerVolFracIce_(iLayer,iGRU) ! compute the pore space (-)
+        mLayerThetaResid_(iLayer,iGRU) = Fcapil_(iGRU)*mLayerPoreSpace_(iLayer,iGRU)*multResid ! compute the residual volumetric liquid water content (-)
       end do  ! end looping through snow layers
     end if  ! end if the first flux call
      
     ! compute fluxes
-    do iLayer=1,nSnow  ! loop through snow layers
-      if (mLayerVolFracLiqTrial(iLayer) > mLayerThetaResid(iLayer)) then ! check that flow occurs
+    do iLayer=1,nSnow_(iGRU)  ! loop through snow layers
+      if (mLayerVolFracLiqTrial_(iLayer,iGRU) > mLayerThetaResid_(iLayer,iGRU)) then ! check that flow occurs
         ! compute the relative saturation (-)
-        availCap  = mLayerPoreSpace(iLayer) - mLayerThetaResid(iLayer)                 ! available capacity
-        relSaturn = (mLayerVolFracLiqTrial(iLayer) - mLayerThetaResid(iLayer)) / availCap    ! relative saturation
-        iLayerLiqFluxSnow(iLayer)      = k_snow*relSaturn**mw_exp
-        iLayerLiqFluxSnowDeriv(iLayer) = ( (k_snow*mw_exp)/availCap ) * relSaturn**(mw_exp - 1._rkind)
-        if (mLayerVolFracIce(iLayer) > maxVolIceContent) then ! NOTE: use start-of-step ice content, to avoid convergence problems
+        availCap  = mLayerPoreSpace_(iLayer,iGRU) - mLayerThetaResid_(iLayer,iGRU)                 ! available capacity
+        relSaturn = (mLayerVolFracLiqTrial_(iLayer,iGRU) - mLayerThetaResid_(iLayer,iGRU)) / availCap    ! relative saturation
+        flux_data(iLayerLiqFluxSnow_+iLayer,iGRU)      = k_snow_(iGRU)*relSaturn**mw_exp_(iGRU)
+        iLayerLiqFluxSnowDeriv_(iLayer,iGRU) = ( (k_snow_(iGRU)*mw_exp_(iGRU))/availCap ) * relSaturn**(mw_exp_(iGRU) - 1._rkind)
+        if (mLayerVolFracIce_(iLayer,iGRU) > maxVolIceContent) then ! NOTE: use start-of-step ice content, to avoid convergence problems
           ! ** allow liquid water to pass through under very high ice density
-          iLayerLiqFluxSnow(iLayer) = iLayerLiqFluxSnow(iLayer) + iLayerLiqFluxSnow(iLayer-1)
+          flux_data(iLayerLiqFluxSnow_+iLayer,iGRU) = flux_data(iLayerLiqFluxSnow_+iLayer,iGRU) + flux_data(iLayerLiqFluxSnow_+iLayer-1,iGRU)
         end if
       else  ! flow does not occur
-        iLayerLiqFluxSnow(iLayer)      = 0._rkind
-        iLayerLiqFluxSnowDeriv(iLayer) = 0._rkind
+        flux_data(iLayerLiqFluxSnow_+iLayer,iGRU)      = 0._rkind
+        iLayerLiqFluxSnowDeriv_(iLayer,iGRU) = 0._rkind
       end if  ! storage above residual content
     end do  ! end loop through snow layers
   end subroutine

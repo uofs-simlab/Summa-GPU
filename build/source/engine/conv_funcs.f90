@@ -68,28 +68,29 @@ end function vapPress
 ! ***************************************************************************************************************
 ! NOTE: temperature units are degC !!!!
 ! ***************************************************************************************************************
-attributes(host,device) subroutine satVapPress(TC, SVP, dSVP_dT)
+attributes(device) subroutine satVapPress(TC, SVP_, dSVP_dT)
 IMPLICIT NONE
 ! input
 real(rkind), intent(in)            :: TC       ! temperature (C)
 ! output
-real(rkind), intent(out)           :: SVP      ! saturation vapor pressure (Pa)
+real(rkind), intent(out)           :: SVP_(:)      ! saturation vapor pressure (Pa)
 real(rkind), intent(out)           :: dSVP_dT  ! d(SVP)/dT
 ! local
 real(rkind), parameter             :: X1 = 17.27_rkind
 real(rkind), parameter             :: X2 = 237.30_rkind
 ! local (use to test derivative calculations)
 real(rkind),parameter              :: dx = 1.e-8_rkind  ! finite difference increment
+integer(i4b) :: iGRU
 !---------------------------------------------------------------------------------------------------
 ! Units note :              Pa = N m-2 = kg m-1 s-2
 ! SATVPFRZ=     610.8       ! Saturation water vapour pressure at 273.16K (Pa)
-
+iGRU = (blockidx%x-1) * blockdim%x + threadidx%x
 if(X2 + TC <= 0.0_rkind)then ! will fail if divide by 0, but will blow up if negative top and bottom of fraction
- SVP     = tiny(1.0_rkind)
+ SVP_(iGRU)     = tiny(1.0_rkind)
  dSVP_dT = tiny(1.0_rkind)
 else
- SVP     = SATVPFRZ * EXP( (X1*TC)/(X2 + TC) ) ! Saturated Vapour Press (Pa)
- dSVP_dT = SVP * (X1/(X2 + TC) - X1*TC/(X2 + TC)**2_i4b)
+ SVP_(iGRU)     = SATVPFRZ * EXP( (X1*TC)/(X2 + TC) ) ! Saturated Vapour Press (Pa)
+ dSVP_dT = SVP_(iGRU) * (X1/(X2 + TC) - X1*TC/(X2 + TC)**2_i4b)
 end if
 END SUBROUTINE satVapPress
 

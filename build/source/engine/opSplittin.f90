@@ -1011,18 +1011,12 @@ subroutine opSplittin(&
   end subroutine validate_split 
 
   subroutine save_recover
-    real(rkind),allocatable :: scalarCanopyTemp(:)
    ! save/recover copies of prognostic variables
-     scalarCanopyTemp = prog_data%scalarCanopyTemp
-     print*, 'scT', scalarCanopyTemp
 
      select case(failure)
        case(.false.); prog_temp = prog_data
        case(.true.);  prog_data = prog_temp
      end select
-     scalarCanopyTemp = prog_data%scalarCanopyTemp
-     print*, scalarCanopyTemp
-     scalarCanopyTemp = prog_temp%scalarCanopyTemp
 
 
    ! save/recover copies of diagnostic variables

@@ -18,38 +18,38 @@ implicit none
 type data4ida
   type(c_ptr)                     :: ida_mem                         ! IDA memory
   real(rkind)                     :: dt                              ! data step
-  integer(i4b),device,allocatable                    :: nSnow(:)                           ! number of snow layers
+  integer(i4b),device,pointer                    :: nSnow_p(:)                           ! number of snow layers
   integer(i4b)                    :: nSoil                           ! number of soil layers
-  integer(i4b),device,allocatable                    :: nLayers(:)                         ! total number of layers
+  integer(i4b),device,pointer                    :: nLayers_p(:)                         ! total number of layers
   integer(i4b) :: nGRU
   integer(i4b)                    :: nState                          ! total number of state variables
   integer(i4b)                    :: ixMatrix                        ! form of matrix (dense or banded)
   logical(lgt)                    :: firstSubStep                    ! flag to indicate if we are processing the first sub-step
   logical(lgt)                    :: firstFluxCall                   ! flag to indicate if we are processing the first flux call
   logical(lgt)                    :: firstSplitOper                  ! flag to indicate if we are processing the first flux call in a splitting operation
-  logical(lgt),device,allocatable                    :: computeVegFlux(:)                  ! flag to indicate if computing fluxes over vegetation
+  logical(lgt),device,pointer                    :: computeVegFlux_p(:)                  ! flag to indicate if computing fluxes over vegetation
   logical(lgt)                    :: scalarSolution                  ! flag to denote if implementing the scalar solution
   type(model_options),allocatable :: model_decisions(:)              ! model decisions
-  type(decisions_device) :: decisions
-  type(zLookup_device)                   :: lookup_data                  ! lookup tables
-  type(type_data_device)                     :: type_data                       ! type of vegetation and soil
-  type(attr_data_device)                     :: attr_data                       ! spatial attributes
-  type(mpar_data_device)               :: mpar_data                       ! model parameters
-  type(veg_parameters) :: veg_param
-  type(forc_data_device)                     :: forc_data                       ! model forcing data
-  type(bvar_data_device)               :: bvar_data                       ! model variables for the local basin
-  type(prog_data_device)               :: prog_data                       ! prognostic variables for a local HRU
-  type(indx_data_device)               :: indx_data                       ! indices defining model states and layers
-  type(diag_data_device)               :: diag_data                       ! diagnostic variables for a local HRU
-  type(flux_data_device)               :: flux_data                       ! model fluxes for a local HRU
-  type(deriv_data_device)               :: deriv_data                      ! derivatives in model fluxes w.r.t. relevant state variables
-  real(qp), allocatable,device           :: sMul(:,:)                         ! state vector multiplier (used in the residual calculations)
-  real(rkind), allocatable,device        :: dMat(:,:)                         ! diagonal of the Jacobian matrix
+  type(decisions_device),pointer :: decisions_p
+  type(zLookup_device),pointer                   :: lookup_data_p                  ! lookup tables
+  type(type_data_device),pointer                     :: type_data_p                       ! type of vegetation and soil
+  type(attr_data_device),pointer                     :: attr_data_p                       ! spatial attributes
+  type(mpar_data_device),pointer               :: mpar_data_p                       ! model parameters
+  type(veg_parameters),pointer :: veg_param_p
+  type(forc_data_device),pointer                     :: forc_data_p                       ! model forcing data
+  type(bvar_data_device),pointer               :: bvar_data_p                       ! model variables for the local basin
+  type(prog_data_device),pointer               :: prog_data_p                       ! prognostic variables for a local HRU
+  type(indx_data_device),pointer               :: indx_data_p                       ! indices defining model states and layers
+  type(diag_data_device),pointer               :: diag_data_p                       ! diagnostic variables for a local HRU
+  type(flux_data_device),pointer               :: flux_data_p                       ! model fluxes for a local HRU
+  type(deriv_data_device),pointer               :: deriv_data_p                      ! derivatives in model fluxes w.r.t. relevant state variables
+  real(qp), device,pointer           :: sMul_p(:,:)                         ! state vector multiplier (used in the residual calculations)
+  real(rkind), device,pointer        :: dMat_p(:,:)                         ! diagonal of the Jacobian matrix
   real(rkind), allocatable,device        :: fluxVec(:,:)                      ! flux vector
   real(qp), allocatable,device           :: resVec(:,:)                       ! residual vector
   real(qp), allocatable,device           :: resSink(:,:)                      ! additional (sink) terms on the RHS of the state equation
-  real(rkind), allocatable,device        :: atol(:,:)                         ! vector of absolute tolerances
-  real(rkind), allocatable,device        :: rtol(:,:)                         ! vector of relative tolerances
+  real(rkind),device,allocatable        :: atol(:,:)                         ! vector of absolute tolerances
+  real(rkind),device,allocatable        :: rtol(:,:)                         ! vector of relative tolerances
   integer(i4b),device,allocatable                    :: ixSaturation(:)                    ! index of the lowest saturated layer
   real(rkind), device,allocatable        :: dBaseflow_dMatric(:,:,:)          ! derivative in baseflow w.r.t. matric head (s-1)
   integer(i4b)                    :: err                             ! error code

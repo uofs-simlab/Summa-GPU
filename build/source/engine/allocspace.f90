@@ -111,12 +111,17 @@ contains
   class is (gru_int8);          if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_intVec);        if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_double);        if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
+  class is (bpar_data_device); call dataStruct%allocate(nGRU); return;
   class is (gru_doubleVec);     if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
+  class is (bvar_stat_device); call allocGlobal_bvarStat(dataStruct,nGRU); return;
+  class is (bvar_data_device); call allocGlobal_bvarStruct(dataStruct,nGRU); return;
+
   ! gru+hru dimensions
   class is (type_data_device); call allocGlobal_type(dataStruct,nGRU); return;
   class is (gru_hru_int);       if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_int8);      if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_intVec);    if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
+  class is (attr_data_device); call allocGlobal_attr(dataStruct,nGRU); return;
   class is (gru_hru_double);    if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (gru_hru_doubleVec); if(allocated(dataStruct%gru))then; check=.true.; else; allocate(dataStruct%gru(nGRU),stat=err); end if
   class is (mpar_data_device); call allocGlobal_param(dataStruct,nGRU,gru_struc(1)%hruInfo(1)%nSoil); return
@@ -208,6 +213,37 @@ contains
  if(err/=0)then; err=20; message=trim(message)//trim(cmessage); return; end if
 
  end subroutine allocGlobal
+
+  subroutine allocGlobal_attr(dataStruct,nGRU)
+    use device_data_types
+    type(attr_data_device) :: dataStruct
+    integer(i4b) :: nGRU
+    allocate(dataStruct%latitude(nGRU))
+    allocate(dataStruct%longitude(nGRU))
+    allocate(dataStruct%elevation(nGRU))
+    allocate(dataStruct%tan_slope(nGRU))
+    allocate(dataStruct%contourLength(nGRU))
+    allocate(dataStruct%HRUarea(nGRU))
+    allocate(dataStruct%mHeight(nGRU))
+    allocate(dataStruct%aspect(nGRU))
+  end subroutine
+
+  subroutine allocGlobal_bvarStat(dataStruct,nGRU)
+    use device_data_types
+    use initialize_device
+    type(bvar_stat_device) :: dataStruct
+    integer(i4b) :: nGRU
+    call allocate_device_bvar_stat(dataStruct,nGRU)
+  end subroutine
+
+  subroutine allocGlobal_bvarStruct(dataStruct,nGRU)
+    use device_data_types
+    use initialize_device
+    type(bvar_data_device) :: dataStruct
+    integer(i4b) :: nGRU
+    ! call allocate_device_bvar_data(dataStruct,nGRU)
+  end subroutine
+
 
  subroutine allocGlobal_lookup(dataStruct, nSoil, nGRU)
   use device_data_types

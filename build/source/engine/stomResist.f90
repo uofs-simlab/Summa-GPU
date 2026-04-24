@@ -108,60 +108,62 @@ contains
  ! ************************************************************************************************
  attributes(device) subroutine stomResist(&
                        ! input: state and diagnostic variables
-                       scalarVegetationTemp,                & ! intent(in): vegetation temperature (K)
-                       scalarSatVP_VegTemp,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
-                       scalarVP_CanopyAir,                  & ! intent(in): canopy air vapor pressure (Pa)
+                       scalarVegetationTemp_,                & ! intent(in): vegetation temperature (K)
+                       scalarSatVP_VegTemp_,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
+                       scalarVP_CanopyAir_,                  & ! intent(in): canopy air vapor pressure (Pa)
                        ! input: data structures
                       !  type_data,                           & ! intent(in):    type of vegetation and soil
-                       vegTypeIndex, &
+                       vegTypeIndex_, &
                       !  forc_data,                           & ! intent(in):    model forcing data
-                       airtemp,airpres, &
+                       airtemp_,airpres_, &
                       !  mpar_data,                           & ! intent(in):    model parameters
-                       minStomatalResistance,vcmax25_canopyTop,Kc25,Ko25,Kc_qFac,Ko_qFac,kc_Ha,ko_Ha,vcmax_qFac,vcmax_Ha,vcmax_Hd,vcmax_Sv,vcmax_Kn,jmax25_scale,jmax_Ha,jmax_Hd,jmax_Sv,fractionJ,quantamYield,vpScaleFactor,cond2photo_slope,minStomatalConductance,&
+                       minStomatalResistance_,vcmax25_canopyTop_,Kc25_,Ko25_,Kc_qFac_,Ko_qFac_,kc_Ha_,ko_Ha_,vcmax_qFac_,vcmax_Ha_,vcmax_Hd_,vcmax_Sv_,vcmax_Kn_,jmax25_scale_,jmax_Ha_,jmax_Hd_,jmax_Sv_,fractionJ_,quantamYield_,vpScaleFactor_,cond2photo_slope_,minStomatalConductance_,&
                       !  model_decisions,                     & ! intent(in):    model decisions
                        ix_stomResist,ix_bbTempFunc,ix_bbHumdFunc,ix_bbElecFunc,ix_bbCO2point,ix_bbNumerics,ix_bbAssimFnc,ix_bbCanIntg8, &
                        ! input-output: data structures
                       !  diag_data,                           & ! intent(inout): model diagnostic variables for a local HRU
-                       scalarO2air,scalarCO2air,scalarExposedLAI,scalarGrowingSeasonIndex,scalarFoliageNitrogenFactor,scalarTranspireLim, &
-                       scalarIntercellularCO2Sunlit,scalarIntercellularCO2Shaded, &
-                      !  flux_data,                           & ! intent(inout): model fluxes for a local HRU
-                        scalarCanopySunlitPAR,scalarCanopyShadedPAR,scalarLeafResistance, &
-                        scalarStomResistSunlit,scalarStomResistShaded,scalarPhotosynthesisSunlit,scalarPhotosynthesisShaded, &
+                       scalarO2air_,scalarCO2air_,scalarExposedLAI_,scalarGrowingSeasonIndex_,scalarFoliageNitrogenFactor_,scalarTranspireLim_, &
+                       scalarIntercellularCO2Sunlit_,scalarIntercellularCO2Shaded_, &
+                       flux_data,                           & ! intent(inout): model fluxes for a local HRU
+                        scalarCanopySunlitPAR_,scalarCanopyShadedPAR_,scalarLeafResistance_, &
+                        scalarStomResistSunlit_,scalarStomResistShaded_,scalarPhotosynthesisSunlit_,scalarPhotosynthesisShaded_, &
                        ! output: error control
                        err,&
                        bp_noahmp,mp_noahmp,c3psn_noahmp,avcmx_noahmp,vcmx25_noahmp,ako_noahmp,ko25_noahmp,akc_noahmp,kc25_noahmp,qe25_noahmp,folnmx_noahmp,&
-                              rsmin_noahmp,hs_noahmp,topt_noahmp,rsmax_noahmp,rgl_noahmp)                           ! intent(out): error control
+                              rsmin_noahmp_,hs_noahmp_,topt_noahmp_,rsmax_noahmp_,rgl_noahmp_)                           ! intent(out): error control
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! conversion functions
  USE conv_funcs_module,only:satVapPress   ! function to compute the saturated vapor pressure (Pa)
+ use initialize_device,only:get_iGRU
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! input: state and diagnostic variables
- real(rkind),intent(in)             :: scalarVegetationTemp      ! vegetation temperature (K)
- real(rkind),intent(in)             :: scalarSatVP_VegTemp       ! saturation vapor pressure at vegetation temperature (Pa)
- real(rkind),intent(in)             :: scalarVP_CanopyAir        ! canopy air vapor pressure (Pa)
+ real(rkind),intent(in)             :: scalarVegetationTemp_(:)      ! vegetation temperature (K)
+ real(rkind),intent(in)             :: scalarSatVP_VegTemp_(:)       ! saturation vapor pressure at vegetation temperature (Pa)
+ real(rkind),intent(in)             :: scalarVP_CanopyAir_(:)        ! canopy air vapor pressure (Pa)
  ! input: data structures
 !  type(var_i),intent(in)          :: type_data                    ! type of vegetation and soil
- integer(i4b),intent(in) :: vegTypeIndex
+ integer(i4b),intent(in) :: vegTypeIndex_(:)
 !  type(var_d),intent(in)          :: forc_data                    ! model forcing data
- real(rkind),intent(in) :: airtemp,airpres
+ real(rkind),intent(in) :: airtemp_(:),airpres_(:)
 !  type(var_dlength),intent(in)    :: mpar_data                    ! model parameters
- real(rkind),intent(in) :: minStomatalResistance,vcmax25_canopyTop,Kc25,Ko25,Kc_qFac,Ko_qFac,kc_Ha,ko_Ha,vcmax_qFac,vcmax_Ha,vcmax_Hd,vcmax_Sv,vcmax_Kn,jmax25_scale,jmax_Ha,jmax_Hd,jmax_Sv,fractionJ,quantamYield,vpScaleFactor,cond2photo_slope,minStomatalConductance
+ real(rkind),intent(in) :: minStomatalResistance_(:),vcmax25_canopyTop_(:),Kc25_(:),Ko25_(:),Kc_qFac_(:),Ko_qFac_(:),kc_Ha_(:),ko_Ha_(:),vcmax_qFac_(:),vcmax_Ha_(:),vcmax_Hd_(:),vcmax_Sv_(:),vcmax_Kn_(:),jmax25_scale_(:),jmax_Ha_(:),jmax_Hd_(:),jmax_Sv_(:),fractionJ_(:),quantamYield_(:),vpScaleFactor_(:),cond2photo_slope_(:),minStomatalConductance_(:)
  !  type(model_options),intent(in)  :: model_decisions(:)           ! model decisions
  integer(i4b) :: ix_stomResist,ix_bbTempFunc,ix_bbHumdFunc,ix_bbElecFunc,ix_bbCO2point,ix_bbNumerics,ix_bbAssimFnc,ix_bbCanIntg8
  ! input-output: data structures
 !  type(var_dlength),intent(inout) :: diag_data                    ! diagnostic variables for a local HRU
- real(rkind),intent(in) :: scalarO2air,scalarCO2air,scalarExposedLAI,scalarGrowingSeasonIndex,scalarFoliageNitrogenFactor,scalarTranspireLim
- real(rkind),intent(inout) :: scalarIntercellularCO2Sunlit,scalarIntercellularCO2Shaded
+ real(rkind),intent(in) :: scalarO2air_(:),scalarCO2air_(:),scalarExposedLAI_(:),scalarGrowingSeasonIndex_(:),scalarFoliageNitrogenFactor_(:),scalarTranspireLim_(:)
+ real(rkind),intent(inout) :: scalarIntercellularCO2Sunlit_(:),scalarIntercellularCO2Shaded_(:)
 !  type(var_dlength),intent(inout) :: flux_data                    ! model fluxes for a local HRU
- real(rkind),intent(in) :: scalarCanopySunlitPAR,scalarCanopyShadedPAR,scalarLeafResistance
- real(rkind),intent(inout) :: scalarStomResistSunlit,scalarStomResistShaded,scalarPhotosynthesisSunlit,scalarPhotosynthesisShaded
+ real(rkind),intent(inout) :: flux_data(:,:)
+ integer(i4b),intent(in) :: scalarCanopySunlitPAR_,scalarCanopyShadedPAR_,scalarLeafResistance_
+ integer(i4b),intent(in) :: scalarStomResistSunlit_,scalarStomResistShaded_,scalarPhotosynthesisSunlit_,scalarPhotosynthesisShaded_
  ! output: error control
  integer(i4b),intent(out)        :: err                          ! error code
 !  character(*),intent(out)        :: message                      ! error message
   real(rkind),intent(inout) :: bp_noahmp(:),mp_noahmp(:),c3psn_noahmp(:),AVCMX_noahmp(:),vcmx25_noahmp(:),ako_noahmp(:),ko25_noahmp(:)
  real(rkind),intent(inout) :: akc_noahmp(:),kc25_noahmp(:),qe25_noahmp(:),folnmx_noahmp(:)
- real(rkind),intent(inout) :: rsmin_noahmp,hs_noahmp,topt_noahmp,rsmax_noahmp,rgl_noahmp
+ real(rkind),intent(inout) :: rsmin_noahmp_(:),hs_noahmp_(:),topt_noahmp_(:),rsmax_noahmp_(:),rgl_noahmp_(:)
 
  ! -----------------------------------------------------------------------------------------------------------------------------------------------------
  ! local variables
@@ -173,6 +175,8 @@ contains
  real(rkind)                        :: scalarStomResist          ! stomatal resistance (s m-1)
  real(rkind)                        :: scalarPhotosynthesis      ! photosynthesis (umol CO2 m-2 s-1)
  real(rkind)                        :: ci                        ! intercellular co2 partial pressure (Pa)
+ integer(i4b) :: iGRU
+ iGRU = get_iGRU()
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
 
  ! associate variables in the data structure
@@ -246,15 +250,15 @@ contains
   ! simple resistance formulation
   case(simpleResistance)
    ! check that we don't divide by zero -- should be set to minimum of tiny in routine soilResist
-   if(scalarTranspireLim < tiny(airpres))then; err=20
+   if(scalarTranspireLim_(iGRU) < tiny(airpres_(iGRU)))then; err=20
   !  ; message=trim(message)//'soil moisture stress factor is < tiny -- this will cause problems'; 
    return; end if
    ! compute stomatal resistance (assume equal for sunlit and shaded leaves)
-   scalarStomResistSunlit = minStomatalResistance/scalarTranspireLim
-   scalarStomResistShaded = scalarStomResistSunlit
+   flux_data(scalarStomResistSunlit_,iGRU) = minStomatalResistance_(iGRU)/scalarTranspireLim_(iGRU)
+   flux_data(scalarStomResistShaded_,iGRU) = flux_data(scalarStomResistSunlit_,iGRU)
    ! set photosynthesis to missing (not computed)
-   scalarPhotosynthesisSunlit = realMissing
-   scalarPhotosynthesisShaded = realMissing
+   flux_data(scalarPhotosynthesisSunlit_,iGRU) = realMissing
+   flux_data(scalarPhotosynthesisShaded_,iGRU) = realMissing
 
   ! *******************************************************************************************************************************************
 
@@ -268,12 +272,12 @@ contains
     select case(iSunShade)
      ! sunlit leaves
      case(ixSunlit)
-      absorbedPAR = scalarCanopySunlitPAR         ! average absorbed par for sunlit leaves (w m-2)
-      ci          = scalarIntercellularCO2Sunlit  ! co2 of the leaf interior for sunlit leaves (Pa)
+      absorbedPAR = flux_data(scalarCanopySunlitPAR_,iGRU)         ! average absorbed par for sunlit leaves (w m-2)
+      ci          = scalarIntercellularCO2Sunlit_(iGRU)  ! co2 of the leaf interior for sunlit leaves (Pa)
      ! shaded leaves
      case(ixShaded)
-      absorbedPAR = scalarCanopyShadedPAR         ! average absorbed par for shaded leaves (w m-2)
-      ci          = scalarIntercellularCO2Shaded  ! co2 of the leaf interior for shaded leaves (Pa)
+      absorbedPAR = flux_data(scalarCanopyShadedPAR_,iGRU)         ! average absorbed par for shaded leaves (w m-2)
+      ci          = scalarIntercellularCO2Shaded_(iGRU)  ! co2 of the leaf interior for shaded leaves (Pa)
      ! check
      case default; err=20; 
       ! message=trim(message)//'unable to identify case for sunlit/shaded leaves'; 
@@ -283,18 +287,19 @@ contains
     ! compute photosynthesis and stomatal resistance
     call stomResist_flex(&
                          ! input: state and diagnostic variables
-                         scalarVegetationTemp,                & ! intent(in): vegetation temperature (K)
-                         scalarSatVP_VegTemp,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
-                         scalarVP_CanopyAir,                  & ! intent(in): canopy air vapor pressure (Pa)
+                         scalarVegetationTemp_,                & ! intent(in): vegetation temperature (K)
+                         scalarSatVP_VegTemp_,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
+                         scalarVP_CanopyAir_,                  & ! intent(in): canopy air vapor pressure (Pa)
                          absorbedPAR,                         & ! intent(in): absorbed PAR (W m-2)
                          ! input: data structures
                         !  forc_data,                           & ! intent(in): model forcing data
-                         airtemp,airpres, &
+                         airtemp_,airpres_, &
                         !  mpar_data,                           & ! intent(in): model parameters
-                         Kc25,Ko25,Kc_qFac,Ko_qFac,kc_Ha,ko_Ha,vcmax25_canopyTop,vcmax_qFac,vcmax_Ha,vcmax_Hd,vcmax_Sv,vcmax_Kn,jmax25_scale,jmax_Ha,jmax_Hd,jmax_Sv,fractionJ,quantamYield,vpScaleFactor,cond2photo_slope,minStomatalConductance,&
+                         Kc25_,Ko25_,Kc_qFac_,Ko_qFac_,kc_Ha_,ko_Ha_,vcmax25_canopyTop_,vcmax_qFac_,vcmax_Ha_,vcmax_Hd_,vcmax_Sv_,vcmax_Kn_,jmax25_scale_,jmax_Ha_,jmax_Hd_,jmax_Sv_,fractionJ_,quantamYield_,vpScaleFactor_,cond2photo_slope_,minStomatalConductance_,&
                         !  diag_data,                           & ! intent(in): model diagnostic variables for a local HRU
-                         scalarO2air,scalarCO2air,scalarExposedLAI,scalarGrowingSeasonIndex,scalarFoliageNitrogenFactor,scalarTranspireLim,&
-                         scalarLeafResistance,                           & ! intent(in): model fluxes for a local HRU
+                         scalarO2air_,scalarCO2air_,scalarExposedLAI_,scalarGrowingSeasonIndex_,scalarFoliageNitrogenFactor_,scalarTranspireLim_,&
+                         flux_data, &
+                         scalarLeafResistance_,                           & ! intent(in): model fluxes for a local HRU
                         !  model_decisions,                     & ! intent(in): model decisions
                          ix_bbTempFunc,ix_bbHumdFunc,ix_bbElecFunc,ix_bbCO2point,ix_bbNumerics,ix_bbAssimFnc,ix_bbCanIntg8,&
 !                          model_decisions(iLookDECISIONS%bbTempFunc)%iDecision
@@ -318,13 +323,13 @@ contains
     ! assign output variables
     select case(iSunShade)
      case(ixSunlit)
-      scalarStomResistSunlit       = scalarStomResist
-      scalarPhotosynthesisSunlit   = scalarPhotosynthesis
-      scalarIntercellularCO2Sunlit = ci
+      flux_data(scalarStomResistSunlit_,iGRU)       = scalarStomResist
+      flux_data(scalarPhotosynthesisSunlit_,iGRU)   = scalarPhotosynthesis
+      scalarIntercellularCO2Sunlit_(iGRU) = ci
      case(ixShaded)
-      scalarStomResistShaded       = scalarStomResist
-      scalarPhotosynthesisShaded   = scalarPhotosynthesis
-      scalarIntercellularCO2Shaded = ci
+      flux_data(scalarStomResistShaded_,iGRU)       = scalarStomResist
+      flux_data(scalarPhotosynthesisShaded_,iGRU)   = scalarPhotosynthesis
+      scalarIntercellularCO2Shaded_(iGRU) = ci
      case default; err=20; 
       ! message=trim(message)//'unable to identify case for sunlit/shaded leaves'; 
       return
@@ -341,31 +346,32 @@ contains
                           ! input (model decisions)
                           ix_stomResist,                     & ! intent(in): choice of function for stomatal resistance
                           ! input (local attributes)
-                          vegTypeIndex,                      & ! intent(in): vegetation type index
+                          vegTypeIndex_,                      & ! intent(in): vegetation type index
                           iLoc, jLoc,                        & ! intent(in): spatial location indices
                           ! input (forcing)
-                          airtemp,                           & ! intent(in): air temperature at some height above the surface (K)
-                          airpres,                           & ! intent(in): air pressure at some height above the surface (Pa)
-                          scalarO2air,                       & ! intent(in): atmospheric o2 concentration (Pa)
-                          scalarCO2air,                      & ! intent(in): atmospheric co2 concentration (Pa)
-                          scalarCanopySunlitPAR,             & ! intent(in): average absorbed par for sunlit leaves (w m-2)
-                          scalarCanopyShadedPAR,             & ! intent(in): average absorbed par for shaded leaves (w m-2)
+                          airtemp_,                           & ! intent(in): air temperature at some height above the surface (K)
+                          airpres_,                           & ! intent(in): air pressure at some height above the surface (Pa)
+                          scalarO2air_,                       & ! intent(in): atmospheric o2 concentration (Pa)
+                          scalarCO2air_,                      & ! intent(in): atmospheric co2 concentration (Pa)
+                          flux_data, &
+                          scalarCanopySunlitPAR_,             & ! intent(in): average absorbed par for sunlit leaves (w m-2)
+                          scalarCanopyShadedPAR_,             & ! intent(in): average absorbed par for shaded leaves (w m-2)
                           ! input (state and diagnostic variables)
-                          scalarGrowingSeasonIndex,          & ! intent(in): growing season index (0=off, 1=on)
-                          scalarFoliageNitrogenFactor,       & ! intent(in): foliage nitrogen concentration (1=saturated)
-                          scalarTranspireLim,                & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
-                          scalarLeafResistance,              & ! intent(in): leaf boundary layer resistance (s m-1)
-                          scalarVegetationTemp,              & ! intent(in): temperature of the vegetation canopy (K)
-                          scalarSatVP_VegTemp,               & ! intent(in): saturation vapor pressure at the temperature of the veg canopy (Pa)
-                          scalarVP_CanopyAir,                & ! intent(in): canopy air vapor pressure (Pa)
+                          scalarGrowingSeasonIndex_,          & ! intent(in): growing season index (0=off, 1=on)
+                          scalarFoliageNitrogenFactor_,       & ! intent(in): foliage nitrogen concentration (1=saturated)
+                          scalarTranspireLim_,                & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
+                          scalarLeafResistance_,              & ! intent(in): leaf boundary layer resistance (s m-1)
+                          scalarVegetationTemp_,              & ! intent(in): temperature of the vegetation canopy (K)
+                          scalarSatVP_VegTemp_,               & ! intent(in): saturation vapor pressure at the temperature of the veg canopy (Pa)
+                          scalarVP_CanopyAir_,                & ! intent(in): canopy air vapor pressure (Pa)
                           ! output
-                          scalarStomResistSunlit,            & ! intent(out): stomatal resistance for sunlit leaves (s m-1)
-                          scalarStomResistShaded,            & ! intent(out): stomatal resistance for shaded leaves (s m-1)
-                          scalarPhotosynthesisSunlit,        & ! intent(out): sunlit photosynthesis (umolco2 m-2 s-1)
-                          scalarPhotosynthesisShaded,        & ! intent(out): shaded photosynthesis (umolco2 m-2 s-1)
+                          scalarStomResistSunlit_,            & ! intent(out): stomatal resistance for sunlit leaves (s m-1)
+                          scalarStomResistShaded_,            & ! intent(out): stomatal resistance for shaded leaves (s m-1)
+                          scalarPhotosynthesisSunlit_,        & ! intent(out): sunlit photosynthesis (umolco2 m-2 s-1)
+                          scalarPhotosynthesisShaded_,        & ! intent(out): shaded photosynthesis (umolco2 m-2 s-1)
                           err,&
                           bp_noahmp,mp_noahmp,c3psn_noahmp,avcmx_noahmp,vcmx25_noahmp,ako_noahmp,ko25_noahmp,akc_noahmp,kc25_noahmp,qe25_noahmp,folnmx_noahmp,&
-                          rsmin_noahmp,hs_noahmp,topt_noahmp,rsmax_noahmp,rgl_noahmp                       ) ! intent(out): error control
+                          rsmin_noahmp_,hs_noahmp_,topt_noahmp_,rsmax_noahmp_,rgl_noahmp_                       ) ! intent(out): error control
    if(err/=0)then; 
   !  message=trim(message)//trim(cmessage); 
    return; end if
@@ -396,19 +402,19 @@ contains
  ! *******************************************************************************************************
  attributes(device) subroutine stomResist_flex(&
                             ! input: state and diagnostic variables
-                            scalarVegetationTemp,                & ! intent(in): vegetation temperature (K)
-                            scalarSatVP_VegTemp,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
-                            scalarVP_CanopyAir,                  & ! intent(in): canopy air vapor pressure (Pa)
+                            scalarVegetationTemp_,                & ! intent(in): vegetation temperature (K)
+                            scalarSatVP_VegTemp_,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
+                            scalarVP_CanopyAir_,                  & ! intent(in): canopy air vapor pressure (Pa)
                             absorbedPAR,                         & ! intent(in): absorbed PAR (W m-2)
                             ! input: data structures
                             ! forc_data,                           & ! intent(in): model forcing data
-                            airtemp,airpres, &
+                            airtemp_,airpres_, &
                             ! mpar_data,                           & ! intent(in): model parameters
-                            Kc25,Ko25,Kc_qFac,Ko_qFac,kc_Ha,ko_Ha,vcmax25_canopyTop,vcmax_qFac,vcmax_Ha,vcmax_Hd,vcmax_Sv,vcmax_Kn,jmax25_scale,jmax_Ha,jmax_Hd,jmax_Sv,fractionJ,quantamYield,vpScaleFactor,cond2photo_slope,minStomatalConductance,&
+                            Kc25_,Ko25_,Kc_qFac_,Ko_qFac_,kc_Ha_,ko_Ha_,vcmax25_canopyTop_,vcmax_qFac_,vcmax_Ha_,vcmax_Hd_,vcmax_Sv_,vcmax_Kn_,jmax25_scale_,jmax_Ha_,jmax_Hd_,jmax_Sv_,fractionJ_,quantamYield_,vpScaleFactor_,cond2photo_slope_,minStomatalConductance_,&
                             ! diag_data,                           & ! intent(in): model diagnostic variables for a local HRU
-                            scalarO2air,scalarCO2air,scalarExposedLAI,scalarGrowingSeasonIndex,scalarFoliageNitrogenFactor,scalarTranspireLim,&
-                            ! flux_data,                           & ! intent(in): model fluxes for a local HRU
-                            scalarLeafResistance, &
+                            scalarO2air_,scalarCO2air_,scalarExposedLAI_,scalarGrowingSeasonIndex_,scalarFoliageNitrogenFactor_,scalarTranspireLim_,&
+                            flux_data,                           & ! intent(in): model fluxes for a local HRU
+                            scalarLeafResistance_, &
                             ix_bbTempFunc,ix_bbHumdFunc,ix_bbElecFunc,ix_bbCO2point,ix_bbNumerics,ix_bbAssimFnc,ix_bbCanIntg8,                     & ! intent(in): model decisions
                             ! output: stomatal resistance and photosynthesis
                             ci,                                  & ! intent(out): co2 of the leaf interior (Pa)
@@ -416,23 +422,25 @@ contains
                             scalarPhotosynthesis,                & ! intent(out): photosynthesis (umol CO2 m-2 s-1)
                             ! output: error control
                             err)                           ! intent(out): error control
+  use initialize_device,only:get_iGRU
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! input: state and diagnostic variables
- real(rkind),intent(in)             :: scalarVegetationTemp          ! vegetation temperature (K)
- real(rkind),intent(in)             :: scalarSatVP_VegTemp           ! saturation vapor pressure at vegetation temperature (Pa)
- real(rkind),intent(in)             :: scalarVP_CanopyAir            ! canopy air vapor pressure (Pa)
+ real(rkind),intent(in)             :: scalarVegetationTemp_(:)          ! vegetation temperature (K)
+ real(rkind),intent(in)             :: scalarSatVP_VegTemp_(:)           ! saturation vapor pressure at vegetation temperature (Pa)
+ real(rkind),intent(in)             :: scalarVP_CanopyAir_(:)            ! canopy air vapor pressure (Pa)
  real(rkind),intent(in)             :: absorbedPAR                   ! absorbed PAR (W m-2)
  ! input: data structures
 !  type(var_d),intent(in)             :: forc_data                     ! model forcing data
- real(rkind),intent(in) :: airtemp, airpres
+ real(rkind),intent(in) :: airtemp_(:), airpres_(:)
 !  type(var_dlength),intent(in)       :: mpar_data                     ! model parameters
- real(rkind),intent(in) :: Kc25,Ko25,Kc_qFac,Ko_qFac,kc_Ha,ko_Ha,vcmax25_canopyTop,vcmax_qFac,vcmax_Ha,vcmax_Hd,vcmax_Sv,vcmax_Kn,jmax25_scale,jmax_Ha,jmax_Hd,jmax_Sv,fractionJ,quantamYield,vpScaleFactor,cond2photo_slope,minStomatalConductance
+ real(rkind),intent(in) :: Kc25_(:),Ko25_(:),Kc_qFac_(:),Ko_qFac_(:),kc_Ha_(:),ko_Ha_(:),vcmax25_canopyTop_(:),vcmax_qFac_(:),vcmax_Ha_(:),vcmax_Hd_(:),vcmax_Sv_(:),vcmax_Kn_(:),jmax25_scale_(:),jmax_Ha_(:),jmax_Hd_(:),jmax_Sv_(:),fractionJ_(:),quantamYield_(:),vpScaleFactor_(:),cond2photo_slope_(:),minStomatalConductance_(:)
 !  type(var_dlength),intent(in)       :: diag_data                     ! diagnostic variables for a local HRU
- real(rkind),intent(in) :: scalarO2air,scalarCO2air,scalarExposedLAI,scalarGrowingSeasonIndex,scalarFoliageNitrogenFactor,scalarTranspireLim
+ real(rkind),intent(in) :: scalarO2air_(:),scalarCO2air_(:),scalarExposedLAI_(:),scalarGrowingSeasonIndex_(:),scalarFoliageNitrogenFactor_(:),scalarTranspireLim_(:)
  !  type(var_dlength),intent(in)       :: flux_data                     ! model fluxes for a local HRU
- real(rkind),intent(in) :: scalarLeafResistance
+ real(rkind),intent(inout) :: flux_data(:,:)
+ integer(i4b),intent(in) :: scalarLeafResistance_
 !  type(model_options),intent(in)     :: model_decisions(:)            ! model decisions
  integer(i4b) :: ix_bbTempFunc,ix_bbHumdFunc,ix_bbElecFunc,ix_bbCO2point,ix_bbNumerics,ix_bbAssimFnc,ix_bbCanIntg8
  ! output: stomatal resistance and photosynthesis
@@ -500,6 +508,8 @@ contains
  real(rkind)                        :: cMin,cMax                     ! solution brackets
  real(rkind)                        :: xInc                          ! iteration increment (Pa)
  integer(i4b)                       :: iter                          ! iteration index
+ integer(i4b) :: iGRU
+ iGRU = get_iGRU()
  ! ------------------------------------------------------------------------------------------------------------------------------------------------------
  ! associate variables in the data structure
 
@@ -513,11 +523,11 @@ contains
 
  ! define unit conversion (m s-1 --> mol m-2 s-1)
  ! NOTE: Rgas   = J K-1 Mol-1 (J = kg m2 s-2); airtemp = K; airpres = Pa (kg m-1 s-2)
- unitConv = airpres/(Rgas*airtemp)  ! mol m-3
+ unitConv = airpres_(iGRU)/(Rgas*airtemp_(iGRU))  ! mol m-3
 
  ! check there is light available for photosynthesis
- if(absorbedPAR < tiny(absorbedPAR) .or. scalarGrowingSeasonIndex < tiny(absorbedPAR))then
-  scalarStomResist     = unitConv*umol_per_mol/(scalarTranspireLim*minStomatalConductance)
+ if(absorbedPAR < tiny(absorbedPAR) .or. scalarGrowingSeasonIndex_(iGRU) < tiny(absorbedPAR))then
+  scalarStomResist     = unitConv*umol_per_mol/(scalarTranspireLim_(iGRU)*minStomatalConductance_(iGRU))
   scalarPhotosynthesis = 0._rkind
   ci                   = 0._rkind
  return
@@ -526,21 +536,21 @@ contains
  ! scale vcmax from the leaves to the canopy
  ! exponential function of LAI is described in Leuning, Plant Cell Env 1995: "Scaling from..." [eq 9]
  select case(ix_bbCanIntg8)
-  case(constantScaling); vcmax25 = vcmax25_canopyTop*fnf
-  case(laiScaling);      vcmax25 = vcmax25_canopyTop*exp(-vcmax_Kn*scalarExposedLAI)
+  case(constantScaling); vcmax25 = vcmax25_canopyTop_(iGRU)*fnf
+  case(laiScaling);      vcmax25 = vcmax25_canopyTop_(iGRU)*exp(-vcmax_Kn_(iGRU)*scalarExposedLAI_(iGRU))
   case default; err=20
     ! ; message=trim(message)//'unable to identify option to scale lai from the leaves to the canopy'; 
     return
  end select
 
  ! compute the maximum electron transport rate at 25 deg C (umol m-2 s-1)
- jmax25 = jmax25_scale * vcmax25
+ jmax25 = jmax25_scale_(iGRU) * vcmax25
 
  ! define the scaled minimum conductance
- gMin = scalarTranspireLim*minStomatalConductance
+ gMin = scalarTranspireLim_(iGRU)*minStomatalConductance_(iGRU)
 
  ! compute the leaf conductance (umol m-2 s-1)
- rlb = scalarLeafResistance/(umol_per_mol*unitConv)  ! s m-1 --> umol-1 m2 s
+ rlb = flux_data(scalarLeafResistance_,iGRU)/(umol_per_mol*unitConv)  ! s m-1 --> umol-1 m2 s
 
  ! *****
  ! * compute temperature controls on stomatal conductance...
@@ -552,22 +562,22 @@ contains
   ! q10 function used in CLM4 and Noah-MP
   case(q10Func)
    ! compute the Michaelis-Menten constants (Pa)
-   Kc = ave_slp*(Kc25/umol_per_mol)*q10(Kc_qFac,scalarVegetationTemp,Tref,Tscale)  ! umol mol-1 --> mol mol-1 --> Pa
-   Ko = ave_slp*Ko25*q10(Ko_qFac,scalarVegetationTemp,Tref,Tscale)  ! mol mol-1 --> Pa
+   Kc = ave_slp*(Kc25_(iGRU)/umol_per_mol)*q10(Kc_qFac_(iGRU),scalarVegetationTemp_(iGRU),Tref,Tscale)  ! umol mol-1 --> mol mol-1 --> Pa
+   Ko = ave_slp*Ko25_(iGRU)*q10(Ko_qFac_(iGRU),scalarVegetationTemp_(iGRU),Tref,Tscale)  ! mol mol-1 --> Pa
    ! compute maximum Rubisco carboxylation rate (umol co2 m-2 s-1)
-   x0 = q10(vcmax_qFac,scalarVegetationTemp,Tref,Tscale)  ! temperature function
-   x1 = fHigh(vcmax_Hd,vcmax_Sv,scalarVegetationTemp) ! high temperature inhibition function
-   vcmax = scalarTranspireLim*vcmax25*x0/x1
+   x0 = q10(vcmax_qFac_(iGRU),scalarVegetationTemp_(iGRU),Tref,Tscale)  ! temperature function
+   x1 = fHigh(vcmax_Hd_(iGRU),vcmax_Sv_(iGRU),scalarVegetationTemp_(iGRU)) ! high temperature inhibition function
+   vcmax = scalarTranspireLim_(iGRU)*vcmax25*x0/x1
 
   ! Arrhenius function used in CLM5 and Cable
   case(Arrhenius)
    ! compute the Michaelis-Menten constants (Pa)
-   Kc = airpres*(Kc25/umol_per_mol)*fT(kc_Ha,scalarVegetationTemp,Tref)  ! umol mol-1 --> mol mol-1 --> Pa
-   Ko = airpres*Ko25*fT(ko_Ha,scalarVegetationTemp,Tref)  ! mol mol-1 --> Pa
+   Kc = airpres_(iGRU)*(Kc25_(iGRU)/umol_per_mol)*fT(kc_Ha_(iGRU),scalarVegetationTemp_(iGRU),Tref)  ! umol mol-1 --> mol mol-1 --> Pa
+   Ko = airpres_(iGRU)*Ko25_(iGRU)*fT(ko_Ha_(iGRU),scalarVegetationTemp_(iGRU),Tref)  ! mol mol-1 --> Pa
    ! compute maximum Rubisco carboxylation rate (umol co2 m-2 s-1)
-   x0 = fT(vcmax_Ha,scalarVegetationTemp,Tref)
-   x1 = fhigh(vcmax_Hd,vcmax_Sv,Tref) / fhigh(vcmax_Hd,vcmax_Sv,scalarVegetationTemp)
-   vcmax = scalarTranspireLim*vcmax25*x0*x1
+   x0 = fT(vcmax_Ha_(iGRU),scalarVegetationTemp_(iGRU),Tref)
+   x1 = fhigh(vcmax_Hd_(iGRU),vcmax_Sv_(iGRU),Tref) / fhigh(vcmax_Hd_(iGRU),vcmax_Sv_(iGRU),scalarVegetationTemp_(iGRU))
+   vcmax = scalarTranspireLim_(iGRU)*vcmax25*x0*x1
 
   ! check found an appropriate option
   case default; err=20; 
@@ -581,8 +591,8 @@ contains
  ! ****************************************************************
 
  ! compute the maximum electron transport rate (umol electron m-2 s-1)
- x0 = fT(jmax_Ha,scalarVegetationTemp,Tref)
- x1 = fhigh(jmax_Hd,jmax_Sv,Tref) / fhigh(jmax_Hd,jmax_Sv,scalarVegetationTemp)
+ x0 = fT(jmax_Ha_(iGRU),scalarVegetationTemp_(iGRU),Tref)
+ x1 = fhigh(jmax_Hd_(iGRU),jmax_Sv_(iGRU),Tref) / fhigh(jmax_Hd_(iGRU),jmax_Sv_(iGRU),scalarVegetationTemp_(iGRU))
  jmax = jmax25*x0*x1
 
  ! identify the electron transport function
@@ -590,18 +600,18 @@ contains
 
   ! linear model, as used in CLM4 and Noah-MP
   case(linear)
-   Js = quantamYield*joule2umolConv*absorbedPAR
+   Js = quantamYield_(iGRU)*joule2umolConv*absorbedPAR
 
   ! linear function of qmax, as used in Cable [Wang et al., Ag Forest Met 1998, eq D5]
   case(linearJmax)
-   x0 = quantamYield*joule2umolConv*absorbedPAR
+   x0 = quantamYield_(iGRU)*joule2umolConv*absorbedPAR
    x1 = x0*jmax / (x0 + 2.1_rkind*jmax)
    Js = x1/4._rkind ! scaled electron transport
 
   ! quadraric function of jmax, as used in CLM5 (Bonan et al., JGR 2011, Table B2)
   case(quadraticJmax)
    !  PAR absorbed by PS2 (umol photon m-2 s-1)
-   I_ps2 = 0.5_rkind*(1._rkind - fractionJ) * joule2umolConv*absorbedPAR   ! Farquar (1980), eq 8: PAR absorbed by PS2 (umol photon m-2 s-1)
+   I_ps2 = 0.5_rkind*(1._rkind - fractionJ_(iGRU)) * joule2umolConv*absorbedPAR   ! Farquar (1980), eq 8: PAR absorbed by PS2 (umol photon m-2 s-1)
    ! define coefficients in the quadratic equation
    aQuad = c_ps2            ! quadratic coefficient = cuurvature factor for electron transport
    bQuad = -(I_ps2 + jmax)  ! linear coefficient
@@ -630,18 +640,18 @@ contains
 
  ! define the humidity function
  select case(ix_bbHumdFunc)
-  case(humidLeafSurface); fHum = min( max(0.25_rkind, scalarVP_CanopyAir/scalarSatVP_VegTemp), 1._rkind)
-  case(scaledHyperbolic); fHum = (scalarSatVP_VegTemp - scalarVP_CanopyAir)/vpScaleFactor
+  case(humidLeafSurface); fHum = min( max(0.25_rkind, scalarVP_CanopyAir_(iGRU)/scalarSatVP_VegTemp_(iGRU)), 1._rkind)
+  case(scaledHyperbolic); fHum = (scalarSatVP_VegTemp_(iGRU) - scalarVP_CanopyAir_(iGRU))/vpScaleFactor_(iGRU)
   case default; err=20; 
     ! message=trim(message)//'unable to identify humidity control on stomatal conductance'; 
     return
  end select
 
  ! compute the co2 compensation point (Pa)
- co2compPt = (Kc/Ko)*scalarO2air*o2scaleFactor
+ co2compPt = (Kc/Ko)*scalarO2air_(iGRU)*o2scaleFactor
 
  ! compute the Michaelis-Menten controls (Pa)
- awb = Kc*(1._rkind + scalarO2air/Ko)
+ awb = Kc*(1._rkind + scalarO2air_(iGRU)/Ko)
 
  ! compute the additional controls in light-limited assimilation
  cp2 = co2compPt*2._rkind
@@ -649,14 +659,14 @@ contains
  ! define trial value of intercellular co2 (Pa)
  ! NOTE: only initialize if less than the co2 compensation point; otherwise, initialize with previous value
  if(ix_bbNumerics==newtonRaphson)then
-  if(ci < co2compPt) ci = 0.7_rkind*scalarCO2air
+  if(ci < co2compPt) ci = 0.7_rkind*scalarCO2air_(iGRU)
  else
-  ci = 0.7_rkind*scalarCO2air  ! always initialize if not NR
+  ci = 0.7_rkind*scalarCO2air_(iGRU)  ! always initialize if not NR
  end if
  
  ! initialize brackets for the solution
  cMin = 0._rkind
- cMax = scalarCO2air
+ cMax = scalarCO2air_(iGRU)
 
  ! ***
  ! iterate
@@ -673,8 +683,8 @@ contains
   call photosynthesis(.true., ix_bbAssimFnc, ci, co2compPt, awb, cp2, vcmax, Js, psn, dA_dc)
 
   ! compute co2 concentration at leaf surface (Pa)
-  x1 = h2o_co2__leafbl * airpres * rlb  ! Pa / (umol co2 m-2 s-1)
-  cs = max(scalarCO2air - (x1 * psn), mpe)   ! Pa (avoid divide by zero)
+  x1 = h2o_co2__leafbl * airpres_(iGRU) * rlb  ! Pa / (umol co2 m-2 s-1)
+  cs = max(scalarCO2air_(iGRU) - (x1 * psn), mpe)   ! Pa (avoid divide by zero)
 
   ! compute control of the compensation point on stomatal conductance
   if(ix_bbCO2point == origBWB)then
@@ -684,14 +694,14 @@ contains
   end if
 
   ! compute conductance in the absence of humidity
-  g0     = cond2photo_slope*airpres*psn/csx
-  dg0_dc = cond2photo_slope*airpres*dA_dc*(x1*psn/cs + 1._rkind)/csx
+  g0     = cond2photo_slope_(iGRU)*airpres_(iGRU)*psn/csx
+  dg0_dc = cond2photo_slope_(iGRU)*airpres_(iGRU)*dA_dc*(x1*psn/cs + 1._rkind)/csx
 
   ! use quadratic function to compute stomatal resistance
   call quadResist(.true.,ix_bbHumdFunc,rlb,fHum,gMin,g0,dg0_dc,rs,drs_dc)
 
   ! compute intercellular co2 partial pressues (Pa)
-  x2 = h2o_co2__stomPores * airpres  ! Pa
+  x2 = h2o_co2__stomPores * airpres_(iGRU)  ! Pa
   ci = max(cs - x2*psn*rs, 0._rkind)    ! Pa
 
   ! final derivative
@@ -703,9 +713,9 @@ contains
 
   ! test derivatives
   if(testDerivs)then
-   func1 = testFunc(ci_old,    cond2photo_slope, airpres, scalarCO2air, ix_bbHumdFunc, ix_bbCO2point, ix_bbAssimFnc,&
+   func1 = testFunc(ci_old,    cond2photo_slope_(iGRU), airpres_(iGRU), scalarCO2air_(iGRU), ix_bbHumdFunc, ix_bbCO2point, ix_bbAssimFnc,&
    co2comppt,awb,cp2,vcmax,Js,psn,x1,rlb,cs,csx,g0,fHum,gMin,rs,x2)
-   func2 = testFunc(ci_old+dx, cond2photo_slope, airpres, scalarCO2air, ix_bbHumdFunc, ix_bbCO2point, ix_bbAssimFnc,&
+   func2 = testFunc(ci_old+dx, cond2photo_slope_(iGRU), airpres_(iGRU), scalarCO2air_(iGRU), ix_bbHumdFunc, ix_bbCO2point, ix_bbAssimFnc,&
    co2comppt,awb,cp2,vcmax,Js,psn,x1,rlb,cs,csx,g0,fHum,gMin,rs,x2)
   !  write(*,'(a,1x,20(e20.10,1x))') '(func2 - func1)/dx, dci_dc = ', &
   !                                   (func2 - func1)/dx, dci_dc
@@ -764,7 +774,7 @@ contains
   attributes(device) function testFunc(ci, cond2photo_slope, airpres, scalarCO2air, ix_bbHumdFunc, ix_bbCO2point, ix_bbAssimFnc,&
     co2comppt,awb,cp2,vcmax,Js,psn,x1,rlb,cs,csx,g0,fHum,gMin,rs,x2)
   implicit none
-  real(rkind),intent(in)     :: ci, cond2photo_slope, airpres, scalarCO2air
+  real(rkind),intent(in),value     :: ci, cond2photo_slope, airpres, scalarCO2air
   integer(i4b),intent(in) :: ix_bbHumdFunc, ix_bbCO2point, ix_bbAssimFnc
   real(rkind)                :: testFunc
   real(rkind),parameter      :: unUsedInput=0._rkind
@@ -1138,10 +1148,10 @@ contains
  ! q10 function for temperature dependence
  attributes(device) function q10(a,T,Tmid,Tscale)
  implicit none
- real(rkind),intent(in) :: a              ! scale factor
- real(rkind),intent(in) :: T              ! temperature (K)
- real(rkind),intent(in) :: Tmid           ! point where function is one (25 deg C)
- real(rkind),intent(in) :: Tscale         ! scaling factor (K)
+ real(rkind),intent(in),value :: a              ! scale factor
+ real(rkind),intent(in),value :: T              ! temperature (K)
+ real(rkind),intent(in),value :: Tmid           ! point where function is one (25 deg C)
+ real(rkind),intent(in),value :: Tscale         ! scaling factor (K)
  real(rkind)            :: q10            ! temperature dependence (-)
  q10 = a**((T - Tmid)/Tscale)
  end function q10
@@ -1149,9 +1159,9 @@ contains
  ! Arrhenius function for temperature dependence
  attributes(device) function fT(delH,T,Tref)
  implicit none
- real(rkind),intent(in) :: delH     ! activation energy in temperature function (J mol-1)
- real(rkind),intent(in) :: T        ! temperature (K)
- real(rkind),intent(in) :: Tref     ! reference temperature (K)
+ real(rkind),intent(in),value :: delH     ! activation energy in temperature function (J mol-1)
+ real(rkind),intent(in),value :: T        ! temperature (K)
+ real(rkind),intent(in),value :: Tref     ! reference temperature (K)
  real(rkind)            :: fT       ! temperature dependence (-)
  fT = exp((delH/(Tref*Rgas))*(1._rkind - Tref/T))  ! NOTE: Rgas = J K-1 mol-1
  end function fT
@@ -1159,9 +1169,9 @@ contains
  ! function for high temperature inhibition
  attributes(device) function fHigh(delH,delS,T)
  implicit none
- real(rkind),intent(in) :: delH     ! deactivation energy in high temp inhibition function (J mol-1)
- real(rkind),intent(in) :: delS     ! entropy term in high temp inhibition function (J K-1 mol-1)
- real(rkind),intent(in) :: T        ! temperature (K)
+ real(rkind),intent(in),value :: delH     ! deactivation energy in high temp inhibition function (J mol-1)
+ real(rkind),intent(in),value :: delS     ! entropy term in high temp inhibition function (J K-1 mol-1)
+ real(rkind),intent(in),value :: T        ! temperature (K)
  real(rkind)            :: fHigh    ! high temperature inhibition (-)
  fHigh = 1._rkind + exp( (delS*T - delH)/(Rgas*T) ) ! NOTE: Rgas = J K-1 mol-1
  end function fHigh
@@ -1174,31 +1184,32 @@ contains
                               ! input (model decisions)
                               ixStomResist,                        & ! intent(in): choice of function for stomatal resistance
                               ! input (local attributes)
-                              vegTypeIndex,                        & ! intent(in): vegetation type index
+                              vegTypeIndex_,                        & ! intent(in): vegetation type index
                               iLoc, jLoc,                          & ! intent(in): spatial location indices
                               ! input (forcing)
-                              airtemp,                             & ! intent(in): air temperature at some height above the surface (K)
-                              airpres,                             & ! intent(in): air pressure at some height above the surface (Pa)
-                              scalarO2air,                         & ! intent(in): atmospheric o2 concentration (Pa)
-                              scalarCO2air,                        & ! intent(in): atmospheric co2 concentration (Pa)
-                              scalarCanopySunlitPAR,               & ! intent(in): average absorbed par for sunlit leaves (w m-2)
-                              scalarCanopyShadedPAR,               & ! intent(in): average absorbed par for shaded leaves (w m-2)
+                              airtemp_,                             & ! intent(in): air temperature at some height above the surface (K)
+                              airpres_,                             & ! intent(in): air pressure at some height above the surface (Pa)
+                              scalarO2air_,                         & ! intent(in): atmospheric o2 concentration (Pa)
+                              scalarCO2air_,                        & ! intent(in): atmospheric co2 concentration (Pa)
+                              flux_data, &
+                              scalarCanopySunlitPAR_,               & ! intent(in): average absorbed par for sunlit leaves (w m-2)
+                              scalarCanopyShadedPAR_,               & ! intent(in): average absorbed par for shaded leaves (w m-2)
                               ! input (state and diagnostic variables)
-                              scalarGrowingSeasonIndex,            & ! intent(in): growing season index (0=off, 1=on)
-                              scalarFoliageNitrogenFactor,         & ! intent(in): foliage nitrogen concentration (1=saturated)
-                              scalarTranspireLim,                  & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
-                              scalarLeafResistance,                & ! intent(in): leaf boundary layer resistance (s m-1)
-                              scalarVegetationTemp,                & ! intent(in): vegetation temperature (K)
-                              scalarSatVP_VegTemp,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
-                              scalarVP_CanopyAir,                  & ! intent(in): canopy air vapor pressure (Pa)
+                              scalarGrowingSeasonIndex_,            & ! intent(in): growing season index (0=off, 1=on)
+                              scalarFoliageNitrogenFactor_,         & ! intent(in): foliage nitrogen concentration (1=saturated)
+                              scalarTranspireLim_,                  & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
+                              scalarLeafResistance_,                & ! intent(in): leaf boundary layer resistance (s m-1)
+                              scalarVegetationTemp_,                & ! intent(in): vegetation temperature (K)
+                              scalarSatVP_VegTemp_,                 & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
+                              scalarVP_CanopyAir_,                  & ! intent(in): canopy air vapor pressure (Pa)
                               ! output
-                              scalarStomResistSunlit,              & ! intent(out): stomatal resistance for sunlit leaves (s m-1)
-                              scalarStomResistShaded,              & ! intent(out): stomatal resistance for shaded leaves (s m-1)
-                              scalarPhotosynthesisSunlit,          & ! intent(out): sunlit photosynthesis (umolco2 m-2 s-1)
-                              scalarPhotosynthesisShaded,          & ! intent(out): shaded photosynthesis (umolco2 m-2 s-1)
+                              scalarStomResistSunlit_,              & ! intent(out): stomatal resistance for sunlit leaves (s m-1)
+                              scalarStomResistShaded_,              & ! intent(out): stomatal resistance for shaded leaves (s m-1)
+                              scalarPhotosynthesisSunlit_,          & ! intent(out): sunlit photosynthesis (umolco2 m-2 s-1)
+                              scalarPhotosynthesisShaded_,          & ! intent(out): shaded photosynthesis (umolco2 m-2 s-1)
                               err,&
                               bp_noahmp,mp_noahmp,c3psn_noahmp,avcmx_noahmp,vcmx25_noahmp,ako_noahmp,ko25_noahmp,akc_noahmp,kc25_noahmp,qe25_noahmp,folnmx_noahmp,&
-                              rsmin_noahmp,hs_noahmp,topt_noahmp,rsmax_noahmp,rgl_noahmp                          ) ! intent(out): error control
+                              rsmin_noahmp_,hs_noahmp_,topt_noahmp_,rsmax_noahmp_,rgl_noahmp_                          ) ! intent(out): error control
  ! -----------------------------------------------------------------------------------------------------------------------------------------
  ! Modified from Noah-MP
  ! Compute stomatal resistance and photosynthesis using either
@@ -1208,44 +1219,48 @@ contains
  USE mDecisions_module, only: BallBerry,Jarvis                ! options for the choice of function for stomatal resistance
  USE NOAHMP_ROUTINES,only:stomata                             ! compute canopy resistance based on Ball-Berry
  USE NOAHMP_ROUTINES,only:canres                              ! compute canopy resistance based Jarvis
+ use initialize_device,only:get_iGRU
  implicit none
  ! input (model decisions)
  integer(i4b),intent(in)       :: ixStomResist                ! choice of function for stomatal resistance
  ! input (local attributes)
- integer(i4b),intent(in)       :: vegTypeIndex                ! vegetation type index
+ integer(i4b),intent(in)       :: vegTypeIndex_(:)                ! vegetation type index
  integer(i4b),intent(in)       :: iLoc, jLoc                  ! spatial location indices
  ! input (forcing)
- real(rkind),intent(in)           :: airtemp                     ! measured air temperature at some height above the surface (K)
- real(rkind),intent(in)           :: airpres                     ! measured air pressure at some height above the surface (Pa)
- real(rkind),intent(in)           :: scalarO2air                 ! atmospheric o2 concentration (Pa)
- real(rkind),intent(in)           :: scalarCO2air                ! atmospheric co2 concentration (Pa)
- real(rkind),intent(in),target    :: scalarCanopySunlitPAR       ! average absorbed par for sunlit leaves (w m-2)
- real(rkind),intent(in),target    :: scalarCanopyShadedPAR       ! average absorbed par for shaded leaves (w m-2)
+ real(rkind),intent(in)           :: airtemp_(:)                     ! measured air temperature at some height above the surface (K)
+ real(rkind),intent(in)           :: airpres_(:)                     ! measured air pressure at some height above the surface (Pa)
+ real(rkind),intent(in)           :: scalarO2air_(:)                 ! atmospheric o2 concentration (Pa)
+ real(rkind),intent(in)           :: scalarCO2air_(:)                ! atmospheric co2 concentration (Pa)
+ real(rkind),intent(inout) :: flux_data(:,:)
+ integer(i4b),intent(in)    :: scalarCanopySunlitPAR_       ! average absorbed par for sunlit leaves (w m-2)
+ integer(i4b),intent(in)    :: scalarCanopyShadedPAR_       ! average absorbed par for shaded leaves (w m-2)
  ! input (state and diagnostic variables)
- real(rkind),intent(in)           :: scalarGrowingSeasonIndex    ! growing season index (0=off, 1=on)
- real(rkind),intent(in)           :: scalarFoliageNitrogenFactor ! foliage nitrogen concentration (1=saturated)
- real(rkind),intent(in)           :: scalarTranspireLim          ! weighted average of the soil moiture factor controlling stomatal resistance (-)
- real(rkind),intent(in)           :: scalarLeafResistance        ! leaf boundary layer resistance (s m-1)
- real(rkind),intent(in)           :: scalarVegetationTemp        ! vegetation temperature (K)
- real(rkind),intent(in)           :: scalarSatVP_VegTemp         ! saturation vapor pressure at vegetation temperature (Pa)
- real(rkind),intent(in)           :: scalarVP_CanopyAir          ! canopy air vapor pressure (Pa)
+ real(rkind),intent(in)           :: scalarGrowingSeasonIndex_(:)    ! growing season index (0=off, 1=on)
+ real(rkind),intent(in)           :: scalarFoliageNitrogenFactor_(:) ! foliage nitrogen concentration (1=saturated)
+ real(rkind),intent(in)           :: scalarTranspireLim_(:)          ! weighted average of the soil moiture factor controlling stomatal resistance (-)
+ integer(i4b),intent(in)           :: scalarLeafResistance_        ! leaf boundary layer resistance (s m-1)
+ real(rkind),intent(in)           :: scalarVegetationTemp_(:)        ! vegetation temperature (K)
+ real(rkind),intent(in)           :: scalarSatVP_VegTemp_(:)         ! saturation vapor pressure at vegetation temperature (Pa)
+ real(rkind),intent(in)           :: scalarVP_CanopyAir_(:)          ! canopy air vapor pressure (Pa)
  ! output
- real(rkind),intent(out)          :: scalarStomResistSunlit      ! stomatal resistance for sunlit leaves (s m-1)
- real(rkind),intent(out)          :: scalarStomResistShaded      ! stomatal resistance for shaded leaves (s m-1)
- real(rkind),intent(out)          :: scalarPhotosynthesisSunlit  ! sunlit photosynthesis (umolco2 m-2 s-1)
- real(rkind),intent(out)          :: scalarPhotosynthesisShaded  ! sunlit photosynthesis (umolco2 m-2 s-1)
+ integer(i4b),intent(in)          :: scalarStomResistSunlit_      ! stomatal resistance for sunlit leaves (s m-1)
+ integer(i4b),intent(in)          :: scalarStomResistShaded_      ! stomatal resistance for shaded leaves (s m-1)
+ integer(i4b),intent(in)          :: scalarPhotosynthesisSunlit_  ! sunlit photosynthesis (umolco2 m-2 s-1)
+ integer(i4b),intent(in)          :: scalarPhotosynthesisShaded_  ! sunlit photosynthesis (umolco2 m-2 s-1)
  integer(i4b),intent(out)      :: err                         ! error code
 !  character(*),intent(out)      :: message                     ! error message
  ! local variables
  integer(i4b),parameter        :: ixSunlit=1                  ! named variable for sunlit leaves
  integer(i4b),parameter        :: ixShaded=2                  ! named variable for shaded leaves
  integer(i4b)                  :: iSunShade                   ! index for sunlit/shaded leaves
- real(rkind),pointer              :: PAR                         ! average absorbed PAR for sunlit/shaded leaves (w m-2)
+ real(rkind)              :: PAR                         ! average absorbed PAR for sunlit/shaded leaves (w m-2)
  real(rkind)                      :: scalarStomResist            ! stomatal resistance for sunlit/shaded leaves (s m-1)
  real(rkind)                      :: scalarPhotosynthesis        ! photosynthesis for sunlit/shaded leaves (umolco2 m-2 s-1)
  real(rkind),intent(inout) :: bp_noahmp(:),mp_noahmp(:),c3psn_noahmp(:),AVCMX_noahmp(:),vcmx25_noahmp(:),ako_noahmp(:),ko25_noahmp(:)
  real(rkind),intent(inout) :: akc_noahmp(:),kc25_noahmp(:),qe25_noahmp(:),folnmx_noahmp(:)
- real(rkind),intent(inout) :: rsmin_noahmp,hs_noahmp,topt_noahmp,rsmax_noahmp,rgl_noahmp
+ real(rkind),intent(inout) :: rsmin_noahmp_(:),hs_noahmp_(:),topt_noahmp_(:),rsmax_noahmp_(:),rgl_noahmp_(:)
+ integer(i4b) :: iGRU
+ iGRU = get_iGRU()
 
  ! initialize error control
  err=0!; message='stomResist_NoahMP/'
@@ -1255,8 +1270,8 @@ contains
 
   ! get appropriate value for PAR
   select case(iSunShade)
-   case(ixSunlit); PAR => scalarCanopySunlitPAR               ! average absorbed par for sunlit leaves (w m-2)
-   case(ixShaded); PAR => scalarCanopyShadedPAR               ! average absorbed par for shaded leaves (w m-2)
+   case(ixSunlit); PAR = flux_data(scalarCanopySunlitPAR_,iGRU)               ! average absorbed par for sunlit leaves (w m-2)
+   case(ixShaded); PAR = flux_data(scalarCanopyShadedPAR_,iGRU)               ! average absorbed par for shaded leaves (w m-2)
    case default; err=20; 
     ! message=trim(message)//'unable to identify case for sunlit/shaded leaves'; 
     return
@@ -1269,21 +1284,21 @@ contains
    case(BallBerry)
    call stomata(&
                 ! input
-                vegTypeIndex,                       & ! intent(in): vegetation type index
+                vegTypeIndex_,                       & ! intent(in): vegetation type index
                 mpe,                                & ! intent(in): prevents overflow error if division by zero
                 PAR,                                & ! intent(in): average absorbed par (w m-2)
-                scalarFoliageNitrogenFactor,        & ! intent(in): foliage nitrogen concentration (1=saturated)
+                scalarFoliageNitrogenFactor_,        & ! intent(in): foliage nitrogen concentration (1=saturated)
                 iLoc, jLoc,                         & ! intent(in): spatial location indices
-                scalarVegetationTemp,               & ! intent(in): vegetation temperature (K)
-                scalarSatVP_VegTemp,                & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
-                scalarVP_CanopyAir,                 & ! intent(in): canopy air vapor pressure (Pa)
-                airtemp,                            & ! intent(in): air temperature at some height above the surface (K)
-                airpres,                            & ! intent(in): air pressure at some height above the surface (Pa)
-                scalarO2air,                        & ! intent(in): atmospheric o2 concentration (Pa)
-                scalarCO2air,                       & ! intent(in): atmospheric co2 concentration (Pa)
-                scalarGrowingSeasonIndex,           & ! intent(in): growing season index (0=off, 1=on)
-                scalarTranspireLim,                 & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
-                scalarLeafResistance,               & ! intent(in): leaf boundary layer resistance (s m-1)
+                scalarVegetationTemp_,               & ! intent(in): vegetation temperature (K)
+                scalarSatVP_VegTemp_,                & ! intent(in): saturation vapor pressure at vegetation temperature (Pa)
+                scalarVP_CanopyAir_,                 & ! intent(in): canopy air vapor pressure (Pa)
+                airtemp_,                            & ! intent(in): air temperature at some height above the surface (K)
+                airpres_,                            & ! intent(in): air pressure at some height above the surface (Pa)
+                scalarO2air_,                        & ! intent(in): atmospheric o2 concentration (Pa)
+                scalarCO2air_,                       & ! intent(in): atmospheric co2 concentration (Pa)
+                scalarGrowingSeasonIndex_,           & ! intent(in): growing season index (0=off, 1=on)
+                scalarTranspireLim_,                 & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
+                flux_data(scalarLeafResistance_,iGRU),               & ! intent(in): leaf boundary layer resistance (s m-1)
                 ! output
                 scalarStomResist,                   & ! intent(out): stomatal resistance (s m-1)
                 scalarPhotosynthesis,&
@@ -1294,16 +1309,16 @@ contains
    call canres(&
                 ! input
                 PAR,                                & ! intent(in): average absorbed par (w m-2)
-                scalarVegetationTemp,               & ! intent(in): vegetation temperature (K)
-                scalarTranspireLim,                 & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
-                scalarVP_CanopyAir,                 & ! intent(in): canopy air vapor pressure (Pa)
-                airpres,                            & ! intent(in): air pressure at some height above the surface (Pa)
+                scalarVegetationTemp_,               & ! intent(in): vegetation temperature (K)
+                scalarTranspireLim_,                 & ! intent(in): weighted average of the soil moiture factor controlling stomatal resistance (-)
+                scalarVP_CanopyAir_,                 & ! intent(in): canopy air vapor pressure (Pa)
+                airpres_,                            & ! intent(in): air pressure at some height above the surface (Pa)
                 ! output
                 scalarStomResist,                   & ! intent(out): stomatal resistance (s m-1)
                 scalarPhotosynthesis,               & ! intent(out): photosynthesis (umolco2 m-2 s-1)
                 ! location indices (input)
                 iLoc, jLoc,&
-                rsmin_noahmp,hs_noahmp,topt_noahmp,rsmax_noahmp,rgl_noahmp                          ) ! intent(in): spatial location indices
+                rsmin_noahmp_,hs_noahmp_,topt_noahmp_,rsmax_noahmp_,rgl_noahmp_                          ) ! intent(in): spatial location indices
 
    ! check identified an option
    case default; err=20; 
@@ -1315,15 +1330,24 @@ contains
   ! assign output variables
   select case(iSunShade)
    case(ixSunlit)
-    scalarStomResistSunlit     = scalarStomResist
-    scalarPhotosynthesisSunlit = scalarPhotosynthesis
+    flux_data(scalarStomResistSunlit_,iGRU)     = scalarStomResist
+    flux_data(scalarPhotosynthesisSunlit_,iGRU) = scalarPhotosynthesis
    case(ixShaded)
-    scalarStomResistShaded     = scalarStomResist
-    scalarPhotosynthesisShaded = scalarPhotosynthesis
+    flux_data(scalarStomResistShaded_,iGRU)     = scalarStomResist
+    flux_data(scalarPhotosynthesisShaded_,iGRU) = scalarPhotosynthesis
    case default; err=20; 
     ! message=trim(message)//'unable to identify case for sunlit/shaded leaves'; 
     return
   end select
+    ! get appropriate value for PAR
+  select case(iSunShade)
+   case(ixSunlit); flux_data(scalarCanopySunlitPAR_,iGRU) = PAR               ! average absorbed par for sunlit leaves (w m-2)
+   case(ixShaded); flux_data(scalarCanopyShadedPAR_,iGRU) = PAR               ! average absorbed par for shaded leaves (w m-2)
+   case default; err=20; 
+    ! message=trim(message)//'unable to identify case for sunlit/shaded leaves'; 
+    return
+  end select
+
 
  end do  ! (looping through sunlit and shaded leaves)
 

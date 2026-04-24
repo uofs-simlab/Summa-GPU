@@ -66,9 +66,9 @@ USE var_lookup, only: maxvarStat ! number of statistics
 
 implicit none
 private
-public::writeParm
+public::writeParm,writeParm_bpar,writeParm_attr
 public::writeData
-public::writeBasin
+public::writeBasin,writeBasin_device
 public::writeTime
 public::writeRestart
 ! define dimension lengths
@@ -136,6 +136,12 @@ contains
   ! GRU data
   else
    select type (struct)
+     class is (type_data_device)
+     call get_device_type_data(struct, iVar, iSpatial, output_i4b)
+     err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/output_i4b/),start=(/iSpatial/),count=(/1/))
+    class is (mpar_data_device)
+     call get_device_param_data(struct, iVar, iSpatial, output_rkind)
+     err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/output_rkind/),start=(/iSpatial,1/),count=(/1,size(output_rkind)/))
     class is (var_d)
      err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/struct%var(iVar)/),start=(/1/),count=(/1/))
     class is (var_i8)
@@ -150,6 +156,91 @@ contains
  end do  ! looping through local column model parameters
 
  end subroutine writeParm
+ subroutine writeParm_bpar(struct,meta,err,message)
+ USE globalData,only:ncid                        ! netcdf file ids
+ USE data_types,only:var_info                    ! metadata info
+ USE var_lookup,only:iLookSTAT                   ! index in statistics vector
+ USE var_lookup,only:iLookFREQ                   ! index in vector of model output frequencies
+ use device_data_types
+ use initialize_device
+ implicit none
+
+ ! declare input variables
+ type(bpar_data_device)      ,intent(in)   :: struct           ! data structure
+ type(var_info),intent(in)   :: meta(:)          ! metadata structure
+ integer(i4b)  ,intent(out)  :: err              ! error code
+ character(*)  ,intent(out)  :: message          ! error message
+ ! local variables
+ integer(i4b)                :: iVar             ! loop through variables
+ integer(i4b),allocatable :: output_i4b(:)
+ real(rkind),allocatable :: output_rkind(:)
+
+ ! initialize error control
+ err=0;message="writeParm/"
+
+!  ! loop through local column model parameters
+ do iVar = 1,size(meta)
+
+  ! check that the variable is desired
+  if (meta(iVar)%statIndex(iLookFREQ%timestep)==integerMissing) cycle
+
+  ! initialize message
+  message=trim(message)//trim(meta(iVar)%varName)//'/'
+
+  ! HRU data
+     call get_device_bpar_data(struct, iVar,output_rkind)
+     err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/output_rkind/),start=(/1/),count=(/size(output_rkind)/))
+     deallocate(output_rkind)
+   call netcdf_err(err,message); if (err/=0) return
+
+  ! re-initialize message
+  message="writeParm/"
+ end do  ! looping through local column model parameters
+
+ end subroutine writeParm_bpar
+ subroutine writeParm_attr(ispatial,struct,meta,err,message)
+ USE globalData,only:ncid                        ! netcdf file ids
+ USE data_types,only:var_info                    ! metadata info
+ USE var_lookup,only:iLookSTAT                   ! index in statistics vector
+ USE var_lookup,only:iLookFREQ                   ! index in vector of model output frequencies
+ use device_data_types
+ use initialize_device
+ implicit none
+
+ ! declare input variables
+ integer(i4b)  ,intent(in)   :: iSpatial         ! hydrologic response unit
+ type(attr_data_device)      ,intent(in)   :: struct           ! data structure
+ type(var_info),intent(in)   :: meta(:)          ! metadata structure
+ integer(i4b)  ,intent(out)  :: err              ! error code
+ character(*)  ,intent(out)  :: message          ! error message
+ ! local variables
+ integer(i4b)                :: iVar             ! loop through variables
+ integer(i4b),allocatable :: output_i4b(:)
+ real(rkind),allocatable :: output_rkind(:)
+
+ ! initialize error control
+ err=0;message="writeParm/"
+
+!  ! loop through local column model parameters
+ do iVar = 1,size(meta)
+
+  ! check that the variable is desired
+  if (meta(iVar)%statIndex(iLookFREQ%timestep)==integerMissing) cycle
+
+  ! initialize message
+  message=trim(message)//trim(meta(iVar)%varName)//'/'
+
+  ! HRU data
+     call get_device_attr_data(struct, iVar,iSpatial,output_rkind)
+     err = nf90_put_var(ncid(iLookFREQ%timestep),meta(iVar)%ncVarID(iLookFREQ%timestep),(/output_rkind/),start=(/iSpatial/),count=(/1/))
+     deallocate(output_rkind)
+   call netcdf_err(err,message); if (err/=0) return
+
+  ! re-initialize message
+  message="writeParm/"
+ end do  ! looping through local column model parameters
+
+ end subroutine writeParm_attr
 
  ! **************************************************************************************
  ! public subroutine writeData: write model time-dependent data
@@ -163,6 +254,8 @@ contains
  USE globalData,only:outFreq,ncid                   ! output file information
  USE get_ixName_module,only:get_varTypeName         ! to access type strings for error messages
  USE get_ixName_module,only:get_statName            ! to access type strings for error messages
+ use device_data_types
+ use initialize_device
  implicit none
  ! declare dummy variables
  logical(lgt)  ,intent(in)        :: finalizeStats(:)  ! flags to finalize statistics
@@ -173,7 +266,7 @@ contains
  class(*)      ,intent(in)        :: stat              ! stats data
  class(*)      ,intent(in)        :: dat               ! timestep data
  integer(i4b)  ,intent(in)        :: map(:)            ! map into stats child struct
- type(gru_hru_intVec) ,intent(in) :: indx              ! index data
+ type(indx_data_device) ,intent(in) :: indx              ! index data
  integer(i4b)  ,intent(out)       :: err               ! error code
  character(*)  ,intent(out)       :: message           ! error message
  ! local variables
@@ -195,6 +288,8 @@ contains
  integer(i4b)                     :: dataType          ! type of data
  integer(i4b),parameter           :: ixInteger=1001    ! named variable for integer
  integer(i4b),parameter           :: ixReal=1002       ! named variable for real
+ real(rkind),allocatable :: output_rkind(:)
+ integer(i4b),allocatable :: output_i4b(:)
  ! initialize error control
  err=0;message="writeData/"
 
@@ -223,6 +318,10 @@ contains
       err = nf90_put_var(ncid(iFreq),ncVarID,(/dat%gru(iGRU)%hru(iHRU)%var(iVar)/),start=(/outputTimestep(iFreq)/),count=(/1/))
       call netcdf_err(err,message); if (err/=0) return
       cycle ! move onto the next variable
+      class is (forc_data_device)
+      call get_device_forc_data(dat,iVar,iGRU,output_rkind)
+      err = nf90_put_var(ncid(iFreq),ncVarID,(/output_rkind(iGRU)/),start=(/outputTimestep(iFreq)/),count=(/1/))
+      call netcdf_err(err,message); if (err/=0) return
      class default; err=20; message=trim(message)//'time variable must be of type gru_hru_double (forcing data structure)'; return
     end select
    end if  ! id time
@@ -247,6 +346,28 @@ contains
 
       ! write data
       err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),realVec,start=(/1,outputTimestep(iFreq)/),count=(/nHRUrun,1/))
+      class is (prog_stat_device)
+      call get_device_prog_stat(stat,iVar,nHRUrun,iFreq,realVec)
+      ! write data
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),realVec,start=(/1,outputTimestep(iFreq)/),count=(/nHRUrun,1/))
+      class is (indx_stat_device)
+      call get_device_indx_stat(stat,iVar,nHRUrun,iFreq,realVec)
+      ! write data
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),realVec,start=(/1,outputTimestep(iFreq)/),count=(/nHRUrun,1/))
+
+      class is (flux_stat_device)
+      call get_device_flux_stat(stat,iVar,nHRUrun,iFreq,realVec)
+      ! write data
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),realVec,start=(/1,outputTimestep(iFreq)/),count=(/nHRUrun,1/))
+      class is (diag_stat_device)
+      call get_device_diag_stat(stat,iVar,nHRUrun,iFreq,realVec)
+      ! write data
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),realVec,start=(/1,outputTimestep(iFreq)/),count=(/nHRUrun,1/))
+      class is (forc_stat_device)
+      call get_device_forc_stat(stat,iVar,nHRUrun,iFreq,realVec)
+      ! write data
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),realVec,start=(/1,outputTimestep(iFreq)/),count=(/nHRUrun,1/))
+
 
      class default; err=20; message=trim(message)//'stats must be scalarv and of type gru_hru_doubleVec'; return
     end select  ! stat
@@ -258,6 +379,10 @@ contains
     select type (dat)
      class is (gru_hru_doubleVec); realArray(:,:) = realMissing;    dataType=ixReal
      class is (gru_hru_intVec);     intArray(:,:) = integerMissing; dataType=ixInteger
+     class is (flux_data_device);  realArray(:,:) = realMissing;    dataType=ixReal
+     class is (diag_data_device);  realArray(:,:) = realMissing;    dataType=ixReal
+     class is (prog_data_device);  realArray(:,:) = realMissing;    dataType=ixReal
+     class is (indx_data_device);  intArray(:,:) = integerMissing; dataType=ixInteger
      class default; err=20; message=trim(message)//'data must not be scalarv and either of type gru_hru_doubleVec or gru_hru_intVec'; return
     end select
 
@@ -266,9 +391,9 @@ contains
      do iHRU=1,gru_struc(iGRU)%hruCount
 
       ! get the model layers
-      nSoil   = indx%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nSoil)%dat(1)
-      nSnow   = indx%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nSnow)%dat(1)
-      nLayers = indx%gru(iGRU)%hru(iHRU)%var(iLookINDEX%nLayers)%dat(1)
+      nSoil   = indx%nSoil
+      nSnow   = indx%nSnow(iGRU)
+      nLayers = indx%nLayers(iGRU)
 
       ! get the length of each data vector
       select case (meta(iVar)%varType)
@@ -286,6 +411,21 @@ contains
       select type (dat)
        class is (gru_hru_doubleVec); realArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = dat%gru(iGRU)%hru(iHRU)%var(iVar)%dat(:)
        class is (gru_hru_intVec);     intArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = dat%gru(iGRU)%hru(iHRU)%var(iVar)%dat(:)
+       class is (flux_data_device);
+        call get_device_flux_data(dat,iVar,iGRU,output_rkind)
+        realArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = output_rkind(1:datLength)
+       class is (diag_data_device);
+        call get_device_diag_data(dat,iVar,iGRU,output_rkind)
+        realArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = output_rkind(1:datLength)
+       class is (prog_data_device);
+        call get_device_prog_data(dat,iVar,iGRU,output_rkind)
+        realArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = output_rkind(1:datLength)
+       class is (indx_data_device);
+        call get_device_indx_data(dat, iVar, iGRU, output_i4b)
+        intArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = output_i4b(1:datLength)
+       class is (forc_data_device);
+        call get_device_forc_data(dat,iVar,iGRU,output_rkind)
+        realArray(gru_struc(iGRU)%hruInfo(iHRU)%hru_ix,1:datLength) = output_rkind(1:datLength)
        class default; err=20; message=trim(message)//'data must not be scalarv and either of type gru_hru_doubleVec or gru_hru_intVec'; return
       end select
 
@@ -392,6 +532,83 @@ contains
  end do ! iFreq
 
  end subroutine writeBasin
+ subroutine writeBasin_device(nGRU,finalizeStats,outputTimestep,meta,stat,dat,map,err,message)
+ USE data_types,only:var_info                       ! metadata type
+ USE var_lookup,only:maxVarStat                     ! index into stats structure
+ USE var_lookup,only:iLookVarType                   ! index into type structure
+ USE globalData,only:outFreq,ncid                   ! output file information
+ USE get_ixName_module,only:get_varTypeName         ! to access type strings for error messages
+ USE get_ixName_module,only:get_statName            ! to access type strings for error messages
+ use device_data_types
+ use initialize_device
+ implicit none
+
+ ! declare dummy variables
+ integer(i4b)  ,intent(in)     :: nGRU              ! GRU index
+ logical(lgt)  ,intent(in)     :: finalizeStats(:)  ! flags to finalize statistics
+ integer(i4b)  ,intent(in)     :: outputTimestep(:) ! output time step
+ type(var_info),intent(in)     :: meta(:)           ! meta data
+ type(bvar_stat_device) ,intent(in)     :: stat           ! stats data
+ type(bvar_data_device) ,intent(in)     :: dat            ! timestep data
+ integer(i4b)  ,intent(in)     :: map(:)            ! map into stats child struct
+ integer(i4b)  ,intent(out)    :: err               ! error code
+ character(*)  ,intent(out)    :: message           ! error message
+ ! local variables
+ integer(i4b)                  :: iVar              ! variable index
+ integer(i4b)                  :: iStat             ! statistics index
+ integer(i4b)                  :: iFreq             ! frequency index
+ integer(i4b) :: iGRU
+ real(rkind),allocatable :: output_rkind(:)
+ ! initialize error control
+ err=0;message="f-writeBasin/"
+
+ ! loop through output frequencies
+ do iFreq=1,maxvarFreq
+
+  ! skip frequencies that are not needed
+  if(.not.outFreq(iFreq)) cycle
+
+  ! check that we have finalized statistics for a given frequency
+  if(.not.finalizeStats(iFreq)) cycle
+
+  ! loop through model variables
+  do iVar = 1,size(meta)
+
+   ! define the statistics index
+   iStat = meta(iVar)%statIndex(iFreq)
+
+   ! check that the variable is desired
+   if (iStat==integerMissing.or.trim(meta(iVar)%varName)=='unknown') cycle
+
+   ! stats/data output - select data type
+   select case (meta(iVar)%varType)
+
+    case (iLookVarType%scalarv)
+    !  do iGRU=1,nGRU
+      call get_device_bvar_stat(stat, iVar, nGRU, iFreq, output_rkind)
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),(/output_rkind/),start=(/1,outputTimestep(iFreq)/),count=(/nGRU,1/))
+    !  end do
+
+    case (iLookVarType%routing)
+     if (iFreq==1 .and. outputTimestep(iFreq)==1) then
+      do iGRU=1,nGRU
+      call get_device_bvar_data(dat, iVar, iGRU, output_rkind)
+      err = nf90_put_var(ncid(iFreq),meta(iVar)%ncVarID(iFreq),(/output_rkind/),start=(/1/),count=(/1000/))
+      end do
+     end if
+
+    case default
+     err=40; message=trim(message)//"unknownVariableType[name='"//trim(meta(iVar)%varName)//"';type='"//trim(get_varTypeName(meta(iVar)%varType))//    "']"; return
+   end select ! variable type
+
+   ! process error code
+   if (err.ne.0) message=trim(message)//trim(meta(iVar)%varName)//'_'//trim(get_statName(iStat))
+   call netcdf_err(err,message); if (err/=0) return
+
+  end do ! iVar
+ end do ! iFreq
+
+ end subroutine writeBasin_device
 
  ! **************************************************************************************
  ! public subroutine writeTime: write current time to all files
