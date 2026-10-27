@@ -125,8 +125,8 @@ if(CMAKE_BUILD_TYPE MATCHES Debug)
 
 else()
     message("\nSetting SUMMA Release Options")
-    set(FLAGS_NOAH -O3 -Mnoautoinline -Minline=none -cuda=charstring -gpu=cuda11.8,rdc -Mfreeform -fPIC ${FLAGS_OPT})
-    set(FLAGS_ALL  -O3 -Mnoautoinline -Minline=none -cuda=charstring -gpu=cuda11.8,rdc -fPIC -cpp ${FLAGS_OPT})
+    set(FLAGS_NOAH -O3 -Mnoautoinline -Minline=none -cuda=charstring -gpu=cuda11.8,rdc -Mfreeform -fPIC -Wfatal-errors ${FLAGS_OPT})
+    set(FLAGS_ALL  -O3 -Mnoautoinline -Minline=none -cuda=charstring -gpu=cuda11.8,rdc -fPIC -Wfatal-errors -cpp ${FLAGS_OPT})
     set(FLAGS_CXX  -O3 -Wfatal-errors -std=c++17 ${FLAGS_OPT})
 
 
